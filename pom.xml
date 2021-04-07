@@ -1,0 +1,164 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.scylladb</groupId>
+    <artifactId>scylla-cdc-source-connector</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <name>Scylla CDC Source Connector</name>
+    <description>Kafka Connect Source Connector from Scylla CDC.</description>
+    <url>https://github.com/scylladb/scylla-cdc-source-connector</url>
+    <inceptionYear>2020</inceptionYear>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.3.0</version>
+
+                <configuration>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                    <outputDirectory>target/fat-jar/</outputDirectory>
+                </configuration>
+
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>1.5</version>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-install-plugin</artifactId>
+                <version>2.4</version>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <version>2.7</version>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>io.confluent</groupId>
+                <version>0.12.0</version>
+                <artifactId>kafka-connect-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>kafka-connect</goal>
+                        </goals>
+                        <configuration>
+                            <name>kafka-connect-scylla-cdc</name>
+                            <title>Scylla CDC Source Connector</title>
+                            <documentationUrl>https://github.com/scylladb/scylla-cdc-source-connector</documentationUrl>
+                            <description>
+                                Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster.
+                            </description>
+                            <logo>logos/connector.png</logo>
+
+                            <ownerUsername>ScyllaDB</ownerUsername>
+                            <ownerName>ScyllaDB</ownerName>
+                            <ownerType>organization</ownerType>
+                            <ownerUrl>https://www.scylladb.com/</ownerUrl>
+                            <ownerLogo>logos/scylla.png</ownerLogo>
+
+                            <componentTypes>
+                                <componentType>source</componentType>
+                            </componentTypes>
+
+                            <tags>
+                                <tag>Scylla Database</tag>
+                            </tags>
+
+                            <requirements>
+                                <requirement>Kafka 2.6.0+</requirement>
+                            </requirements>
+
+                            <deliveryGuarantee>
+                                <deliveryGuarantee>atLeastOnce</deliveryGuarantee>
+                            </deliveryGuarantee>
+
+                            <confluentControlCenterIntegration>true</confluentControlCenterIntegration>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+
+        <resources>
+            <!-- Apply the properties set in the POM to the resource files -->
+            <resource>
+                <filtering>true</filtering>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>*</include>
+                    <include>**/*</include>
+                </includes>
+            </resource>
+        </resources>
+    </build>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <debezium.version>1.4.1.Final</debezium.version>
+        <kafka.version>2.6.0</kafka.version>
+        <scylla.driver.version>3.10.2-scylla-1</scylla.driver.version>
+        <scylla.cdc.java.version>1.1.0</scylla.cdc.java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.scylladb</groupId>
+            <artifactId>scylla-cdc-base</artifactId>
+            <version>${scylla.cdc.java.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.scylladb</groupId>
+            <artifactId>scylla-cdc-driver3</artifactId>
+            <version>${scylla.cdc.java.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-core</artifactId>
+            <version>${debezium.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-embedded</artifactId>
+            <version>${debezium.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>connect-api</artifactId>
+            <version>${kafka.version}</version>
+        </dependency>
+
+        <!-- FIXME: Delete this dependency:-->
+        <dependency>
+            <groupId>com.scylladb</groupId>
+            <artifactId>scylla-driver-core</artifactId>
+            <version>${scylla.driver.version}</version>
+        </dependency>
+    </dependencies>
+</project>
