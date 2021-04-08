@@ -30,6 +30,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class ScyllaConnector extends SourceConnector {
+    static {
+        // Route Flogger logs from scylla-cdc-java library
+        // to log4j.
+        System.setProperty(
+                "flogger.backend_factory",
+                "com.google.common.flogger.backend.log4j.Log4jBackendFactory#getInstance");
+    }
+
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
     private Configuration config;

@@ -31,6 +31,13 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class ScyllaConnectorTask extends BaseSourceTask {
+    static {
+        // Route Flogger logs from scylla-cdc-java library
+        // to log4j.
+        System.setProperty(
+                "flogger.backend_factory",
+                "com.google.common.flogger.backend.log4j.Log4jBackendFactory#getInstance");
+    }
 
     private static final String CONTEXT_NAME = "scylla-connector-task";
 
