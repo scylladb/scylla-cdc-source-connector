@@ -156,6 +156,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
         return config.getInteger(ScyllaConnectorConfig.CONFIDENCE_WINDOW_SIZE);
     }
 
+    public long getHeartbeatIntervalMs() {
+        return config.getInteger(Heartbeat.HEARTBEAT_INTERVAL);
+    }
+
     @Override
     public String getContextName() {
         return "Scylla";

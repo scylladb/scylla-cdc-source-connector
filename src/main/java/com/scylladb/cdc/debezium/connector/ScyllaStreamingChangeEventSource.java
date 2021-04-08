@@ -42,7 +42,7 @@ public class ScyllaStreamingChangeEventSource implements StreamingChangeEventSou
     public void execute(ChangeEventSourceContext context) throws InterruptedException {
         Driver3Session session = new ScyllaSessionBuilder(configuration).build();
         Driver3WorkerCQL cql = new Driver3WorkerCQL(session);
-        ScyllaWorkerTransport workerTransport = new ScyllaWorkerTransport(context, offsetContext, dispatcher);
+        ScyllaWorkerTransport workerTransport = new ScyllaWorkerTransport(context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
         ScyllaChangesConsumer changeConsumer = new ScyllaChangesConsumer(dispatcher, offsetContext, schema, clock);
         WorkerConfiguration workerConfiguration = WorkerConfiguration.builder()
                 .withTransport(workerTransport)

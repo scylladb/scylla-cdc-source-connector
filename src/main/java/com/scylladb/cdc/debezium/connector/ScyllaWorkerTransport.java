@@ -5,7 +5,10 @@ import com.scylladb.cdc.model.worker.TaskState;
 import com.scylladb.cdc.transport.WorkerTransport;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.source.spi.ChangeEventSource;
+import io.debezium.util.Clock;
+import io.debezium.util.Threads;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -15,11 +18,16 @@ public class ScyllaWorkerTransport implements WorkerTransport {
     private final ChangeEventSource.ChangeEventSourceContext context;
     private final ScyllaOffsetContext offsetContext;
     private final EventDispatcher<CollectionId> dispatcher;
+    private final Map<TaskId, Threads.Timer> heartbeatTimers;
+    private final long heartbeatIntervalMs;
 
-    public ScyllaWorkerTransport(ChangeEventSource.ChangeEventSourceContext context, ScyllaOffsetContext offsetContext, EventDispatcher<CollectionId> dispatcher) {
+    public ScyllaWorkerTransport(ChangeEventSource.ChangeEventSourceContext context, ScyllaOffsetContext offsetContext, EventDispatcher<CollectionId> dispatcher,
+                                 long heartbeatIntervalMs) {
         this.context = context;
         this.offsetContext = offsetContext;
         this.dispatcher = dispatcher;
+        this.heartbeatTimers = new HashMap<>();
+        this.heartbeatIntervalMs = heartbeatIntervalMs;
     }
 
     @Override
@@ -42,13 +50,23 @@ public class ScyllaWorkerTransport implements WorkerTransport {
 
     @Override
     public void moveStateToNextWindow(TaskId task, TaskState newState) {
+        Threads.Timer heartbeatTimer = heartbeatTimers.computeIfAbsent(task, (t) -> buildHeartbeatTimer());
+
         TaskStateOffsetContext taskStateOffsetContext = offsetContext.taskStateOffsetContext(task);
         taskStateOffsetContext.dataChangeEvent(newState);
         try {
-            dispatcher.alwaysDispatchHeartbeatEvent(taskStateOffsetContext);
+            if (heartbeatTimer.expired()) {
+                dispatcher.alwaysDispatchHeartbeatEvent(taskStateOffsetContext);
+                // Reset the timer.
+                heartbeatTimers.put(task, buildHeartbeatTimer());
+            }
         } catch (InterruptedException e) {
             // TODO - handle exception
         }
+    }
+
+    private Threads.Timer buildHeartbeatTimer() {
+        return Threads.timer(Clock.SYSTEM, Duration.ofMillis(heartbeatIntervalMs));
     }
 
     @Override
