@@ -27,7 +27,7 @@ The connector has the following limitations:
     - Partition deletes - those changes are ignored
     - Row range deletes - those changes are ignored
 - No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
-- Preimage and postimage - changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
+- No support for preimage and postimage - changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
 
 ## Connector installation
 
