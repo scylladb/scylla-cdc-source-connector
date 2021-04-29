@@ -57,6 +57,11 @@
                             <ownerUrl>https://www.scylladb.com/</ownerUrl>
                             <ownerLogo>images/scylla.png</ownerLogo>
 
+                            <supportLogo>images/scylla.png</supportLogo>
+                            <supportProviderName>ScyllaDB</supportProviderName>
+                            <supportSummary>Officially supported by ScyllaDB.</supportSummary>
+                            <supportUrl>https://github.com/scylladb/scylla-cdc-source-connector</supportUrl>
+
                             <componentTypes>
                                 <componentType>source</componentType>
                             </componentTypes>
