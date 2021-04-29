@@ -49,13 +49,13 @@
                             <description>
                                 Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster.
                             </description>
-                            <logo>logos/connector.png</logo>
+                            <logo>images/connector.png</logo>
 
                             <ownerUsername>ScyllaDB</ownerUsername>
                             <ownerName>ScyllaDB</ownerName>
                             <ownerType>organization</ownerType>
                             <ownerUrl>https://www.scylladb.com/</ownerUrl>
-                            <ownerLogo>logos/scylla.png</ownerLogo>
+                            <ownerLogo>images/scylla.png</ownerLogo>
 
                             <componentTypes>
                                 <componentType>source</componentType>
