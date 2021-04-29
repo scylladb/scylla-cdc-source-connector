@@ -42,7 +42,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                     "In the form of a comma-separated list of pairs <IP>:<PORT>");
 
     public static final Field TABLE_NAMES = Field.create("scylla.table.names")
-            .withDisplayName("Table names")
+            .withDisplayName("Table Names")
             .withType(ConfigDef.Type.LIST)
             .withWidth(ConfigDef.Width.LONG)
             .withImportance(ConfigDef.Importance.HIGH)
@@ -65,20 +65,20 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withDescription("The password to connect to Scylla with. If not set, no authorization is done.");
 
     public static final Field QUERY_TIME_WINDOW_SIZE = Field.create("scylla.query.time.window.size")
-            .withDisplayName("Query time window size (ms)")
+            .withDisplayName("Query Time Window Size (ms)")
             .withType(ConfigDef.Type.INT)
             .withWidth(ConfigDef.Width.MEDIUM)
-            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withImportance(ConfigDef.Importance.LOW)
             .withDescription("The size of windows queried by the connector. Changes are queried using SELECT statements " +
                     "with time restriction with width defined by this parameter. Value expressed in milliseconds.")
             .withValidation(Field::isNonNegativeInteger)
             .withDefault(30000);
 
     public static final Field CONFIDENCE_WINDOW_SIZE = Field.create("scylla.confidence.window.size")
-            .withDisplayName("Confidence window size (ms)")
+            .withDisplayName("Confidence Window Size (ms)")
             .withType(ConfigDef.Type.INT)
             .withWidth(ConfigDef.Width.MEDIUM)
-            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withImportance(ConfigDef.Importance.LOW)
             .withDescription("The size of the confidence window. It is necessary for the connector to avoid reading too fresh " +
                     "data from the CDC log due to the eventual consistency of Scylla. The problem could appear when a newer write " +
                     "reaches a replica before some older write. For a short period of time, when reading, it " +
