@@ -1,5 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.scylladb.cdc.cql.CQLConfiguration;
 import com.scylladb.cdc.model.TableName;
 import io.debezium.config.CommonConnectorConfig;
 import io.debezium.config.ConfigDefinition;
@@ -87,6 +88,24 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withValidation(Field::isNonNegativeInteger)
             .withDefault(30000);
 
+    public static final CQLConfiguration.ConsistencyLevel DEFAULT_CONSISTENCY_LEVEL = CQLConfiguration.ConsistencyLevel.QUORUM;
+    public static final Field CONSISTENCY_LEVEL = Field.create("scylla.consistency.level")
+            .withDisplayName("Consistency Level")
+            .withEnum(CQLConfiguration.ConsistencyLevel.class, DEFAULT_CONSISTENCY_LEVEL)
+            .withWidth(ConfigDef.Width.SHORT)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("The consistency level of CDC table read queries. This consistency level is used only for read queries " +
+                    "to the CDC log table.");
+
+    public static final Field LOCAL_DC_NAME = Field.create("scylla.local.dc")
+            .withDisplayName("Local DC Name")
+            .withType(ConfigDef.Type.STRING)
+            .withWidth(ConfigDef.Width.MEDIUM)
+            .withImportance(ConfigDef.Importance.LOW)
+            .withDescription("The name of Scylla local datacenter. This local datacenter name will be used to setup " +
+                    "the connection to Scylla to prioritize sending requests to " +
+                    "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
+
     /*
      * Scylla CDC Source Connector relies on heartbeats to move the offset,
      * because the offset determines if the generation ended, therefore HEARTBEAT_INTERVAL
@@ -103,7 +122,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
-                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME)
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME)
                     .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
@@ -158,6 +177,19 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public long getHeartbeatIntervalMs() {
         return config.getInteger(Heartbeat.HEARTBEAT_INTERVAL);
+    }
+
+    public CQLConfiguration.ConsistencyLevel getConsistencyLevel() {
+        String consistencyLevelValue = config.getString(ScyllaConnectorConfig.CONSISTENCY_LEVEL);
+        try {
+            return CQLConfiguration.ConsistencyLevel.valueOf(consistencyLevelValue.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return DEFAULT_CONSISTENCY_LEVEL;
+        }
+    }
+
+    public String getLocalDCName() {
+        return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
     }
 
     @Override

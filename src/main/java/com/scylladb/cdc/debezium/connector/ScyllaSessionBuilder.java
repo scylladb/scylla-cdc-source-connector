@@ -16,6 +16,10 @@ public class ScyllaSessionBuilder {
         if (configuration.getUser() != null && configuration.getPassword() != null) {
             builder.withCredentials(configuration.getUser(), configuration.getPassword());
         }
+        builder.withConsistencyLevel(configuration.getConsistencyLevel());
+        if (configuration.getLocalDCName() != null) {
+            builder.withLocalDCName(configuration.getLocalDCName());
+        }
         return new Driver3Session(builder.build());
     }
 }
