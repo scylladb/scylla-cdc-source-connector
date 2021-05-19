@@ -36,11 +36,10 @@ The connector has the following limitations:
 ### Prebuilt images
 
 You can download the connector as a prebuilt package:
-1. JAR with dependencies (fat JAR): [scylla-cdc-source-connector-1.0.0-jar-with-dependencies.jar](https://github.com/scylladb/scylla-cdc-source-connector/releases/download/scylla-cdc-source-connector-1.0.0/scylla-cdc-source-connector-1.0.0-jar-with-dependencies.jar)
-2. Confluent Hub package (ZIP): [ScyllaDB-kafka-connect-scylla-cdc-1.0.0.zip
-](https://github.com/scylladb/scylla-cdc-source-connector/releases/download/scylla-cdc-source-connector-1.0.0/ScyllaDB-kafka-connect-scylla-cdc-1.0.0.zip)
+1. JAR with dependencies (fat JAR): [scylla-cdc-source-connector-1.0.1-jar-with-dependencies.jar](https://github.com/scylladb/scylla-cdc-source-connector/releases/download/scylla-cdc-source-connector-1.0.1/scylla-cdc-source-connector-1.0.1-jar-with-dependencies.jar)
+2. Confluent Hub package (ZIP): [ScyllaDB-scylla-cdc-source-connector-1.0.1.zip](https://github.com/scylladb/scylla-cdc-source-connector/releases/download/scylla-cdc-source-connector-1.0.1/ScyllaDB-scylla-cdc-source-connector-1.0.1.zip)
 
-The artifacts are also available in [Maven Central Repository](https://search.maven.org/artifact/com.scylladb/scylla-cdc-source-connector/1.0.0/pom) - we recommend using the "JAR with dependencies" file there.
+The artifacts are also available in [Maven Central Repository](https://search.maven.org/artifact/com.scylladb/scylla-cdc-source-connector/1.0.1/pom) - we recommend using the "JAR with dependencies" file there.
 
 #### Building from source
 
