@@ -51,7 +51,7 @@
                             </description>
                             <logo>images/connector.png</logo>
 
-                            <ownerUsername>ScyllaDB</ownerUsername>
+                            <ownerUsername>scylladb</ownerUsername>
                             <ownerName>ScyllaDB</ownerName>
                             <ownerType>organization</ownerType>
                             <ownerUrl>https://www.scylladb.com/</ownerUrl>
