@@ -238,7 +238,7 @@ If the message is as following:
   }
 }
 ```
-then the same message transformed by ScyllaExtractNewState would be:
+then the same message transformed by `ScyllaExtractNewState` would be:
 ```json
 {
   "schema": {
