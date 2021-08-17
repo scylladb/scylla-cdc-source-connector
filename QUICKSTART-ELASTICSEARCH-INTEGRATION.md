@@ -8,7 +8,7 @@ This guide assumes that you have already set up Scylla and CDC Source Connector 
 
 ## Source connector configuration
 
-In order for the connector to be compatible with Elasticsearch Sink (and other sinks) you need to use a ScyllaExtractNewState transformer. This transformer is described in more detail in README.md file in `ScyllaExtractNewState transformer` section. 
+In order for the connector to be compatible with Elasticsearch Sink (and other sinks) you need to use a `ScyllaExtractNewState` transformer. This transformer is described in more detail in [README.md](README.md) file in "`ScyllaExtractNewState` transformer" section. 
 
 1. Open the Confluent Control Center. By default, it is started at port `9021`:
     ![Confluent Control Center main page](images/scylla-cdc-source-connector-control-center1.png)
