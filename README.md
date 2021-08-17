@@ -192,6 +192,86 @@ If the operation did not modify the `v` column, the data event will contain the 
 
 See `UPDATE` example for full  data change event's value.
 
+#### ScyllaExtractNewState transformer
+Connector provides one single message transformation (SMT), `ScyllaExtractNewState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewState`).
+This SMT works like exactly like `io.debezium.transforms.ExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from aforementioned single-field structures.
+Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but it makes it impossible to differentiate between NULL value and non-modification.
+If the message is as following:
+```json
+{
+  "schema": {
+    "type": "struct",
+    "fields": [
+      {
+        "type": "int32",
+        "optional": true,
+        "field": "ck"
+      },
+      {
+        "type": "int32",
+        "optional": true,
+        "field": "pk"
+      },
+      {
+        "type": "struct",
+        "fields": [
+          {
+            "type": "int32",
+            "optional": true,
+            "field": "value"
+          }
+        ],
+        "optional": true,
+        "name": "NS2.ks.t.v.Cell",
+        "field": "v"
+      }
+    ],
+    "optional": false,
+    "name": "NS2.ks.t.After"
+  },
+  "payload": {
+    "ck": 2,
+    "pk": 20,
+    "v": {
+      "value": 3
+    }
+  }
+}
+```
+then the same message transformed by `ScyllaExtractNewState` would be:
+```json
+{
+  "schema": {
+    "type": "struct",
+    "fields": [
+      {
+        "type": "int32",
+        "optional": true,
+        "field": "ck"
+      },
+      {
+        "type": "int32",
+        "optional": true,
+        "field": "pk"
+      },
+      {
+        "type": "int32",
+        "optional": true,
+        "field": "v"
+      }
+    ],
+    "optional": false,
+    "name": "NS2.ks.t.After"
+  },
+  "payload": {
+    "ck": 2,
+    "pk": 20,
+    "v": 3
+  }
+}
+```
+Notice how `v` field is no longer packed in `value`.
+
 ### `INSERT` example
 Given this Scylla table and `INSERT` operation:
 ```
