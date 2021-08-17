@@ -60,7 +60,7 @@ Now comes the final part of setup: connecting CDC Source to Elasticsearch.
     1. Input the topic name. In our example it would be `QuickstartConnectorNamespace.ks.t`.
     2. Input any name you want in the "Name" field.
     3. "Key converter class" must be set to `org.apache.kafka.connect.storage.StringConverter`, because Elasticsearch requires document ids to be numbers or strings. This will unfortunately produce pretty ugly looking ids - you can fix that with custom transformer.
-    4. "Value converter class" must be set to `org.apache.kafka.connect.json.JsonConverter` - Avro doesn't seem to work with this sink.
+    4. "Value converter class" must be set to the same value as in the source connector.
     5. Set "Connection URLs" in "Connector" section to proper Elasticsearch URL - in our example it would be `http://localhost:9200`
 
 8. Test that everything works. Insert some data to the table, you should see it in Elasticsearch. Delete some rows, they should disappear from Elasticsearch.
