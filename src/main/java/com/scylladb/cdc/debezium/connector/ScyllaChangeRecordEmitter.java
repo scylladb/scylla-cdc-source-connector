@@ -2,9 +2,8 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.ChangeSchema;
-import com.scylladb.cdc.model.worker.cql.Cell;
 import com.scylladb.cdc.model.worker.cql.CqlDate;
-import com.scylladb.cdc.model.worker.cql.CqlDuration;
+import com.scylladb.cdc.model.worker.cql.Field;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
@@ -14,6 +13,7 @@ import org.apache.kafka.connect.data.Struct;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
+import java.util.stream.Collectors;
 
 public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<ScyllaCollectionSchema> {
 
@@ -96,9 +96,9 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
 
     private void fillStructWithChange(ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {
         for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
-            if (!ScyllaSchema.isSupportedColumnSchema(cdef)) continue;
+            if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
 
-            Object value = translateCellToKafka(change.getCell(cdef.getColumnName()));
+            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()));
 
             if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
                 valueStruct.put(cdef.getColumnName(), value);
@@ -114,35 +114,35 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
         }
     }
 
-    private Object translateCellToKafka(Cell cell) {
-       ChangeSchema.DataType dataType = cell.getColumnDefinition().getCdcLogDataType();
+    private Object translateFieldToKafka(Field field) {
+       ChangeSchema.DataType dataType = field.getDataType();
 
-       if (cell.getAsObject() == null) {
+       if (field.getAsObject() == null) {
            return null;
        }
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.DECIMAL) {
-           return cell.getDecimal().toString();
+           return field.getDecimal().toString();
        }
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.UUID) {
-           return cell.getUUID().toString();
+           return field.getUUID().toString();
        }
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.TIMEUUID) {
-           return cell.getUUID().toString();
+           return field.getUUID().toString();
        }
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.VARINT) {
-           return cell.getVarint().toString();
+           return field.getVarint().toString();
        }
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.INET) {
-           return cell.getInet().getHostAddress();
+           return field.getInet().getHostAddress();
        }
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.DATE) {
-           CqlDate cqlDate = cell.getDate();
+           CqlDate cqlDate = field.getDate();
            Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
            calendar.clear();
            // Months start from 0 in Calendar:
@@ -151,9 +151,13 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
        }
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.DURATION) {
-           return cell.getDuration().toString();
+           return field.getDuration().toString();
        }
 
-       return cell.getAsObject();
+       if (dataType.getCqlType() == ChangeSchema.CqlType.LIST) {
+           return field.getList().stream().map(this::translateFieldToKafka).collect(Collectors.toList());
+       }
+
+       return field.getAsObject();
     }
 }

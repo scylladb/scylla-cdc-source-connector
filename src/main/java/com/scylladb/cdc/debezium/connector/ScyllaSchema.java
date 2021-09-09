@@ -72,7 +72,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
         for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
             if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY
                     || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
-            if (!isSupportedColumnSchema(cdef)) continue;
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
 
             Schema columnSchema = computeColumnSchema(cdef);
             Schema cellSchema = SchemaBuilder.struct()
@@ -89,7 +89,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
         for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
             if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
                     && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
-            if (!isSupportedColumnSchema(cdef)) continue;
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
 
             Schema columnSchema = computeColumnSchema(cdef);
             keySchemaBuilder = keySchemaBuilder.field(cdef.getColumnName(), columnSchema);
@@ -102,7 +102,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
         SchemaBuilder afterSchemaBuilder = SchemaBuilder.struct()
                 .name(adjuster.adjust(configuration.getLogicalName() + "." + collectionId.getTableName().keyspace + "." + collectionId.getTableName().name + ".After"));
         for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-            if (!isSupportedColumnSchema(cdef)) continue;
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
 
             if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
                 afterSchemaBuilder = afterSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
@@ -118,7 +118,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
         SchemaBuilder beforeSchemaBuilder = SchemaBuilder.struct()
                 .name(adjuster.adjust(configuration.getLogicalName() + "." + collectionId.getTableName().keyspace + "." + collectionId.getTableName().name + ".Before"));
         for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-            if (!isSupportedColumnSchema(cdef)) continue;
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
 
             if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
                 beforeSchemaBuilder = beforeSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
@@ -131,7 +131,11 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
     }
 
     private Schema computeColumnSchema(ChangeSchema.ColumnDefinition cdef) {
-        switch (cdef.getCdcLogDataType().getCqlType()) {
+        return computeColumnSchema(cdef.getCdcLogDataType());
+    }
+
+    private Schema computeColumnSchema(ChangeSchema.DataType type) {
+        switch (type.getCqlType()) {
             case ASCII:
                 return Schema.OPTIONAL_STRING_SCHEMA;
             case BIGINT:
@@ -179,7 +183,10 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                 return Schema.OPTIONAL_INT8_SCHEMA;
             case DURATION:
                 return Schema.OPTIONAL_STRING_SCHEMA;
-            case LIST:
+            case LIST: {
+                Schema innerSchema = computeColumnSchema(type.getTypeArguments().get(0));
+                return SchemaBuilder.array(innerSchema);
+            }
             case MAP:
             case SET:
             case UDT:
@@ -189,9 +196,19 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
         }
     }
 
-    protected static boolean isSupportedColumnSchema(ChangeSchema.ColumnDefinition cdef) {
+    protected static boolean isSupportedColumnSchema(ChangeSchema changeSchema, ChangeSchema.ColumnDefinition cdef) {
         ChangeSchema.CqlType type = cdef.getCdcLogDataType().getCqlType();
-        return type != ChangeSchema.CqlType.LIST && type != ChangeSchema.CqlType.MAP &&
+        if (type == ChangeSchema.CqlType.LIST) {
+            // We only support frozen lists,
+            // (which can be identified by cdc$deleted_elements_ column).
+
+            // FIXME: When isFrozen is fixed in scylla-cdc-java (PR #60),
+            // replace with just a call to isFrozen.
+            String deletedElementsColumnName = "cdc$deleted_elements_" + cdef.getColumnName();
+            return changeSchema.getAllColumnDefinitions().stream()
+                    .noneMatch(c -> c.getColumnName().equals(deletedElementsColumnName));
+        }
+        return type != ChangeSchema.CqlType.MAP &&
                type != ChangeSchema.CqlType.SET && type != ChangeSchema.CqlType.UDT &&
                type != ChangeSchema.CqlType.TUPLE;
     }
