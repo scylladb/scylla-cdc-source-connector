@@ -273,6 +273,10 @@ public class ScyllaChangeRecordEmitter
            return field.getList().stream().map(this::translateFieldToKafka).collect(Collectors.toList());
        }
 
+       if (dataType.getCqlType() == ChangeSchema.CqlType.SET) {
+           return field.getSet().stream().map(this::translateFieldToKafka).collect(Collectors.toList());
+       }
+
        return field.getAsObject();
     }
 }
