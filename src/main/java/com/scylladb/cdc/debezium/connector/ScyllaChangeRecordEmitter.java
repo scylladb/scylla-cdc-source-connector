@@ -300,6 +300,15 @@ public class ScyllaChangeRecordEmitter
            return tupleStruct;
        }
 
+        if (dataType.getCqlType() == ChangeSchema.CqlType.UDT) {
+            Struct udtStruct = new Struct(ScyllaSchema.computeColumnSchema(dataType));
+            Map<String, Field> udt = field.getUDT();
+            udt.forEach((name, value) -> {
+                udtStruct.put(name, translateFieldToKafka(value));
+            });
+            return udtStruct;
+        }
+
        return field.getAsObject();
     }
 }
