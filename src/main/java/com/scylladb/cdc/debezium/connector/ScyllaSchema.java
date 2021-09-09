@@ -204,7 +204,13 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                 }
                 return tupleSchema.optional().build();
             }
-            case UDT:
+            case UDT: {
+                SchemaBuilder udtSchema = SchemaBuilder.struct();
+                for (Map.Entry<String, ChangeSchema.DataType> field : type.getUdtType().getFields().entrySet()) {
+                    udtSchema = udtSchema.field(field.getKey(), computeColumnSchema(field.getValue()));
+                }
+                return udtSchema.optional().build();
+            }
             default:
                 throw new UnsupportedOperationException();
         }
@@ -213,8 +219,8 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
     protected static boolean isSupportedColumnSchema(ChangeSchema changeSchema, ChangeSchema.ColumnDefinition cdef) {
         ChangeSchema.CqlType type = cdef.getCdcLogDataType().getCqlType();
         if (type == ChangeSchema.CqlType.LIST || type == ChangeSchema.CqlType.SET
-            || type == ChangeSchema.CqlType.MAP) {
-            // We only support frozen lists, sets and maps,
+            || type == ChangeSchema.CqlType.MAP || type == ChangeSchema.CqlType.UDT) {
+            // We only support frozen lists, sets, maps and UDTs,
             // (which can be identified by cdc$deleted_elements_ column).
 
             // FIXME: When isFrozen is fixed in scylla-cdc-java (PR #60),
@@ -223,7 +229,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
             return changeSchema.getAllColumnDefinitions().stream()
                     .noneMatch(c -> c.getColumnName().equals(deletedElementsColumnName));
         }
-        return type != ChangeSchema.CqlType.UDT;
+        return true;
     }
 
     public ScyllaCollectionSchema updateChangeSchema(CollectionId collectionId, ChangeSchema changeSchema) {
