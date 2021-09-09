@@ -11,6 +11,7 @@ import org.junit.jupiter.api.TestInfo;
 public class ScyllaTypesPrimitiveAvroConnectorIT
     extends ScyllaTypesPrimitiveBase<GenericRecord, GenericRecord> {
 
+  /** Skips Avro tests unless Confluent distributed mode is available. */
   @BeforeAll
   static void checkKafkaProvider() {
     Assumptions.assumeTrue(
@@ -20,12 +21,14 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
         "Avro tests require distributed mode, otherwise Avro converter is not available");
   }
 
+  /** {@inheritDoc} */
   @Override
   KafkaConsumer<GenericRecord, GenericRecord> buildConsumer(
       String connectorName, String tableName) {
     return buildAvroConnector(connectorName, tableName);
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedInsert(TestInfo testInfo) {
     return new String[] {
@@ -82,6 +85,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
@@ -99,6 +103,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToNil(TestInfo testInfo) {
     return new String[] {
@@ -135,6 +140,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -171,6 +177,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
     return new String[] {
@@ -207,6 +214,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToValue(TestInfo testInfo) {
     return new String[] {
@@ -243,6 +251,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -279,6 +288,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToNil(TestInfo testInfo) {
     return new String[] {
@@ -315,6 +325,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
     return new String[] {
@@ -351,6 +362,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToNil(TestInfo testInfo) {
     return new String[] {
@@ -387,6 +399,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToEmpty(TestInfo testInfo) {
     return new String[] {

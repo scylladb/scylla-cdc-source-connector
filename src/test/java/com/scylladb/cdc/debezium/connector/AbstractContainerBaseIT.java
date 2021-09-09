@@ -34,6 +34,7 @@ public abstract class AbstractContainerBaseIT {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   static class ContainerLogWatcher implements TestWatcher {
+    /** Logs container diagnostics when a test fails. */
     @Override
     public void testFailed(ExtensionContext context, Throwable cause) {
       String testName = context.getDisplayName();
@@ -41,6 +42,7 @@ public abstract class AbstractContainerBaseIT {
     }
   }
 
+  /** Collects Kafka, schema registry, and Scylla logs to aid debugging on failures. */
   protected static void logContainerDetailsOnFailure(String testName, Throwable exception) {
     logger.atSevere().withCause(exception).log("Test failed: %s", testName);
 
@@ -86,6 +88,7 @@ public abstract class AbstractContainerBaseIT {
       this.value = value;
     }
 
+    /** Parses a provider string into a KafkaProvider enum value. */
     public static KafkaProvider fromString(String value) {
       if (value == null) {
         return null;
@@ -99,6 +102,7 @@ public abstract class AbstractContainerBaseIT {
       throw new IllegalArgumentException("Unknown Kafka provider: " + value);
     }
 
+    /** {@inheritDoc} */
     @Override
     public String toString() {
       return value;
@@ -116,6 +120,7 @@ public abstract class AbstractContainerBaseIT {
       this.value = value;
     }
 
+    /** Parses a connector mode string into a KafkaConnectMode enum value. */
     public static KafkaConnectMode fromString(String value) {
       if (value == null) {
         return null;
@@ -129,6 +134,7 @@ public abstract class AbstractContainerBaseIT {
       throw new IllegalArgumentException("Unknown Kafka Connect mode: " + value);
     }
 
+    /** {@inheritDoc} */
     @Override
     public String toString() {
       return value;
@@ -149,6 +155,7 @@ public abstract class AbstractContainerBaseIT {
       this(major, minor, patch, null);
     }
 
+    /** Creates a KafkaVersion from the provided components and optional label. */
     public KafkaVersion(int major, int minor, int patch, String label) {
       this.major = major;
       this.minor = minor;
@@ -156,6 +163,7 @@ public abstract class AbstractContainerBaseIT {
       this.label = label;
     }
 
+    /** Parses a Kafka version string in the form major.minor.patch[-label]. */
     public KafkaVersion(String version) {
       if (version == null || version.isEmpty()) {
         throw new IllegalArgumentException("Version cannot be null or empty");
@@ -188,22 +196,27 @@ public abstract class AbstractContainerBaseIT {
       }
     }
 
+    /** Returns the major version. */
     public int getMajor() {
       return major;
     }
 
+    /** Returns the minor version. */
     public int getMinor() {
       return minor;
     }
 
+    /** Returns the patch version. */
     public int getPatch() {
       return patch;
     }
 
+    /** Returns the version label, if any. */
     public String getLabel() {
       return label;
     }
 
+    /** Returns true if the version has a non-empty label. */
     public boolean hasLabel() {
       return label != null && !label.isEmpty();
     }
@@ -223,6 +236,7 @@ public abstract class AbstractContainerBaseIT {
       return Integer.compare(this.patch, other.patch);
     }
 
+    /** {@inheritDoc} */
     @Override
     public String toString() {
       if (hasLabel()) {
@@ -235,8 +249,11 @@ public abstract class AbstractContainerBaseIT {
   /** The default Kafka provider when system property is not defined */
   private static final String DEFAULT_KAFKA_PROVIDER = "apache";
 
-  /** The default Kafka version when system property is not defined */
-  private static final String DEFAULT_PROVIDER_IMAGE_VERSION = "4.0.0";
+  /** The default Kafka version when system property is not defined (Apache provider). */
+  private static final String DEFAULT_APACHE_PROVIDER_IMAGE_VERSION = "4.0.0";
+
+  /** The default Kafka version when system property is not defined (Confluent provider). */
+  private static final String DEFAULT_CONFLUENT_PROVIDER_IMAGE_VERSION = "7.5.0";
 
   /** The default Kafka Connect mode when system property is not defined */
   private static final String DEFAULT_KAFKA_CONNECT_MODE = "distributed";
@@ -253,12 +270,20 @@ public abstract class AbstractContainerBaseIT {
 
   /**
    * The Kafka version, read from the "it.provider.image.version" system property. Expected format:
-   * major.minor.patch[-label] (e.g. "2.8.1" or "4.1.0-rc1") Defaults to "4.0.0" if system property
-   * is not defined.
+   * major.minor.patch[-label] (e.g. "2.8.1" or "4.1.0-rc1"). Defaults to the provider-specific
+   * version if the system property is not defined.
    */
   public static final KafkaVersion PROVIDER_IMAGE_VERSION =
       new KafkaVersion(
-          System.getProperty("it.provider.image.version", DEFAULT_PROVIDER_IMAGE_VERSION));
+          System.getProperty("it.provider.image.version", defaultProviderImageVersion()));
+
+  /** Returns the default provider-specific Kafka image version. */
+  private static String defaultProviderImageVersion() {
+    if (KAFKA_PROVIDER == KafkaProvider.CONFLUENT) {
+      return DEFAULT_CONFLUENT_PROVIDER_IMAGE_VERSION;
+    }
+    return DEFAULT_APACHE_PROVIDER_IMAGE_VERSION;
+  }
 
   /**
    * The Kafka Connect deployment mode, read from the "it.kafka.connect.mode" system property.
@@ -777,6 +802,7 @@ public abstract class AbstractContainerBaseIT {
     startScyllaDB();
   }
 
+  /** Retrieves container logs with tail and size limits. */
   private static String getContainerLogs(
       GenericContainer<?> container, int tailLines, int maxChars) {
     if (container == null || !container.isRunning()) {
@@ -817,27 +843,32 @@ public abstract class AbstractContainerBaseIT {
     return logs.toString();
   }
 
+  /** Builds a deterministic connector name for the test method. */
   protected static String connectorName(TestInfo testInfo) {
     String testMethodName = testInfo.getTestMethod().orElseThrow().getName();
     String className = simplifyName(testInfo.getTestClass().orElseThrow().getName());
     return trimWithHash(className + "_" + testMethodName, MAX_CONNECTOR_NAME_LENGTH);
   }
 
+  /** Builds a deterministic table name for the test method. */
   protected static String tableName(TestInfo testInfo) {
     return trimWithHash(testInfo.getTestMethod().orElseThrow().getName(), MAX_TABLE_NAME_LENGTH)
         .toLowerCase(Locale.ROOT);
   }
 
+  /** Builds a deterministic keyspace name for the test class. */
   protected static String keyspaceName(TestInfo testInfo) {
     return trimWithHash(
             simplifyName(testInfo.getTestClass().orElseThrow().getName()), MAX_TABLE_NAME_LENGTH)
         .toLowerCase(Locale.ROOT);
   }
 
+  /** Returns the full keyspace.table name for the test case. */
   protected static String keyspaceTableName(TestInfo testInfo) {
     return keyspaceName(testInfo) + "." + tableName(testInfo);
   }
 
+  /** Strips package and nested class markers from a class name. */
   public static String simplifyName(String input) {
     // 1) Take only the part after the last dot
     String afterLastDot = input.substring(input.lastIndexOf('.') + 1);
@@ -846,6 +877,7 @@ public abstract class AbstractContainerBaseIT {
     return afterLastDot.replace("$", "");
   }
 
+  /** Truncates a value and appends a hash suffix to stay within the max length. */
   static String trimWithHash(String value, int maxLength) {
     if (value.length() <= maxLength) {
       return value;

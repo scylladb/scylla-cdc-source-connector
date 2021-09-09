@@ -7,11 +7,13 @@ import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     extends ScyllaTypesPrimitiveBase<String, String> {
+  /** {@inheritDoc} */
   @Override
   KafkaConsumer<String, String> buildConsumer(String connectorName, String tableName) {
     return buildScyllaExtractNewRecordStateConnector(connectorName, tableName);
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedInsert(TestInfo testInfo) {
     return new String[] {
@@ -52,6 +54,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
@@ -63,6 +66,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToNil(TestInfo testInfo) {
     return new String[] {
@@ -98,6 +102,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -133,6 +138,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
     return new String[] {
@@ -168,6 +174,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToValue(TestInfo testInfo) {
     return new String[] {
@@ -203,6 +210,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -238,6 +246,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToNil(TestInfo testInfo) {
     return new String[] {
@@ -273,6 +282,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
     return new String[] {
@@ -308,6 +318,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToNil(TestInfo testInfo) {
     return new String[] {
@@ -343,6 +354,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToEmpty(TestInfo testInfo) {
     return new String[] {

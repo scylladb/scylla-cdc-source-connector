@@ -44,8 +44,19 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
 
   /** Waits for and asserts expected Kafka messages. */
   void waitAndAssert(KafkaConsumer<K, V> consumer, String[] expected) {
+    waitAndAssertInternal(consumer, expected, true);
+  }
+
+  /** Waits for and asserts expected Kafka messages without resetting consumer offsets. */
+  void waitAndAssertFromCurrentPosition(KafkaConsumer<K, V> consumer, String[] expected) {
+    waitAndAssertInternal(consumer, expected, false);
+  }
+
+  /** Polls Kafka until the expected number of records is collected and asserted. */
+  private void waitAndAssertInternal(
+      KafkaConsumer<K, V> consumer, String[] expected, boolean resetOffsets) {
     List<ConsumerRecord<K, V>> actual = new ArrayList<>();
-    KafkaConnectUtils.waitForConsumerAssignment(consumer);
+    ensureConsumerAssignment(consumer, resetOffsets);
 
     long startTime = System.currentTimeMillis();
     while (System.currentTimeMillis() - startTime < KafkaConnectUtils.CONSUMER_TIMEOUT) {
@@ -109,6 +120,25 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     }
   }
 
+  /** Ensures the consumer has assignments and optionally seeks to beginning. */
+  private void ensureConsumerAssignment(KafkaConsumer<K, V> consumer, boolean seekToBeginning) {
+    long startTime = System.currentTimeMillis();
+    while (consumer.assignment().isEmpty()
+        && System.currentTimeMillis() - startTime < KafkaConnectUtils.CONSUMER_TIMEOUT) {
+      consumer.poll(Duration.ofSeconds(1));
+    }
+    if (consumer.assignment().isEmpty()) {
+      Assertions.fail(
+          "Consumer did not receive partition assignment within "
+              + KafkaConnectUtils.CONSUMER_TIMEOUT
+              + " ms.");
+    }
+    if (seekToBeginning) {
+      consumer.seekToBeginning(consumer.assignment());
+    }
+  }
+
+  /** Creates the shared Scylla session once for the test suite. */
   @BeforeAll
   public static synchronized void setupSuite() {
     synchronized (SESSION_LOCK) {
@@ -124,6 +154,7 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     }
   }
 
+  /** Closes the shared Scylla session when the suite finishes. */
   @AfterAll
   public static void cleanupSuite() {
     synchronized (SESSION_LOCK) {
@@ -135,6 +166,7 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     }
   }
 
+  /** Creates the CDC-enabled table and connects a consumer for the test. */
   @BeforeEach
   void setupTest(TestInfo testInfo) {
     synchronized (DDL_LOCK) {
@@ -149,6 +181,7 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     consumer = buildConsumer(connectorName(testInfo), keyspaceTableName(testInfo));
   }
 
+  /** Closes the consumer, removes the connector, and drops the test table. */
   @AfterEach
   public void cleanUp(TestInfo testInfo) {
     if (consumer != null) {
@@ -170,19 +203,23 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     }
   }
 
+  /** Clears the base and CDC log tables for the test. */
   protected void truncateTables(TestInfo testInfo) {
     session.execute("TRUNCATE TABLE " + keyspaceTableName(testInfo));
     session.execute("TRUNCATE TABLE " + cdcLogTableName(testInfo));
   }
 
+  /** Returns the CDC log table name for the test table. */
   private String cdcLogTableName(TestInfo testInfo) {
     return keyspaceName(testInfo) + "." + tableName(testInfo) + "_scylla_cdc_log";
   }
 
+  /** Returns the consumer created for the current test. */
   protected KafkaConsumer<K, V> getConsumer() {
     return consumer;
   }
 
+  /** Builds a Debezium envelope JSON string for expected-record assertions. */
   public static String expectedRecord(
       TestInfo testInfo, String op, String beforeJson, String afterJson) {
     return """

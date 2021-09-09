@@ -7,11 +7,13 @@ import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaCompositePkPlainConnectorIT extends ScyllaCompositePkBase<String, String> {
 
+  /** {@inheritDoc} */
   @Override
   KafkaConsumer<String, String> buildConsumer(String connectorName, String tableName) {
     return buildPlainConnector(connectorName, tableName);
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedInsert(TestInfo testInfo) {
     return new String[] {
@@ -33,6 +35,7 @@ public class ScyllaCompositePkPlainConnectorIT extends ScyllaCompositePkBase<Str
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdate(TestInfo testInfo) {
     return new String[] {
@@ -55,6 +58,7 @@ public class ScyllaCompositePkPlainConnectorIT extends ScyllaCompositePkBase<Str
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
