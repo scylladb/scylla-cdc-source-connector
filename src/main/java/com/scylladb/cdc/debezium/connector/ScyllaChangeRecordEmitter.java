@@ -11,6 +11,8 @@ import io.debezium.util.Clock;
 import java.time.Instant;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 import org.apache.kafka.connect.data.Schema;
@@ -275,6 +277,17 @@ public class ScyllaChangeRecordEmitter
 
        if (dataType.getCqlType() == ChangeSchema.CqlType.SET) {
            return field.getSet().stream().map(this::translateFieldToKafka).collect(Collectors.toList());
+       }
+
+       if (dataType.getCqlType() == ChangeSchema.CqlType.MAP) {
+           Map<Field, Field> map = field.getMap();
+           Map<Object, Object> kafkaMap = new LinkedHashMap<>();
+           map.forEach((key, value) -> {
+               Object kafkaKey = translateFieldToKafka(key);
+               Object kafkaValue = translateFieldToKafka(value);
+               kafkaMap.put(kafkaKey, kafkaValue);
+           });
+           return kafkaMap;
        }
 
        return field.getAsObject();
