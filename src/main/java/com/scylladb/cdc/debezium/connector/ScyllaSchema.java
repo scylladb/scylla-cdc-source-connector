@@ -14,7 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class ScyllaSchema implements DatabaseSchema<CollectionId> {
     private static final Logger LOGGER = LoggerFactory.getLogger(ScyllaSchema.class);
@@ -130,11 +132,11 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
         return beforeSchemaBuilder.optional().build();
     }
 
-    private Schema computeColumnSchema(ChangeSchema.ColumnDefinition cdef) {
+    protected static Schema computeColumnSchema(ChangeSchema.ColumnDefinition cdef) {
         return computeColumnSchema(cdef.getCdcLogDataType());
     }
 
-    private Schema computeColumnSchema(ChangeSchema.DataType type) {
+    protected static Schema computeColumnSchema(ChangeSchema.DataType type) {
         switch (type.getCqlType()) {
             case ASCII:
                 return Schema.OPTIONAL_STRING_SCHEMA;
@@ -193,8 +195,16 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                 Schema valueSchema = computeColumnSchema(type.getTypeArguments().get(1));
                 return SchemaBuilder.map(keySchema, valueSchema);
             }
+            case TUPLE: {
+                List<Schema> innerSchemas = type.getTypeArguments().stream()
+                        .map(ScyllaSchema::computeColumnSchema).collect(Collectors.toList());
+                SchemaBuilder tupleSchema = SchemaBuilder.struct();
+                for (int i = 0; i < innerSchemas.size(); i++) {
+                    tupleSchema = tupleSchema.field("tuple_member_" + i, innerSchemas.get(i));
+                }
+                return tupleSchema.optional().build();
+            }
             case UDT:
-            case TUPLE:
             default:
                 throw new UnsupportedOperationException();
         }
@@ -213,7 +223,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
             return changeSchema.getAllColumnDefinitions().stream()
                     .noneMatch(c -> c.getColumnName().equals(deletedElementsColumnName));
         }
-        return type != ChangeSchema.CqlType.UDT && type != ChangeSchema.CqlType.TUPLE;
+        return type != ChangeSchema.CqlType.UDT;
     }
 
     public ScyllaCollectionSchema updateChangeSchema(CollectionId collectionId, ChangeSchema changeSchema) {

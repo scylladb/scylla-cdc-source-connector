@@ -13,6 +13,7 @@ import org.apache.kafka.connect.data.Struct;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -173,6 +174,15 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
                kafkaMap.put(kafkaKey, kafkaValue);
            });
            return kafkaMap;
+       }
+
+       if (dataType.getCqlType() == ChangeSchema.CqlType.TUPLE) {
+           Struct tupleStruct = new Struct(ScyllaSchema.computeColumnSchema(dataType));
+           List<Field> tuple = field.getTuple();
+           for (int i = 0; i < tuple.size(); i++) {
+               tupleStruct.put("tuple_member_" + i, translateFieldToKafka(tuple.get(i)));
+           }
+           return tupleStruct;
        }
 
        return field.getAsObject();
