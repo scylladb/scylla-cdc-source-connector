@@ -183,12 +183,12 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                 return Schema.OPTIONAL_INT8_SCHEMA;
             case DURATION:
                 return Schema.OPTIONAL_STRING_SCHEMA;
+            case SET:
             case LIST: {
                 Schema innerSchema = computeColumnSchema(type.getTypeArguments().get(0));
                 return SchemaBuilder.array(innerSchema);
             }
             case MAP:
-            case SET:
             case UDT:
             case TUPLE:
             default:
@@ -198,8 +198,8 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
 
     protected static boolean isSupportedColumnSchema(ChangeSchema changeSchema, ChangeSchema.ColumnDefinition cdef) {
         ChangeSchema.CqlType type = cdef.getCdcLogDataType().getCqlType();
-        if (type == ChangeSchema.CqlType.LIST) {
-            // We only support frozen lists,
+        if (type == ChangeSchema.CqlType.LIST || type == ChangeSchema.CqlType.SET) {
+            // We only support frozen lists and sets,
             // (which can be identified by cdc$deleted_elements_ column).
 
             // FIXME: When isFrozen is fixed in scylla-cdc-java (PR #60),
@@ -208,8 +208,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
             return changeSchema.getAllColumnDefinitions().stream()
                     .noneMatch(c -> c.getColumnName().equals(deletedElementsColumnName));
         }
-        return type != ChangeSchema.CqlType.MAP &&
-               type != ChangeSchema.CqlType.SET && type != ChangeSchema.CqlType.UDT &&
+        return type != ChangeSchema.CqlType.MAP && type != ChangeSchema.CqlType.UDT &&
                type != ChangeSchema.CqlType.TUPLE;
     }
 
