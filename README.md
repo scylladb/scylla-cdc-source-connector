@@ -194,7 +194,7 @@ See `UPDATE` example for full  data change event's value.
 
 #### ScyllaExtractNewState transformer
 Connector provides one single message transformation (SMT), `ScyllaExtractNewState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewState`).
-This SMT works like exactly like `io.debezium.transforms.ExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from aforementioned single-field structures.
+This SMT works like exactly like `io.debezium.transforms.ScyllaExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from aforementioned single-field structures.
 Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but it makes it impossible to differentiate between NULL value and non-modification.
 If the message is as following:
 ```json
