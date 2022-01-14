@@ -243,12 +243,12 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
       case SET:
       case LIST: {
                 Schema innerSchema = computeColumnSchema(type.getTypeArguments().get(0));
-                return SchemaBuilder.array(innerSchema);
+                return SchemaBuilder.array(innerSchema).optional().build();
             }
       case MAP: {
                 Schema keySchema = computeColumnSchema(type.getTypeArguments().get(0));
                 Schema valueSchema = computeColumnSchema(type.getTypeArguments().get(1));
-                return SchemaBuilder.map(keySchema, valueSchema);
+                return SchemaBuilder.map(keySchema, valueSchema).optional().build();
             }
             case TUPLE: {
                 List<Schema> innerSchemas = type.getTypeArguments().stream()
