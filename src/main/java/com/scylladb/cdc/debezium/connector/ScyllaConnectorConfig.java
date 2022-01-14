@@ -99,22 +99,37 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription("Path to the SSL certificate file, when using OpenSSL.");
 
   public static final Field SSL_OPENSLL_PRIVATEKEY =
-      Field.create("scylla.ssl.openssl.privateKey")
-          .withDisplayName("The path to the private key file")
-          .withType(ConfigDef.Type.STRING)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withDescription("Path to the private key file, when using OpenSSL.");
+    Field.create("scylla.ssl.openssl.privateKey")
+      .withDisplayName("The path to the private key file")
+      .withType(ConfigDef.Type.STRING)
+      .withImportance(ConfigDef.Importance.HIGH)
+      .withDescription("Path to the private key file, when using OpenSSL.");
 
   public static final Field TABLE_NAMES =
-      Field.create("scylla.table.names")
-          .withDisplayName("Table Names")
-          .withType(ConfigDef.Type.LIST)
-          .withWidth(ConfigDef.Width.LONG)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withValidation(ConfigSerializerUtil::validateTableNames)
-          .withDescription(
-              "List of CDC-enabled table names for connector to read. "
-                  + "Provided as a comma-separated list of pairs <keyspace name>.<table name>");
+    Field.create("scylla.table.names")
+      .withDisplayName("Table Names")
+      .withType(ConfigDef.Type.LIST)
+      .withWidth(ConfigDef.Width.LONG)
+      .withImportance(ConfigDef.Importance.HIGH)
+      .withValidation(ConfigSerializerUtil::validateTableNames)
+      .withDescription(
+        "List of CDC-enabled table names for connector to read. "
+          + "Provided as a comma-separated list of pairs <keyspace name>.<table name>");
+
+  public static final CollectionsMode DEFAULT_COLLECTIONS_MODE = CollectionsMode.DELTA;
+  public static final Field COLLECTIONS_MODE = Field.create("scylla.collections.mode")
+    .withDisplayName("Collections format")
+    .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
+    .withWidth(ConfigDef.Width.SHORT)
+    .withImportance(ConfigDef.Importance.MEDIUM)
+    .withDescription("How to represent non-frozen collections. Currently, only 'delta' mode is supported - in the future support for more modes may be added. 'Delta' mode: change in collection is represented as a struct with 2 fields, 'mode' and 'elements'. 'mode' describes what type of change happened (modifying collection, overwriting collection), 'elements' contains added/removed elements.");
+
+  /*
+   * Scylla CDC Source Connector relies on heartbeats to move the offset,
+   * because the offset determines if the generation ended, therefore HEARTBEAT_INTERVAL
+   * should be positive (0 would disable heartbeats) and a default value is changed
+   * (previously 0).
+   */
 
   public static final Field USER =
       Field.create("scylla.user")
@@ -252,7 +267,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "The initial backoff in milliseconds that will be used for queries to Scylla. "
                   + "Each consecutive retry will increase exponentially by a factor of 2 up to configured max backoff.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(50);
 
   public static final Field RETRY_MAX_BACKOFF_MS =
@@ -264,7 +278,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription(
               "Maximum backoff in milliseconds that will be used for queries to Scylla.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(30000);
 
   public static final Field RETRY_BACKOFF_JITTER_PERCENTAGE =
@@ -279,7 +292,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "subtracted before application. The jitter does not modify base backoff and has no impact on exponential rise. "
                   + "Minimal allowed value is 1. Max is 100.")
           .withValidation(Field::isPositiveInteger)
-          .optional()
           .withDefault(20);
 
   public static final Field POOLING_CORE_POOL_LOCAL =
@@ -293,7 +305,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Local nodes are the nodes of local datacenter. "
                   + "Driver session used by worker will aim to maintain this number of connections per local node.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1);
 
   public static final Field POOLING_MAX_POOL_LOCAL =
@@ -307,7 +318,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Worker will open additional connections up to this maximum whenever existing ones go above certain threshold"
                   + " of concurrent requests.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1);
 
   public static final Field POOLING_MAX_QUEUE_SIZE =
@@ -322,7 +332,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "be necessary to increase this to avoid BusyPoolException. Additional requests above this limit will be "
                   + "rejected. Requests that wait for longer than pool timeout value also will be rejected.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(512);
 
   public static final Field POOLING_MAX_REQUESTS_PER_CONNECTION =
@@ -335,7 +344,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "Worker's maximum requests per connection to a Scylla node within distance 'LOCAL'. Requests above "
                   + "this quantity will be enqueued.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1024);
 
   public static final Field POOLING_POOL_TIMEOUT_MS =
@@ -569,6 +577,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     SnapshotMode(String value) {
       this.value = value;
+    }
+
+    public CollectionsMode getCollectionsMode() {
+        return config.getInstance("scylla.collections.mode", CollectionsMode.class);
     }
 
     @Override
