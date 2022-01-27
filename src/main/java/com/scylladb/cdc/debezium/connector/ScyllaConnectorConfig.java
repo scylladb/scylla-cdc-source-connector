@@ -580,7 +580,12 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     }
 
     public CollectionsMode getCollectionsMode() {
-        return config.getInstance("scylla.collections.mode", CollectionsMode.class);
+        String collectionsModeValue = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
+        try {
+            return CollectionsMode.valueOf(collectionsModeValue.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return DEFAULT_COLLECTIONS_MODE;
+        }
     }
 
     @Override
