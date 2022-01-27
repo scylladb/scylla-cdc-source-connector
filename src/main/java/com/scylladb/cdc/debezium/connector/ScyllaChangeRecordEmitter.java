@@ -2,21 +2,19 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.ChangeSchema;
+import com.scylladb.cdc.model.worker.cql.Cell;
 import com.scylladb.cdc.model.worker.cql.CqlDate;
 import com.scylladb.cdc.model.worker.cql.Field;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.util.Clock;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.kafka.connect.data.Schema;
+import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 
-import java.util.Calendar;
-import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TimeZone;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<ScyllaCollectionSchema> {
@@ -102,22 +100,129 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
         for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
             if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
 
-            Schema cellSchema = schema.cellSchema(cdef.getColumnName());
-            Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
-            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
-
             if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
+                Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), schema.keySchema().field(cdef.getColumnName()).schema());
                 valueStruct.put(cdef.getColumnName(), value);
                 keyStruct.put(cdef.getColumnName(), value);
-            } else {
-                Boolean isDeleted = this.change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
-                if (value != null || (isDeleted != null && isDeleted)) {
-                    Struct cell = new Struct(cellSchema);
-                    cell.put(ScyllaSchema.CELL_VALUE, value);
-                    valueStruct.put(cdef.getColumnName(), cell);
-                }
+                continue;
+            }
+
+            Schema cellSchema = schema.cellSchema(cdef.getColumnName());
+            if (ScyllaSchema.isNonFrozenCollection(change.getSchema(), cdef)) {
+                Struct value = translateNonFrozenCollectionToKafka(valueStruct, change, cellSchema, cdef);
+                valueStruct.put(cdef.getColumnName(), value);
+                continue;
+            }
+
+            Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
+            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
+            Boolean isDeleted = this.change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
+
+            if (value != null || (isDeleted != null && isDeleted)) {
+                Struct cell = new Struct(cellSchema);
+                cell.put(ScyllaSchema.CELL_VALUE, value);
+                valueStruct.put(cdef.getColumnName(), cell);
             }
         }
+    }
+
+    private Struct translateNonFrozenCollectionToKafka(Struct valueStruct, RawChange change, Schema cellSchema, ChangeSchema.ColumnDefinition cdef) {
+        Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
+        Struct cell = new Struct(cellSchema);
+        Struct value = new Struct(innerSchema);
+
+        Cell elementsCell = change.getCell(cdef.getColumnName());
+        Cell deletedElementsCell = change.getCell("cdc$deleted_elements_" + cdef.getColumnName());
+        boolean isDeleted = Boolean.TRUE.equals(change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean());
+
+        Object elements;
+        boolean hasModified = false;
+        switch (elementsCell.getDataType().getCqlType()) {
+            case SET: {
+                Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+                Schema scyllaElementsSchema = SchemaBuilder.array(elementsSchema.keySchema()).build();
+                List<Object> addedElements = (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
+                List<Object> deletedElements = (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema);
+                Map<Object, Boolean> delta = new HashMap<>();
+                if (addedElements != null) {
+                    addedElements.forEach(element -> delta.put(element, true));
+                }
+                if (deletedElements != null) {
+                    deletedElements.forEach(element -> delta.put(element, false));
+                }
+
+                hasModified = !delta.isEmpty();
+                elements = delta;
+                break;
+            }
+            case LIST:
+            case MAP: {
+                Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+                Schema deletedElementsScyllaSchema = SchemaBuilder.array(elementsSchema.keySchema()).optional().build();
+                Map<Object, Object> addedElements = (Map<Object, Object>) ObjectUtils.defaultIfNull(translateFieldToKafka(elementsCell, elementsSchema), new HashMap<>());
+                List<Object> deletedKeys = (List<Object>)translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema);
+                if (deletedKeys != null) {
+                    deletedKeys.forEach((key) -> {
+                        addedElements.put(key, null);
+                    });
+                }
+
+                hasModified = !addedElements.isEmpty();
+                elements = addedElements;
+                break;
+            }
+            case UDT: {
+                List<Short> deletedKeysList = (List<Short>) translateFieldToKafka(deletedElementsCell, SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build());
+                Set<Short> deletedKeys;
+                if (deletedKeysList == null) {
+                    deletedKeys = new HashSet<>();
+                } else {
+                    deletedKeys = new HashSet<>(deletedKeysList);
+                }
+
+                Map<String, Field> elementsMap = elementsCell.getUDT();
+                assert elementsMap instanceof LinkedHashMap;
+
+                Schema udtSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+                Struct udtStruct = new Struct(udtSchema);
+                Short index = -1;
+                for (Map.Entry<String, Field> element : elementsMap.entrySet()) {
+                    index++;
+                    if ((!element.getValue().isNull()) || deletedKeys.contains(index)) {
+                        hasModified = true;
+                        Schema fieldCellSchema = udtSchema.field(element.getKey()).schema();
+                        Struct fieldCell = new Struct (fieldCellSchema);
+                        if (element.getValue().isNull()) {
+                            fieldCell.put(ScyllaSchema.CELL_VALUE, null);
+                        } else {
+                            fieldCell.put(ScyllaSchema.CELL_VALUE, translateFieldToKafka(element.getValue(), fieldCellSchema.field(ScyllaSchema.CELL_VALUE).schema()));
+                        }
+                        udtStruct.put(element.getKey(), fieldCell);
+                    }
+                }
+
+                elements = udtStruct;
+                break;
+            }
+            default:
+                throw new RuntimeException("Unreachable");
+        }
+
+        if (!hasModified) {
+            if (isDeleted) {
+                cell.put(ScyllaSchema.CELL_VALUE, null);
+                return cell;
+            } else {
+                return null;
+            }
+        }
+
+        CollectionOperation mode = isDeleted ? CollectionOperation.OVERWRITE : CollectionOperation.MODIFY;
+        value.put(ScyllaSchema.MODE_VALUE, mode.toString());
+        value.put(ScyllaSchema.ELEMENTS_VALUE, elements);
+
+        cell.put(ScyllaSchema.CELL_VALUE, value);
+        return cell;
     }
 
     private Object translateFieldToKafka(Field field, Schema resultSchema) {
