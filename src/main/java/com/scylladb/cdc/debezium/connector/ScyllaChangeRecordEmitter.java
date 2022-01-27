@@ -1,21 +1,16 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.worker.ChangeSchema;
-import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.cql.CqlDate;
 import com.scylladb.cdc.model.worker.cql.Field;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.util.Clock;
+import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 
-import java.util.Calendar;
-import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TimeZone;
+import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
@@ -185,12 +180,13 @@ public class ScyllaChangeRecordEmitter
         null);
   }
 
-  private void fillStructWithChange(
-      ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {
-    for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
-      if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
+    private void fillStructWithChange(ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {
+        for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
+            if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
 
-            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()));
+            Schema cellSchema = schema.cellSchema(cdef.getColumnName());
+            Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
+            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
 
             if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
                 valueStruct.put(cdef.getColumnName(), value);
@@ -198,7 +194,7 @@ public class ScyllaChangeRecordEmitter
             } else {
                 Boolean isDeleted = this.change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
                 if (value != null || (isDeleted != null && isDeleted)) {
-                    Struct cell = new Struct(schema.cellSchema(cdef.getColumnName()));
+                    Struct cell = new Struct(cellSchema);
                     cell.put(ScyllaSchema.CELL_VALUE, value);
                     valueStruct.put(cdef.getColumnName(), cell);
                 }
