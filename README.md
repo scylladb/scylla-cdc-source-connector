@@ -27,7 +27,6 @@ The connector has the following limitations:
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
     - Partition deletes - those changes are ignored
     - Row range deletes - those changes are ignored
-- No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
 - No support for postimage, preimage needs to be enabled - By default changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
 
 ### Compatibility
@@ -215,6 +214,27 @@ If the operation did not modify the `v` column, the data event will contain the 
 ```
 
 See `UPDATE` example for full  data change event's value.
+
+#### Collections
+Connector supports both frozen and non-frozen collections.
+Format for frozen collections is as follows (those structs will be stored in "Cell" mentioned above):
+ - `List` and `Set` of type T are represented as `Schema.array(T)`. In the JSON format, this is also an array.
+ - `Map` with key type K and value type V is represented as `Schema.map(K, V)`. In JSON, this is an array (not object!) of 2-element arrays (first element is key, second is value).
+ - `UDT` is represented as a struct. In JSON, this is an object.
+
+Non-frozen collections are a bit more complicated. `scylla.collections.mode` config defines which representation will be used. Currently, only `delta` mode is supported. In the future, more modes (e.g. preimage / postimage) may be added.
+
+##### Non-frozen collections: delta mode.
+Each non-frozen collection column is represented as a struct, with fields `mode` and `elements`. This struct will be stored in "Cell" described previously.
+`mode` can be:
+- `MODIFY` - elements were added or deleted.
+- `OVERWRITE` - whole content of collection was removed, and new elements were added. If no elements were added (meaning the collection was just removed), this mode won't be used - instead, whole struct (stored in `field` value of "Cell" struct, as mentioned previously) will be null.
+
+Type of `elements` field depends on collection type:
+- For `Set` of type T it will be `Schema.map(T, Schema.BOOLEAN_SCHEMA)`. The boolean value signals wheter value was added (true) or removed (false) from set.
+- For `List` of type T, it will be `Schema.map(Schema.STRING_SCHEMA, T)` - key of this map is timeuuid, as described in https://docs.scylladb.com/using-scylla/cdc/cdc-advanced-types/#lists. Removed elements are marked by null value.
+- For `Map` with key K and value V, it will be `Schema.map(K, V)` (same as in frozen collection). Removed elements are marked by null value.
+- For `UDT` it will be struct representing this UDT, bit a bit differently than in frozen UDT: each field of this struct is a "Cell" (a struct with a single field, `value`). "Cell" is used the same way as with columns - null means that the field wasn't changed, "Cell" with null value means field was removed, field with non-null value means that field was overwritten.
 
 #### Single Message Transformations (SMTs)
 The connector provides two single message transformations (SMTs): `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) and `ScyllaFlattenColumns` (`com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`).
