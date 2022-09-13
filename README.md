@@ -20,6 +20,7 @@ The connector has the following capabilities:
 - Compatible with standard Kafka Connect transformations
 - Metadata about CDC events - each generated Kafka message contains information about source, such as timestamp and table name
 - Seamless handling of schema changes and topology changes (adding, removing nodes from Scylla cluster)
+- Post image only: You can configure the connector to produce only `POST_IMAGE` cdc events as `CREATE` events. 
 
 The connector has the following limitations:
 - Only Kafka 2.6.0+ is supported
@@ -27,7 +28,7 @@ The connector has the following limitations:
     - Partition deletes - those changes are ignored
     - Row range deletes - those changes are ignored
 - No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
-- No support for preimage and postimage - changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
+- No support for preimage - changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
 
 ## Connector installation
 
@@ -596,6 +597,7 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | `scylla.confidence.window.size` | The size of the confidence window. It is necessary for the connector to avoid reading too fresh data from the CDC log due to the eventual consistency of Scylla. The problem could appear when a newer write reaches a replica before some older write. For a short period of time, when reading, it is possible for the replica to return only the newer write. The connector mitigates this problem by not reading a window of most recent changes (controlled by this parameter). Value expressed in milliseconds.|
 | `scylla.consistency.level` | The consistency level of CDC table read queries. This consistency level is used only for read queries to the CDC log table. By default, `QUORUM` level is used. |
 | `scylla.local.dc` | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized. |
+| `post.image.only` | Push only the post image events from scylla cdc to kafka. The events are pushed as `CREATE` events. |
 
 ### Configuration for large Scylla clusters
 #### Offset (progress) storage

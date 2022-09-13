@@ -2,6 +2,7 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
+import com.scylladb.cdc.model.worker.RawChange.OperationType;
 import com.scylladb.cdc.model.worker.Task;
 import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
 import io.debezium.pipeline.EventDispatcher;
@@ -18,12 +19,14 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     private final ScyllaOffsetContext offsetContext;
     private final ScyllaSchema schema;
     private final Clock clock;
+    private final boolean postImageOnly;
 
-    public ScyllaChangesConsumer(EventDispatcher<CollectionId> dispatcher, ScyllaOffsetContext offsetContext, ScyllaSchema schema, Clock clock) {
+    public ScyllaChangesConsumer(EventDispatcher<CollectionId> dispatcher, ScyllaOffsetContext offsetContext, ScyllaSchema schema, Clock clock, boolean postImageOnly) {
         this.dispatcher = dispatcher;
         this.offsetContext = offsetContext;
         this.schema = schema;
         this.clock = clock;
+        this.postImageOnly = postImageOnly;
     }
 
     @Override
@@ -49,9 +52,12 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
                 if (hasClusteringColumn) {
                     return CompletableFuture.completedFuture(null);
                 }
-            } else if (operationType != RawChange.OperationType.ROW_INSERT
+            } else if (!this.postImageOnly
+                    && operationType != RawChange.OperationType.ROW_INSERT
                     && operationType != RawChange.OperationType.ROW_UPDATE
                     && operationType != RawChange.OperationType.ROW_DELETE) {
+                return CompletableFuture.completedFuture(null);
+            } else if (this.postImageOnly && operationType != OperationType.POST_IMAGE) {
                 return CompletableFuture.completedFuture(null);
             }
 

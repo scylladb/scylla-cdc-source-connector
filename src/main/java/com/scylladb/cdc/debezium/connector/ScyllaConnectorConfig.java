@@ -97,6 +97,14 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withDescription("The consistency level of CDC table read queries. This consistency level is used only for read queries " +
                     "to the CDC log table.");
 
+    public static final boolean POST_IMAGE_ONLY_DEFAULT = false;
+    public static final Field POST_IMAGE_ONLY = Field.create("post.image.only")
+            .withDisplayName("Post Image Only")
+            .withType(ConfigDef.Type.BOOLEAN)
+            .withWidth(ConfigDef.Width.SHORT)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("Whether the connector should publish only post image events. The cdc settings must have `'postimage': 'true'`. To get full image with all fields, set `'preimage': 'full'`.");
+
     public static final Field LOCAL_DC_NAME = Field.create("scylla.local.dc")
             .withDisplayName("Local DC Name")
             .withType(ConfigDef.Type.STRING)
@@ -124,7 +132,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                     .name("Scylla")
                     .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME)
                     .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE)
-                    .events(TABLE_NAMES)
+                    .events(TABLE_NAMES, POST_IMAGE_ONLY)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
                     // Exclude some Debezium options, which are not applicable/not supported by
                     // the Scylla CDC Source Connector.
@@ -186,6 +194,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
         } catch (IllegalArgumentException ex) {
             return DEFAULT_CONSISTENCY_LEVEL;
         }
+    }
+
+    public boolean isPostImageOnly() {
+        return config.getBoolean(ScyllaConnectorConfig.POST_IMAGE_ONLY, POST_IMAGE_ONLY_DEFAULT);
     }
 
     public String getLocalDCName() {
