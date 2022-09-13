@@ -15,12 +15,13 @@ The connector has the following capabilities:
     - `UPDATE`
     - `DELETE` (single row deletes)
 - High scalability - able to split work accross multiple Kafka Connect workers
-- Fault tolerant - connector periodically saves its progress and can resume from previously saved offset (with at-least-once semantics)
+- Fault-tolerant - connector periodically saves its progress and can resume from previously saved offset (with at-least-once semantics)
 - Support for many standard Kafka Connect converters, such as JSON and Avro
 - Compatible with standard Kafka Connect transformations
 - Metadata about CDC events - each generated Kafka message contains information about source, such as timestamp and table name
 - Seamless handling of schema changes and topology changes (adding, removing nodes from Scylla cluster)
 - Preimage support ([optional](#advanced-configuration-parameters)) - messages generated for row-level changes can have their [`before`](#data-change-event-value) field filled with information from corresponding preimage row.
+- Post image only: You can configure the connector to produce only `POST_IMAGE` cdc events as `CREATE` events. 
 
 The connector has the following limitations:
 - Only Kafka 2.6.0+ is supported
@@ -28,7 +29,6 @@ The connector has the following limitations:
     - Partition deletes - those changes are ignored
     - Row range deletes - those changes are ignored
 - No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
-- No support for postimage, preimage needs to be enabled - By default changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
 
 ## Connector installation
 
@@ -691,7 +691,7 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | `scylla.consistency.level`       | The consistency level of CDC table read queries. This consistency level is used only for read queries to the CDC log table. By default, `QUORUM` level is used.                                                                                                                                                                                                                                                                                                                                                       |
 | `scylla.local.dc`                | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.                                                                                                                                                                                                                                                                         |
 | `experimental.preimages.enabled` | False by default. If enabled connector will use `PRE_IMAGE` CDC entries to populate 'before' field of the debezium Envelope of the next kafka message. This may change some expected behaviours (e.g. ROW_DELETE will use preimage instead of its own information). Relies on correct ordering of rows within same stream in CDC tables.                                                                                                                                                                              |
-
+| `post.image.only`                | Push only the post image events from scylla cdc to kafka. The events are pushed as `CREATE` events.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ### Configuration for large Scylla clusters
 #### Offset (progress) storage
