@@ -115,6 +115,7 @@
         <guava.version>24.1.1-jre</guava.version>
         <jetty.version>11.0.2</jetty.version>
         <snakeyaml.version>1.32</snakeyaml.version>
+        <commons.version>3.8.1</commons.version>
     </properties>
 
     <dependencyManagement>
@@ -184,15 +185,14 @@
             <version>${debezium.version}</version>
         </dependency>
         <dependency>
-            <groupId>io.debezium</groupId>
-            <artifactId>debezium-embedded</artifactId>
-            <version>${debezium.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>log4j</groupId>
-                    <artifactId>log4j</artifactId>
-                </exclusion>
-            </exclusions>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>connect-transforms</artifactId>
+            <version>${kafka.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.kafka</groupId>
