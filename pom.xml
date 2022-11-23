@@ -107,7 +107,7 @@
         <!-- Docs claim java 8 supported, but support is deprecated -->
         <kafka.version>3.3.1</kafka.version>
         <scylla.driver.version>3.11.2.1</scylla.driver.version>
-        <scylla.cdc.java.version>1.2.0</scylla.cdc.java.version>
+        <scylla.cdc.java.version>1.2.1</scylla.cdc.java.version>
         <flogger.version>0.7.4</flogger.version>
         <!-- added for transitive dependencies -->
         <log4j.version>2.17.1</log4j.version>
