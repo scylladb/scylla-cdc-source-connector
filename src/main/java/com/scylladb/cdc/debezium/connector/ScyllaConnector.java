@@ -35,7 +35,7 @@ public class ScyllaConnector extends SourceConnector {
         // to log4j.
         System.setProperty(
                 "flogger.backend_factory",
-                "com.google.common.flogger.backend.log4j.Log4jBackendFactory#getInstance");
+                "com.google.common.flogger.backend.log4j.Log4jBackendFactory");
     }
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
