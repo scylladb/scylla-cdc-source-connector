@@ -147,6 +147,17 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withValidation(Field::isNonNegativeInteger)
             .withDefault(30000);
 
+    public static final Field MINIMAL_WAIT_FOR_WINDOW_MS = Field.create("scylla.minimal.wait.for.window.time")
+        .withDisplayName("Minimal 'waitForWindow' time (ms)")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("Minimal time between reading consecutive CDC log windows. Meant to be used as a simple throttling mechanism " +
+            "in situations where driver has a lot of old data to catch up with and ends up hogging resources. " +
+            "Value expressed in milliseconds.")
+        .withValidation(Field::isNonNegativeInteger)
+        .withDefault(0);
+
     public static final CQLConfiguration.ConsistencyLevel DEFAULT_CONSISTENCY_LEVEL = CQLConfiguration.ConsistencyLevel.QUORUM;
     public static final Field CONSISTENCY_LEVEL = Field.create("scylla.consistency.level")
             .withDisplayName("Consistency Level")
@@ -182,7 +193,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
                     .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
-                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE)
+                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, MINIMAL_WAIT_FOR_WINDOW_MS)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
                     // Exclude some Debezium options, which are not applicable/not supported by
@@ -268,6 +279,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public long getConfidenceWindowSizeMs() {
         return config.getInteger(ScyllaConnectorConfig.CONFIDENCE_WINDOW_SIZE);
+    }
+
+    public long getMinimalWaitForWindowMs() {
+        return config.getInteger(ScyllaConnectorConfig.MINIMAL_WAIT_FOR_WINDOW_MS);
     }
 
     public long getHeartbeatIntervalMs() {
