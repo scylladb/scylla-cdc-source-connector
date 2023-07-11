@@ -8,6 +8,8 @@ import io.debezium.config.Configuration;
 import io.debezium.config.Field;
 import io.debezium.connector.SourceInfoStructMaker;
 import io.debezium.heartbeat.Heartbeat;
+import io.netty.handler.ssl.SslProvider;
+import org.apache.commons.lang3.EnumUtils;
 import org.apache.kafka.common.config.ConfigDef;
 
 import java.net.InetSocketAddress;
@@ -41,6 +43,63 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withDescription("List of IP addresses of nodes in the Scylla cluster that the connector " +
                     "will use to open initial connections to the cluster. " +
                     "In the form of a comma-separated list of pairs <IP>:<PORT>");
+
+
+    public static final Field SSL_ENABLED = Field.create("scylla.ssl.enabled")
+            .withDisplayName("SSL")
+            .withType(ConfigDef.Type.BOOLEAN)
+            .withImportance(ConfigDef.Importance.HIGH)
+            .withDescription("Flag to determine if SSL is enabled when connecting to ScyllaDB.");
+
+    public static final Field SSL_PROVIDER = Field.create("scylla.ssl.provider")
+            .withDisplayName("SSL Provider")
+            .withEnum(SslProvider.class, SslProvider.JDK)
+            .withImportance(ConfigDef.Importance.LOW)
+            .withDescription("The SSL Provider to use when connecting to ScyllaDB. " +
+                    "Valid Values are JDK, OPENSSL, OPENSSL_REFCNT.");
+
+    public static final Field SSL_TRUSTSTORE_PATH = Field.create("scylla.ssl.truststore.path")
+            .withDisplayName("SSL Truststore Path")
+            .withType(ConfigDef.Type.STRING)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("Path to the Java Truststore.");
+
+    public static final Field SSL_TRUSTSTORE_PASSWORD = Field.create("scylla.ssl.truststore.password")
+            .withDisplayName("SSL Truststore Password")
+            .withType(ConfigDef.Type.STRING)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("Password to open the Java Truststore with.");
+
+    public static final Field SSL_KEYSTORE_PATH = Field.create("scylla.ssl.keystore.path")
+            .withDisplayName("SSL Keystore Path")
+            .withType(ConfigDef.Type.STRING)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("Path to the Java Keystore.");
+
+    public static final Field SSL_KEYSTORE_PASSWORD = Field.create("scylla.ssl.keystore.password")
+            .withDisplayName("SSL Keystore Password")
+            .withType(ConfigDef.Type.STRING)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("Password to open the Java Keystore with.");
+
+    public static final Field SSL_CIPHER_SUITES = Field.create("scylla.ssl.cipherSuites")
+            .withDisplayName("The cipher suites to enable")
+            .withType(ConfigDef.Type.LIST)
+            .withImportance(ConfigDef.Importance.HIGH)
+            .withDescription("The cipher suites to enable. " +
+                    "Defaults to none, resulting in a ``minimal quality of service`` according to JDK documentation.");
+
+    public static final Field SSL_OPENSLL_KEYCERTCHAIN = Field.create("scylla.ssl.openssl.keyCertChain")
+            .withDisplayName("The path to the certificate chain file")
+            .withType(ConfigDef.Type.STRING)
+            .withImportance(ConfigDef.Importance.HIGH)
+            .withDescription("Path to the SSL certificate file, when using OpenSSL.");
+
+    public static final Field SSL_OPENSLL_PRIVATEKEY = Field.create("scylla.ssl.openssl.privateKey")
+            .withDisplayName("The path to the private key file")
+            .withType(ConfigDef.Type.STRING)
+            .withImportance(ConfigDef.Importance.HIGH)
+            .withDescription("Path to the private key file, when using OpenSSL.");
 
     public static final Field TABLE_NAMES = Field.create("scylla.table.names")
             .withDisplayName("Table Names")
@@ -122,7 +181,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
-                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME)
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
                     .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
@@ -153,6 +212,42 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public List<InetSocketAddress> getContactPoints() {
         return ConfigSerializerUtil.deserializeClusterIpAddresses(config.getString(ScyllaConnectorConfig.CLUSTER_IP_ADDRESSES));
+    }
+
+    public boolean getSslEnabled() {
+        return config.getBoolean(SSL_ENABLED);
+    }
+
+    public SslProvider getSslProvider() {
+        return EnumUtils.getEnum(SslProvider.class, config.getString(SSL_PROVIDER).toUpperCase());
+    }
+
+    public String getTrustStorePath() {
+        return config.getString(SSL_TRUSTSTORE_PATH);
+    }
+
+    public String getTrustStorePassword() {
+        return config.getString(SSL_TRUSTSTORE_PASSWORD);
+    }
+
+    public String getKeyStorePath() {
+        return config.getString(SSL_KEYSTORE_PATH);
+    }
+
+    public String getKeyStorePassword() {
+        return config.getString(SSL_KEYSTORE_PASSWORD);
+    }
+
+    public List<String> getCipherSuite() {
+        return config.getInstance(SSL_CIPHER_SUITES, List.class);
+    }
+
+    public String getCertPath() {
+        return config.getString(SSL_OPENSLL_KEYCERTCHAIN);
+    }
+
+    public String getPrivateKeyPath() {
+        return config.getString(SSL_OPENSLL_PRIVATEKEY);
     }
 
     public Set<TableName> getTableNames() {
