@@ -9,8 +9,12 @@ import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.util.Clock;
+import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
@@ -19,11 +23,17 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
 
     private final RawChange change;
     private final ScyllaSchema schema;
+    private final RawChange preImage;
 
     public ScyllaChangeRecordEmitter(RawChange change, OffsetContext offsetContext, ScyllaSchema schema, Clock clock) {
+        this(null, change, offsetContext, schema, clock);
+    }
+
+    public ScyllaChangeRecordEmitter(RawChange preImage, RawChange change, OffsetContext offsetContext, ScyllaSchema schema, Clock clock) {
         super(offsetContext, clock);
         this.change = change;
         this.schema = schema;
+        this.preImage = preImage;
     }
 
     public RawChange getChange() {
@@ -63,7 +73,15 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
         Struct afterStruct = new Struct(scyllaCollectionSchema.afterSchema());
         fillStructWithChange(scyllaCollectionSchema, keyStruct, afterStruct, change);
 
-        Struct envelope = scyllaCollectionSchema.getEnvelopeSchema().create(afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
+        Struct envelope;
+        if (preImage != null) {
+            Struct beforeStruct = new Struct(scyllaCollectionSchema.beforeSchema());
+            fillStructWithChange(scyllaCollectionSchema, null, beforeStruct, preImage);
+            envelope = generalizedEnvelope(scyllaCollectionSchema.getEnvelopeSchema().schema(), beforeStruct, afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant(), Envelope.Operation.CREATE);
+        }
+        else {
+            envelope = scyllaCollectionSchema.getEnvelopeSchema().create(afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
+        }
 
         receiver.changeRecord(scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
     }
@@ -76,7 +94,15 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
         Struct afterStruct = new Struct(scyllaCollectionSchema.afterSchema());
         fillStructWithChange(scyllaCollectionSchema, keyStruct, afterStruct, change);
 
-        Struct envelope = scyllaCollectionSchema.getEnvelopeSchema().update(null, afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
+        Struct envelope;
+        if (preImage != null) {
+            Struct beforeStruct = new Struct(scyllaCollectionSchema.beforeSchema());
+            fillStructWithChange(scyllaCollectionSchema, null, beforeStruct, preImage);
+            envelope = generalizedEnvelope(scyllaCollectionSchema.getEnvelopeSchema().schema(), beforeStruct, afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant(), Envelope.Operation.UPDATE);
+        }
+        else {
+            envelope = scyllaCollectionSchema.getEnvelopeSchema().update(null, afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
+        }
 
         receiver.changeRecord(scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
     }
@@ -87,7 +113,11 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
 
         Struct keyStruct = new Struct(scyllaCollectionSchema.keySchema());
         Struct beforeStruct = new Struct(scyllaCollectionSchema.beforeSchema());
-        fillStructWithChange(scyllaCollectionSchema, keyStruct, beforeStruct, change);
+        if (preImage != null) {
+            fillStructWithChange(scyllaCollectionSchema, keyStruct, beforeStruct, preImage);
+        } else {
+            fillStructWithChange(scyllaCollectionSchema, keyStruct, beforeStruct, change);
+        }
 
         Struct envelope = scyllaCollectionSchema.getEnvelopeSchema().delete(beforeStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
 
@@ -102,7 +132,9 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
 
             if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
                 valueStruct.put(cdef.getColumnName(), value);
-                keyStruct.put(cdef.getColumnName(), value);
+                if (keyStruct != null) {
+                    keyStruct.put(cdef.getColumnName(), value);
+                }
             } else {
                 Boolean isDeleted = this.change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
                 if (value != null || (isDeleted != null && isDeleted)) {
@@ -112,6 +144,24 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
                 }
             }
         }
+    }
+
+    private Struct generalizedEnvelope(Schema schema, Object before, Object after, Struct source, Instant timestamp, Envelope.Operation operationType) {
+        Struct struct = new Struct(schema);
+        struct.put(Envelope.FieldName.OPERATION, operationType.code());
+        if (before != null) {
+            struct.put(Envelope.FieldName.BEFORE, before);
+        }
+        if (after != null) {
+            struct.put(Envelope.FieldName.AFTER, after);
+        }
+        if (source != null) {
+            struct.put(Envelope.FieldName.SOURCE, source);
+        }
+        if (timestamp != null) {
+            struct.put(Envelope.FieldName.TIMESTAMP, timestamp.toEpochMilli());
+        }
+        return struct;
     }
 
     private Object translateCellToKafka(Cell cell) {
