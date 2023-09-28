@@ -1,0 +1,24 @@
+name: Vulnerability scan
+
+on:
+  schedule:
+    cron: "43 16 * * *"
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Trivy fs scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run trivy in fs mode
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: false
+        severity: 'CRITICAL,HIGH,MEDIUM'
