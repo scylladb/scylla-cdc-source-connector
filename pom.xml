@@ -111,7 +111,7 @@
         <flogger.version>0.5.1</flogger.version>
         <!-- added for transitive dependencies -->
         <log4j.version>2.17.1</log4j.version>
-        <jackson-databind.version>2.13.4.1</jackson-databind.version>
+        <jackson-databind.version>2.15.2</jackson-databind.version>
         <guava.version>24.1.1-jre</guava.version>
         <jetty.version>11.0.2</jetty.version>
         <commons.version>3.8.1</commons.version>
