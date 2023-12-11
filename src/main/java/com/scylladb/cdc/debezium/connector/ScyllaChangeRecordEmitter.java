@@ -41,6 +41,7 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
             case ROW_UPDATE:
                 return Envelope.Operation.UPDATE;
             case ROW_INSERT:
+            case POST_IMAGE:
                 return Envelope.Operation.CREATE;
             case PARTITION_DELETE: // See comment in ScyllaChangesConsumer on the support of partition deletes.
             case ROW_DELETE:
