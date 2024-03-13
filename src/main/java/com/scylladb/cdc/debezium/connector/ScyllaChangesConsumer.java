@@ -1,6 +1,5 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.Task;
@@ -10,8 +9,6 @@ import io.debezium.util.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
@@ -21,31 +18,17 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     private final ScyllaOffsetContext offsetContext;
     private final ScyllaSchema schema;
     private final Clock clock;
-    private final boolean usePreimages;
-    private final Map<TaskId, RawChange> lastPreImage;
 
-    public ScyllaChangesConsumer(EventDispatcher<CollectionId> dispatcher, ScyllaOffsetContext offsetContext, ScyllaSchema schema, Clock clock, boolean usePreimages) {
+    public ScyllaChangesConsumer(EventDispatcher<CollectionId> dispatcher, ScyllaOffsetContext offsetContext, ScyllaSchema schema, Clock clock) {
         this.dispatcher = dispatcher;
         this.offsetContext = offsetContext;
         this.schema = schema;
         this.clock = clock;
-        this.usePreimages = usePreimages;
-        if (usePreimages) {
-            this.lastPreImage = new HashMap<>();
-        } else {
-            this.lastPreImage = null;
-        }
     }
 
     @Override
     public CompletableFuture<Void> consume(Task task, RawChange change) {
         try {
-            logger.trace("Consuming RawChange of type {}", change.getOperationType());
-            if (usePreimages && change.getOperationType() == RawChange.OperationType.PRE_IMAGE) {
-                lastPreImage.put(task.id, change);
-                return CompletableFuture.completedFuture(null);
-            }
-
             Task updatedTask = task.updateState(change.getId());
             TaskStateOffsetContext taskStateOffsetContext = offsetContext.taskStateOffsetContext(task.id);
             taskStateOffsetContext.dataChangeEvent(updatedTask.state);
@@ -72,15 +55,8 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (usePreimages && lastPreImage.containsKey(task.id)) {
-                dispatcher.dispatchDataChangeEvent(new CollectionId(task.id.getTable()),
-                    new ScyllaChangeRecordEmitter(lastPreImage.get(task.id), change, taskStateOffsetContext, schema, clock));
-                lastPreImage.remove(task.id);
-            }
-            else {
-                dispatcher.dispatchDataChangeEvent(new CollectionId(task.id.getTable()),
+            dispatcher.dispatchDataChangeEvent(new CollectionId(task.id.getTable()),
                     new ScyllaChangeRecordEmitter(change, taskStateOffsetContext, schema, clock));
-            }
         } catch (InterruptedException e) {
             logger.error("Exception while dispatching change: {}", change.getId().toString());
             logger.error("Exception details: {}", e.getMessage());
