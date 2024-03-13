@@ -90,6 +90,17 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withImportance(ConfigDef.Importance.MEDIUM)
           .withDescription("Password to open the Java Truststore with.");
 
+  public static final CollectionsMode DEFAULT_COLLECTIONS_MODE = CollectionsMode.DELTA;
+  public static final Field COLLECTIONS_MODE = Field.create("scylla.collections.mode")
+            .withDisplayName("Collections format")
+            .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
+            .withWidth(ConfigDef.Width.SHORT)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("How to represent non-frozen collections. Currently, only 'delta' mode is supported - in the future " +
+                    "support for more modes may be added. 'Delta' mode: change in collection is represented as a struct " +
+                    "with 2 fields, 'mode' and 'elements'. 'mode' describes what type of change happened (modifying collection, overwriting collection), " +
+                    "'elements' contains added/removed elements.");
+
   public static final Field SSL_KEYSTORE_PATH =
       Field.create("scylla.ssl.keystore.path")
           .withDisplayName("SSL Keystore Path")
@@ -478,7 +489,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               SSL_KEYSTORE_PASSWORD,
               SSL_CIPHER_SUITES,
               SSL_OPENSLL_KEYCERTCHAIN,
-              SSL_OPENSLL_PRIVATEKEY)
+              SSL_OPENSLL_PRIVATEKEY,
+              COLLECTIONS_MODE)
           .connector(
               QUERY_TIME_WINDOW_SIZE,
               CONFIDENCE_WINDOW_SIZE,
@@ -666,6 +678,18 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public long getIncompleteTaskTimeoutMs() {
     return config.getLong(ScyllaConnectorConfig.CDC_INCOMPLETE_TASK_TIMEOUT_MS);
+  }
+
+  public CollectionsMode getCollectionsMode() {
+    String value = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
+    if (value == null) {
+      return DEFAULT_COLLECTIONS_MODE;
+    }
+    try {
+      return CollectionsMode.valueOf(value.trim().toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      return DEFAULT_COLLECTIONS_MODE;
+    }
   }
 
   public int getQueryOptionsFetchSize() {

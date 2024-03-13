@@ -4,13 +4,17 @@ import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.cql.Cell;
 import com.scylladb.cdc.model.worker.cql.CqlDate;
+import com.scylladb.cdc.model.worker.cql.Field;
+
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.util.Clock;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.HashMap;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -22,12 +26,17 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.apache.kafka.connect.data.Field;
+
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
+import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.header.ConnectHeaders;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.commons.lang3.ObjectUtils;
+
 
 public class ScyllaChangeRecordEmitter
     extends AbstractChangeRecordEmitter<ScyllaPartition, ScyllaCollectionSchema> {
@@ -409,7 +418,7 @@ public class ScyllaChangeRecordEmitter
   private void fillKeyStructFromImage(
       Struct keyStruct, RawChange image, ScyllaCollectionSchema collectionSchema) {
     // Iterate over key schema fields in order to maintain proper PK column ordering
-    for (Field field : keyStruct.schema().fields()) {
+    for (org.apache.kafka.connect.data.Field field : keyStruct.schema().fields()) {
       String columnName = field.name();
       Cell cell = getCellSafe(image, columnName);
       if (cell != null) {
@@ -442,18 +451,58 @@ public class ScyllaChangeRecordEmitter
       return null;
     }
     Struct valueStruct = new Struct(structSchema);
+    boolean legacyFormat =
+        connectorConfig.getCdcOutputFormat()
+            == ScyllaConnectorConfig.CdcOutputFormat.LEGACY;
+
     for (ChangeSchema.ColumnDefinition cdef : image.getSchema().getNonCdcColumnDefinitions()) {
       String columnName = cdef.getColumnName();
-      Object value =
-          translateCellToKafka(
-              getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+      if (!ScyllaSchema.isSupportedColumnSchema(image.getSchema(), cdef)) {
+        continue;
+      }
 
       if (isPrimaryKeyColumn(cdef)) {
         if (includePk) {
+          Object value =
+              translateCellToKafka(
+                  getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
           valueStruct.put(columnName, value);
         }
-      } else if (modifiedColumns.contains(columnName) && value != null) {
-        valueStruct.put(columnName, value);
+        continue;
+      }
+
+      if (!modifiedColumns.contains(columnName)) {
+        continue;
+      }
+
+      // Non-PK, modified: legacy = Cell wrapping; advanced = raw values
+      if (legacyFormat) {
+        if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
+          Struct cellOrNull =
+              translateNonFrozenCollectionToKafka(
+                  valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
+          valueStruct.put(columnName, cellOrNull);
+        } else {
+          Object value =
+              translateCellToKafka(
+                  getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+          Schema cellSchema = collectionSchema.cellSchema(columnName);
+          Struct cell = new Struct(cellSchema);
+          cell.put(ScyllaSchema.CELL_VALUE, value);
+          valueStruct.put(columnName, cell);
+        }
+      } else {
+        if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
+          Struct cell =
+              translateNonFrozenCollectionToKafka(
+                  valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
+          valueStruct.put(columnName, cell != null ? cell.get(ScyllaSchema.CELL_VALUE) : null);
+        } else {
+          Object value =
+              translateCellToKafka(
+                  getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+          valueStruct.put(columnName, value);
+        }
       }
     }
     return valueStruct;
@@ -479,22 +528,89 @@ public class ScyllaChangeRecordEmitter
       return null;
     }
     Struct valueStruct = new Struct(structSchema);
+    boolean legacyFormat =
+        connectorConfig.getCdcOutputFormat()
+            == ScyllaConnectorConfig.CdcOutputFormat.LEGACY;
+
     for (ChangeSchema.ColumnDefinition cdef : image.getSchema().getNonCdcColumnDefinitions()) {
       String columnName = cdef.getColumnName();
-      Object value =
-          translateCellToKafka(
-              getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+      if (!ScyllaSchema.isSupportedColumnSchema(image.getSchema(), cdef)) {
+        continue;
+      }
 
       if (isPrimaryKeyColumn(cdef)) {
         if (includePk) {
+          Object value =
+              translateCellToKafka(
+                  getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
           valueStruct.put(columnName, value);
         }
-      } else if (value != null) {
-        valueStruct.put(columnName, value);
+        continue;
+      }
+
+      // Non-PK: legacy = Cell wrapping (for transform); advanced = raw values (master behaviour)
+      if (legacyFormat) {
+        if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
+          Struct cellOrNull =
+              translateNonFrozenCollectionToKafka(
+                  valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
+          valueStruct.put(columnName, cellOrNull);
+        } else {
+          Object value =
+              translateCellToKafka(
+                  getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+          Schema cellSchema = collectionSchema.cellSchema(columnName);
+          Struct cell = new Struct(cellSchema);
+          cell.put(ScyllaSchema.CELL_VALUE, value);
+          valueStruct.put(columnName, cell);
+        }
+      } else {
+        // ADVANCED - direct values, no Cell wrapper
+        if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
+          Struct cell =
+              translateNonFrozenCollectionToKafka(
+                  valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
+          valueStruct.put(columnName, cell != null ? cell.get(ScyllaSchema.CELL_VALUE) : null);
+        } else {
+          Object value =
+              translateCellToKafka(
+                  getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+          valueStruct.put(columnName, value);
+        }
       }
     }
     return valueStruct;
   }
+
+    private void fillStructWithChange(ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {
+      for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
+        if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
+
+        if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
+            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), schema.keySchema().field(cdef.getColumnName()).schema());
+            valueStruct.put(cdef.getColumnName(), value);
+            keyStruct.put(cdef.getColumnName(), value);
+            continue;
+        }
+
+        Schema cellSchema = schema.cellSchema(cdef.getColumnName());
+        if (ScyllaSchema.isNonFrozenCollection(change.getSchema(), cdef)) {
+            Struct value = translateNonFrozenCollectionToKafka(valueStruct, change, cellSchema, cdef);
+            valueStruct.put(cdef.getColumnName(), value);
+            continue;
+        }
+
+        Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
+        Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
+        Boolean isDeleted = change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
+
+        if (value != null || (isDeleted != null && isDeleted)) {
+            Struct cell = new Struct(cellSchema);
+            cell.put(ScyllaSchema.CELL_VALUE, value);
+            valueStruct.put(cdef.getColumnName(), cell);
+        }
+      }
+    }
 
   /**
    * Builds the "before" struct for UPDATE operations by combining data from preimage and postimage.
@@ -545,33 +661,196 @@ public class ScyllaChangeRecordEmitter
 
     // Both images present - combine data from preimage and postimage
     Struct valueStruct = new Struct(collectionSchema.beforeSchema());
+    boolean legacyFormat =
+        connectorConfig.getCdcOutputFormat()
+            == ScyllaConnectorConfig.CdcOutputFormat.LEGACY;
 
     // Fill from postImage - this gives us unchanged columns and primary keys
     for (ChangeSchema.ColumnDefinition cdef : postImage.getSchema().getNonCdcColumnDefinitions()) {
       String columnName = cdef.getColumnName();
+      if (!ScyllaSchema.isSupportedColumnSchema(postImage.getSchema(), cdef)) {
+        continue;
+      }
 
       if (isPrimaryKeyColumn(cdef)) {
         if (!includePk) {
           continue;
         }
-      } else if (modifiedColumns.contains(columnName)) {
+        Object value =
+            translateCellToKafka(
+                getCellSafe(postImage, columnName), collectionSchema.cellSchema(columnName));
+        valueStruct.put(columnName, value);
         continue;
       }
-      Object value =
-          translateCellToKafka(
-              getCellSafe(postImage, columnName), collectionSchema.cellSchema(columnName));
-      valueStruct.put(columnName, value);
+      if (modifiedColumns.contains(columnName)) {
+        continue;
+      }
+
+      // Unchanged column from postImage: legacy = Cell wrapping; advanced = raw
+      putColumnValueFromImage(
+          valueStruct,
+          postImage,
+          columnName,
+          cdef,
+          collectionSchema,
+          legacyFormat);
     }
 
     // Fill modified columns from preImage (which has the OLD values)
     for (String columnName : modifiedColumns) {
-      Object value =
-          translateCellToKafka(
-              getCellSafe(preImage, columnName), collectionSchema.cellSchema(columnName));
-      valueStruct.put(columnName, value);
+      ChangeSchema.ColumnDefinition cdef =
+          preImage.getSchema().getNonCdcColumnDefinitions().stream()
+              .filter(c -> c.getColumnName().equals(columnName))
+              .findFirst()
+              .orElse(null);
+      if (cdef == null || !ScyllaSchema.isSupportedColumnSchema(preImage.getSchema(), cdef)) {
+        continue;
+      }
+      putColumnValueFromImage(
+          valueStruct, preImage, columnName, cdef, collectionSchema, legacyFormat);
     }
 
     return valueStruct;
+  }
+
+  /**
+   * Puts a single non-PK column value into valueStruct from an image, using legacy (Cell wrap) or
+   * advanced (raw) format.
+   */
+  private void putColumnValueFromImage(
+      Struct valueStruct,
+      RawChange image,
+      String columnName,
+      ChangeSchema.ColumnDefinition cdef,
+      ScyllaCollectionSchema collectionSchema,
+      boolean legacyFormat) {
+    if (legacyFormat) {
+      if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
+        Struct cellOrNull =
+            translateNonFrozenCollectionToKafka(
+                valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
+        valueStruct.put(columnName, cellOrNull);
+      } else {
+        Object value =
+            translateCellToKafka(
+                getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+        Schema cellSchema = collectionSchema.cellSchema(columnName);
+        Struct cell = new Struct(cellSchema);
+        cell.put(ScyllaSchema.CELL_VALUE, value);
+        valueStruct.put(columnName, cell);
+      }
+    } else {
+      if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
+        Struct cell =
+            translateNonFrozenCollectionToKafka(
+                valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
+        valueStruct.put(columnName, cell != null ? cell.get(ScyllaSchema.CELL_VALUE) : null);
+      } else {
+        Object value =
+            translateCellToKafka(
+                getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+        valueStruct.put(columnName, value);
+      }
+    }
+  }
+
+  private Struct translateNonFrozenCollectionToKafka(Struct valueStruct, RawChange change, Schema cellSchema, ChangeSchema.ColumnDefinition cdef) {
+      Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
+      Struct cell = new Struct(cellSchema);
+      Struct value = new Struct(innerSchema);
+
+      Cell elementsCell = change.getCell(cdef.getColumnName());
+      Cell deletedElementsCell = change.getCell("cdc$deleted_elements_" + cdef.getColumnName());
+      boolean isDeleted = Boolean.TRUE.equals(change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean());
+
+      Object elements;
+      boolean hasModified = false;
+      switch (elementsCell.getDataType().getCqlType()) {
+          case SET: {
+              Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+              Schema scyllaElementsSchema = SchemaBuilder.array(elementsSchema.keySchema()).build();
+              List<Object> addedElements = (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
+              List<Object> deletedElements = (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema);
+              Map<Object, Boolean> delta = new HashMap<>();
+              if (addedElements != null) {
+                  addedElements.forEach(element -> delta.put(element, true));
+              }
+              if (deletedElements != null) {
+                  deletedElements.forEach(element -> delta.put(element, false));
+              }
+
+              hasModified = !delta.isEmpty();
+              elements = delta;
+              break;
+          }
+          case LIST:
+          case MAP: {
+              Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+              Schema deletedElementsScyllaSchema = SchemaBuilder.array(elementsSchema.keySchema()).optional().build();
+              Map<Object, Object> addedElements = (Map<Object, Object>) ObjectUtils.defaultIfNull(translateFieldToKafka(elementsCell, elementsSchema), new HashMap<>());
+              List<Object> deletedKeys = (List<Object>)translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema);
+              if (deletedKeys != null) {
+                  deletedKeys.forEach((key) -> {
+                      addedElements.put(key, null);
+                  });
+              }
+
+              hasModified = !addedElements.isEmpty();
+              elements = addedElements;
+              break;
+          }
+          case UDT: {
+              List<Short> deletedKeysList = (List<Short>) translateFieldToKafka(deletedElementsCell, SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build());
+              Set<Short> deletedKeys;
+              if (deletedKeysList == null) {
+                  deletedKeys = new HashSet<>();
+              } else {
+                  deletedKeys = new HashSet<>(deletedKeysList);
+              }
+
+              Map<String, Field> elementsMap = elementsCell.getUDT();
+              assert elementsMap instanceof LinkedHashMap;
+
+              Schema udtSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+              Struct udtStruct = new Struct(udtSchema);
+              Short index = -1;
+              for (Map.Entry<String, Field> element : elementsMap.entrySet()) {
+                  index++;
+                  if ((!element.getValue().isNull()) || deletedKeys.contains(index)) {
+                      hasModified = true;
+                      Schema fieldCellSchema = udtSchema.field(element.getKey()).schema();
+                      Struct fieldCell = new Struct (fieldCellSchema);
+                      if (element.getValue().isNull()) {
+                          fieldCell.put(ScyllaSchema.CELL_VALUE, null);
+                      } else {
+                          fieldCell.put(ScyllaSchema.CELL_VALUE, translateFieldToKafka(element.getValue(), fieldCellSchema.field(ScyllaSchema.CELL_VALUE).schema()));
+                      }
+                      udtStruct.put(element.getKey(), fieldCell);
+                  }
+              }
+
+              elements = udtStruct;
+              break;
+          }
+          default:
+              throw new RuntimeException("Unreachable");
+      }
+
+      if (!hasModified) {
+          if (isDeleted) {
+              cell.put(ScyllaSchema.CELL_VALUE, null);
+              return cell;
+          } else {
+              return null;
+          }
+      }
+
+      CollectionOperation mode = isDeleted ? CollectionOperation.OVERWRITE : CollectionOperation.MODIFY;
+      value.put(ScyllaSchema.MODE_VALUE, mode.toString());
+      value.put(ScyllaSchema.ELEMENTS_VALUE, elements);
+
+      cell.put(ScyllaSchema.CELL_VALUE, value);
+      return cell;
   }
 
   private Struct generalizedEnvelope(
@@ -752,7 +1031,7 @@ public class ScyllaChangeRecordEmitter
         LOGGER.error("{} {}", CONNECTOR_ERROR_MARKER, errorMsg);
         throw new IllegalStateException(errorMsg);
       }
-      List<Field> fieldSchemas = resultSchema.fields();
+      List<org.apache.kafka.connect.data.Field> fieldSchemas = resultSchema.fields();
       Struct tupleStruct = new Struct(resultSchema);
       List<com.scylladb.cdc.model.worker.cql.Field> tuple = field.getTuple();
       for (int i = 0; i < tuple.size(); i++) {
