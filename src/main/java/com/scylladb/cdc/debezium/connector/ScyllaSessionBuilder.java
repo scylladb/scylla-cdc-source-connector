@@ -35,6 +35,8 @@ public class ScyllaSessionBuilder {
             sslBuilder.withPrivateKeyPath(configuration.getPrivateKeyPath());
             builder.withSslConfig(sslBuilder.build());
         }
+        builder.withQueryOptionsFetchSize(configuration.getQueryOptionsFetchSize());
+
         return new Driver3Session(builder.build());
     }
 }
