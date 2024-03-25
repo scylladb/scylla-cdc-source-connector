@@ -155,6 +155,17 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withImportance(ConfigDef.Importance.MEDIUM)
             .withDescription("The consistency level of CDC table read queries. This consistency level is used only for read queries " +
                     "to the CDC log table.");
+    public static final Field QUERY_OPTIONS_FETCH_SIZE = Field.create("scylla.query.options.fetch.size")
+        .withDisplayName("Queries fetch size")
+        .withType(ConfigDef.Type.INT)
+        .withDefault(0)
+        .withWidth(ConfigDef.Width.SHORT)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withValidation(Field::isNonNegativeInteger)
+        .withDescription("The default page fetch size for all driver select queries. Value 0 means use driver " +
+            "defaults (usually 5000). Passed to " +
+            "driver's QueryOptions before session construction. Set this to an explicit value if " +
+            "experiencing too high memory usage.");
 
     public static final Field LOCAL_DC_NAME = Field.create("scylla.local.dc")
             .withDisplayName("Local DC Name")
@@ -192,7 +203,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
-                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
                     .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
@@ -300,6 +311,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public boolean getPreimagesEnabled() {
         return config.getBoolean(ScyllaConnectorConfig.PREIMAGES_ENABLED);
+    }
+
+    public int getQueryOptionsFetchSize() {
+        return config.getInteger(ScyllaConnectorConfig.QUERY_OPTIONS_FETCH_SIZE);
     }
 
     @Override
