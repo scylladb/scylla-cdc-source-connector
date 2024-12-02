@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.scylladb</groupId>
     <artifactId>scylla-cdc-source-connector</artifactId>
-    <version>1.1.4-SNAPSHOT</version>
+    <version>1.2.3-SNAPSHOT</version>
     <name>Scylla CDC Source Connector</name>
     <description>Kafka Connect Source Connector from Scylla CDC.</description>
     <url>https://github.com/scylladb/scylla-cdc-source-connector</url>
@@ -106,14 +106,14 @@
         <debezium.version>1.4.1.Final</debezium.version>
         <!-- Docs claim java 8 supported, but support is deprecated -->
         <kafka.version>3.3.1</kafka.version>
-        <scylla.driver.version>3.11.5.0</scylla.driver.version>
-        <scylla.cdc.java.version>1.3.2</scylla.cdc.java.version>
+        <scylla.driver.version>3.11.5.3</scylla.driver.version>
+        <scylla.cdc.java.version>1.3.3</scylla.cdc.java.version>
         <flogger.version>0.5.1</flogger.version>
         <!-- added for transitive dependencies -->
         <log4j.version>2.17.1</log4j.version>
         <jackson-databind.version>2.15.2</jackson-databind.version>
         <guava.version>32.0.0-jre</guava.version>
-        <jetty.version>11.0.2</jetty.version>
+        <jetty.version>11.0.14</jetty.version>
         <commons.version>3.8.1</commons.version>
     </properties>
 
@@ -198,6 +198,11 @@
                 <groupId>io.netty</groupId>
                 <artifactId>netty-handler</artifactId>
                 <version>4.1.100.Final</version>
+            </dependency>
+            <dependency>
+                <groupId>org.xerial.snappy</groupId>
+                <artifactId>snappy-java</artifactId>
+                <version>1.1.10.5</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

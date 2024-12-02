@@ -155,6 +155,17 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withImportance(ConfigDef.Importance.MEDIUM)
             .withDescription("The consistency level of CDC table read queries. This consistency level is used only for read queries " +
                     "to the CDC log table.");
+    public static final Field QUERY_OPTIONS_FETCH_SIZE = Field.create("scylla.query.options.fetch.size")
+        .withDisplayName("Queries fetch size")
+        .withType(ConfigDef.Type.INT)
+        .withDefault(0)
+        .withWidth(ConfigDef.Width.SHORT)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withValidation(Field::isNonNegativeInteger)
+        .withDescription("The default page fetch size for all driver select queries. Value 0 means use driver " +
+            "defaults (usually 5000). Passed to " +
+            "driver's QueryOptions before session construction. Set this to an explicit value if " +
+            "experiencing too high memory usage.");
 
     public static final Field LOCAL_DC_NAME = Field.create("scylla.local.dc")
             .withDisplayName("Local DC Name")
@@ -164,6 +175,17 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withDescription("The name of Scylla local datacenter. This local datacenter name will be used to setup " +
                     "the connection to Scylla to prioritize sending requests to " +
                     "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
+
+    public static final Field PREIMAGES_ENABLED = Field.create("experimental.preimages.enabled")
+        .withDisplayName("Enable experimental preimages support")
+        .withType(ConfigDef.Type.BOOLEAN)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDefault(false)
+        .withDescription("If enabled connector will use PRE_IMAGE CDC entries to populate 'before' field of the " +
+            "debezium Envelope of the next kafka message. This may change some expected behaviours (e.g. ROW_DELETE " +
+            "will use preimage instead of its own information). See Scylla docs for more information about CDC " +
+            "preimages limitations. ");
 
     /*
      * Scylla CDC Source Connector relies on heartbeats to move the offset,
@@ -181,8 +203,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
-                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
-                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE)
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
+                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
                     // Exclude some Debezium options, which are not applicable/not supported by
@@ -285,6 +307,14 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public String getLocalDCName() {
         return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
+    }
+
+    public boolean getPreimagesEnabled() {
+        return config.getBoolean(ScyllaConnectorConfig.PREIMAGES_ENABLED);
+    }
+
+    public int getQueryOptionsFetchSize() {
+        return config.getInteger(ScyllaConnectorConfig.QUERY_OPTIONS_FETCH_SIZE);
     }
 
     @Override

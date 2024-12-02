@@ -192,9 +192,11 @@ If the operation did not modify the `v` column, the data event will contain the 
 
 See `UPDATE` example for full  data change event's value.
 
-#### ScyllaExtractNewState transformer
-Connector provides one single message transformation (SMT), `ScyllaExtractNewState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewState`).
-This SMT works like exactly like `io.debezium.transforms.ExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from aforementioned single-field structures.
+#### Single Message Transformations (SMTs)
+The connector provides two single message transformations (SMTs): `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) and `ScyllaFlattenColumns` (`com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`).
+
+##### `ScyllaExtractNewRecordState`
+`ScyllaExtractNewRecordState` works like exactly like `io.debezium.transforms.ExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from the aforementioned single-field structures.
 Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but it makes it impossible to differentiate between NULL value and non-modification.
 If the message is as following:
 ```json
@@ -238,7 +240,7 @@ If the message is as following:
   }
 }
 ```
-then the same message transformed by `ScyllaExtractNewState` would be:
+then the same message transformed by `ScyllaExtractNewRecordState` would be:
 ```json
 {
   "schema": {
@@ -271,6 +273,97 @@ then the same message transformed by `ScyllaExtractNewState` would be:
 }
 ```
 Notice how `v` field is no longer packed in `value`.
+
+##### `ScyllaFlattenColumns`
+`ScyllaFlattenColumns` flattens columns that are wrapped in `value` structure, such as:
+```json
+"v": {
+  "value": 3
+}
+```
+transforming it into:
+```json
+"v": 3
+```
+
+Compared to `ScyllaExtractNewRecordState` transformation, `ScyllaFlattenColumns` does not remove any additional metadata or modify the message in any other way.
+
+For example, running the transformation on this message:
+```json
+{
+  "source": {
+    "version": "1.1.4",
+    "connector": "scylla",
+    "name": "SMTExample",
+    "ts_ms": 1706890860030,
+    "snapshot": {
+      "string": "false"
+    },
+    "db": "ks",
+    "keyspace_name": "ks",
+    "table_name": "t",
+    "ts_us": 1706890860030414
+  },
+  "before": null,
+  "after": {
+    "SMTExample.ks.t.Before": {
+      "ck": 7,
+      "pk": 1,
+      "v": {
+        "value": 7
+      }
+    }
+  },
+  "op": {
+    "string": "c"
+  },
+  "ts_ms": {
+    "long": 1706890892952
+  },
+  "transaction": null
+}
+```
+will result in the following message:
+```json
+{
+  "source": {
+    "version": "1.1.4",
+    "connector": "scylla",
+    "name": "SMTExample",
+    "ts_ms": 1706890860030,
+    "snapshot": {
+      "string": "false"
+    },
+    "db": "ks",
+    "keyspace_name": "ks",
+    "table_name": "t",
+    "ts_us": 1706890860030414
+  },
+  "before": null,
+  "after": {
+    "SMTExample.ks.t.Before": {
+      "ck": 7,
+      "pk": 1,
+      "v": 7
+    }
+  },
+  "op": {
+    "string": "c"
+  },
+  "ts_ms": {
+    "long": 1706890892952
+  },
+  "transaction": null
+}
+```
+while `ScyllaExtractNewRecordState` would produce:
+```json
+{
+  "ck": 7,
+  "pk": 1,
+  "v": 7
+}
+```
 
 ### `INSERT` example
 Given this Scylla table and `INSERT` operation:
