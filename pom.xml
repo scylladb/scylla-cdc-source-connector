@@ -112,7 +112,7 @@
         <!-- added for transitive dependencies -->
         <log4j.version>2.17.1</log4j.version>
         <jackson-databind.version>2.15.2</jackson-databind.version>
-        <guava.version>24.1.1-jre</guava.version>
+        <guava.version>32.0.0-jre</guava.version>
         <jetty.version>11.0.14</jetty.version>
         <commons.version>3.8.1</commons.version>
     </properties>
