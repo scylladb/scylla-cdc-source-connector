@@ -176,16 +176,25 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                     "the connection to Scylla to prioritize sending requests to " +
                     "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
 
-    public static final Field PREIMAGES_ENABLED = Field.create("experimental.preimages.enabled")
-        .withDisplayName("Enable experimental preimages support")
+    public static final Field PREIMAGES_ENABLED = Field.create("preimages.enabled")
+        .withDisplayName("Enable preimages support")
         .withType(ConfigDef.Type.BOOLEAN)
         .withWidth(ConfigDef.Width.MEDIUM)
         .withImportance(ConfigDef.Importance.LOW)
         .withDefault(false)
         .withDescription("If enabled connector will use PRE_IMAGE CDC entries to populate 'before' field of the " +
-            "debezium Envelope of the next kafka message. This may change some expected behaviours (e.g. ROW_DELETE " +
-            "will use preimage instead of its own information). See Scylla docs for more information about CDC " +
-            "preimages limitations. ");
+            "debezium Envelope of the next kafka message.");
+
+    public static final Field POSTIMAGES_ENABLED = Field.create("postimages.enabled")
+            .withDisplayName("Enable postimages support")
+            .withType(ConfigDef.Type.BOOLEAN)
+            .withWidth(ConfigDef.Width.SHORT)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDefault(false)
+            .withDescription("Whether the connector should ignore insert and update deltas and consume PostImage " +
+                    "events instead. PostImages only get generated for rows modified as part of an UPDATE or INSERT " +
+                    "statement. Only relevant when `'postimage': 'true'`, otherwise this option simply disables the " +
+                    "consumption of deltas.");
 
     /*
      * Scylla CDC Source Connector relies on heartbeats to move the offset,
@@ -204,7 +213,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
                     .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
-                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED)
+                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED, POSTIMAGES_ENABLED)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
                     // Exclude some Debezium options, which are not applicable/not supported by
@@ -311,6 +320,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public boolean getPreimagesEnabled() {
         return config.getBoolean(ScyllaConnectorConfig.PREIMAGES_ENABLED);
+    }
+
+    public boolean getPostimagesEnabled() {
+        return config.getBoolean(ScyllaConnectorConfig.POSTIMAGES_ENABLED);
     }
 
     public int getQueryOptionsFetchSize() {
