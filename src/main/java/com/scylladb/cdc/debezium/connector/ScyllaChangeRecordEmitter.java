@@ -112,14 +112,22 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
         scyllaCollectionSchema = this.schema.updateChangeSchema(scyllaCollectionSchema.id(), change.getSchema());
 
         Struct keyStruct = new Struct(scyllaCollectionSchema.keySchema());
-        Struct beforeStruct = new Struct(scyllaCollectionSchema.beforeSchema());
-        if (preImage != null) {
-            fillStructWithChange(scyllaCollectionSchema, keyStruct, beforeStruct, preImage);
-        } else {
-            fillStructWithChange(scyllaCollectionSchema, keyStruct, beforeStruct, change);
-        }
+        Struct afterStruct = new Struct(scyllaCollectionSchema.afterSchema());
+        fillStructWithChange(scyllaCollectionSchema, keyStruct, afterStruct, change);
 
-        Struct envelope = scyllaCollectionSchema.getEnvelopeSchema().delete(beforeStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
+        Struct envelope;
+        if (preImage != null) {
+            Struct beforeStruct = new Struct(scyllaCollectionSchema.beforeSchema());
+            fillStructWithChange(scyllaCollectionSchema, keyStruct, beforeStruct, preImage);
+            envelope = generalizedEnvelope(scyllaCollectionSchema.getEnvelopeSchema().schema(),
+                            beforeStruct, afterStruct, getOffset().getSourceInfo(),
+                            getClock().currentTimeAsInstant(), Envelope.Operation.DELETE);
+        } else {
+            // before is null on a row/partition delete operation. We represent the affected KeySchema in the after field, where the remaining cells are null.
+            envelope = generalizedEnvelope(scyllaCollectionSchema.getEnvelopeSchema().schema(),
+                            null, afterStruct, getOffset().getSourceInfo(),
+                            getClock().currentTimeAsInstant(), Envelope.Operation.DELETE);
+        }
 
         receiver.changeRecord(scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
     }
