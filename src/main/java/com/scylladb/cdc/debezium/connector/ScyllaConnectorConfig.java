@@ -176,16 +176,14 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                     "the connection to Scylla to prioritize sending requests to " +
                     "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
 
-    public static final Field PREIMAGES_ENABLED = Field.create("experimental.preimages.enabled")
-        .withDisplayName("Enable experimental preimages support")
+    public static final Field PREIMAGES_ENABLED = Field.create("preimages.enabled")
+        .withDisplayName("Enable preimages support")
         .withType(ConfigDef.Type.BOOLEAN)
         .withWidth(ConfigDef.Width.MEDIUM)
         .withImportance(ConfigDef.Importance.LOW)
         .withDefault(false)
         .withDescription("If enabled connector will use PRE_IMAGE CDC entries to populate 'before' field of the " +
-            "debezium Envelope of the next kafka message. This may change some expected behaviours (e.g. ROW_DELETE " +
-            "will use preimage instead of its own information). See Scylla docs for more information about CDC " +
-            "preimages limitations. ");
+            "debezium Envelope of the next kafka message.");
 
     /*
      * Scylla CDC Source Connector relies on heartbeats to move the offset,
