@@ -22,9 +22,11 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     private final ScyllaSchema schema;
     private final Clock clock;
     private final boolean usePreimages;
+    private final boolean usePostimages;
     private final Map<TaskId, RawChange> lastPreImage;
 
-    public ScyllaChangesConsumer(EventDispatcher<CollectionId> dispatcher, ScyllaOffsetContext offsetContext, ScyllaSchema schema, Clock clock, boolean usePreimages) {
+    public ScyllaChangesConsumer(EventDispatcher<CollectionId> dispatcher, ScyllaOffsetContext offsetContext, 
+                    ScyllaSchema schema, Clock clock, boolean usePreimages, boolean usePostimages) {
         this.dispatcher = dispatcher;
         this.offsetContext = offsetContext;
         this.schema = schema;
@@ -35,8 +37,15 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
         } else {
             this.lastPreImage = null;
         }
+
+        this.usePostimages = usePostimages;
     }
 
+    // TLDR;
+    // 1. Check for Preimages first
+    // 2. Verify whether a PARTITION_DELETE exists
+    // 3. If postImages are disabled, accept only INSERT/UPDATE/ROW_DELETE events
+    // 4. 4. If postImages are enabled, accept only POST_IMAGE events.
     @Override
     public CompletableFuture<Void> consume(Task task, RawChange change) {
         try {
@@ -66,9 +75,12 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
                 if (hasClusteringColumn) {
                     return CompletableFuture.completedFuture(null);
                 }
-            } else if (operationType != RawChange.OperationType.ROW_INSERT
+            } else if (!this.usePostimages
+                    && operationType != RawChange.OperationType.ROW_INSERT
                     && operationType != RawChange.OperationType.ROW_UPDATE
                     && operationType != RawChange.OperationType.ROW_DELETE) {
+                return CompletableFuture.completedFuture(null);
+            } else if (this.usePostimages && operationType != RawChange.OperationType.POST_IMAGE) {
                 return CompletableFuture.completedFuture(null);
             }
 

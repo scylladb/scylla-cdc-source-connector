@@ -51,6 +51,9 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
             case ROW_UPDATE:
                 return Envelope.Operation.UPDATE;
             case ROW_INSERT:
+            // TODO: Postimages always generate some delta as part of an operation.
+            //       Use the right envelope to its corresponding delta.
+            case POST_IMAGE:
                 return Envelope.Operation.CREATE;
             case PARTITION_DELETE: // See comment in ScyllaChangesConsumer on the support of partition deletes.
             case ROW_DELETE:
