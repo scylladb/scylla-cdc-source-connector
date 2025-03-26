@@ -2,9 +2,10 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.TaskState;
+import io.debezium.connector.SnapshotRecord;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.pipeline.txmetadata.TransactionContext;
-import io.debezium.schema.DataCollectionId;
+import io.debezium.spi.schema.DataCollectionId;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 
@@ -13,16 +14,11 @@ import java.util.Map;
 
 public class TaskStateOffsetContext implements OffsetContext {
     private final ScyllaOffsetContext scyllaOffsetContext;
-    private final SourceInfo sourceInfo;
+    final SourceInfo sourceInfo;
 
     public TaskStateOffsetContext(ScyllaOffsetContext scyllaOffsetContext, SourceInfo sourceInfo) {
         this.scyllaOffsetContext = scyllaOffsetContext;
         this.sourceInfo = sourceInfo;
-    }
-
-    @Override
-    public Map<String, ?> getPartition() {
-        return sourceInfo.partition();
     }
 
     @Override
@@ -54,7 +50,7 @@ public class TaskStateOffsetContext implements OffsetContext {
     }
 
     @Override
-    public void markLastSnapshotRecord() {
+    public void markSnapshotRecord(SnapshotRecord snapshotRecord) {
 
     }
 

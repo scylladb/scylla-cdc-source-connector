@@ -5,7 +5,7 @@ import io.debezium.data.Envelope;
 import io.debezium.pipeline.txmetadata.TransactionMonitor;
 import io.debezium.schema.DataCollectionSchema;
 import io.debezium.schema.DatabaseSchema;
-import io.debezium.util.SchemaNameAdjuster;
+import io.debezium.schema.SchemaNameAdjuster;
 import org.apache.kafka.connect.data.Date;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
@@ -22,7 +22,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
 
     private final Schema sourceSchema;
     private final ScyllaConnectorConfig configuration;
-    private final SchemaNameAdjuster adjuster = SchemaNameAdjuster.create(LOGGER);
+    private final SchemaNameAdjuster adjuster = SchemaNameAdjuster.create();
     private final Map<CollectionId, ScyllaCollectionSchema> dataCollectionSchemas = new HashMap<>();
     private final Map<CollectionId, ChangeSchema> changeSchemas = new HashMap<>();
 
@@ -60,6 +60,8 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                 .field(Envelope.FieldName.OPERATION, Schema.OPTIONAL_STRING_SCHEMA)
                 .field(Envelope.FieldName.TIMESTAMP, Schema.OPTIONAL_INT64_SCHEMA)
                 .field(Envelope.FieldName.TRANSACTION, TransactionMonitor.TRANSACTION_BLOCK_SCHEMA)
+                .field(Envelope.FieldName.TIMESTAMP_US, Schema.OPTIONAL_INT64_SCHEMA)
+                .field(Envelope.FieldName.TIMESTAMP_NS, Schema.OPTIONAL_INT64_SCHEMA)
                 .build();
 
         final Envelope envelope = Envelope.fromSchema(valueSchema);
@@ -204,6 +206,11 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
 
     @Override
     public boolean tableInformationComplete() {
+        return false;
+    }
+
+    @Override
+    public boolean isHistorized() {
         return false;
     }
 }

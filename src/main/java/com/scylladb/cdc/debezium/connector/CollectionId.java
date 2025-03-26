@@ -1,8 +1,11 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.TableName;
-import io.debezium.schema.DataCollectionId;
+import io.debezium.spi.schema.DataCollectionId;
+import io.debezium.util.Collect;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 public class CollectionId implements DataCollectionId {
@@ -16,6 +19,21 @@ public class CollectionId implements DataCollectionId {
     @Override
     public String identifier() {
         return tableName.keyspace + "." + tableName.name;
+    }
+
+    @Override
+    public List<String> parts() {
+        return Collect.arrayListOf(tableName.keyspace, tableName.name);
+    }
+
+    @Override
+    public List<String> databaseParts() {
+        return Collect.arrayListOf(tableName.keyspace, tableName.name);
+    }
+
+    @Override
+    public List<String> schemaParts() {
+        return Collections.emptyList();
     }
 
     public TableName getTableName() {
