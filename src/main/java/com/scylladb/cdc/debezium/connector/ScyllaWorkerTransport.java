@@ -16,14 +16,17 @@ import java.util.Set;
 public class ScyllaWorkerTransport implements WorkerTransport {
 
     private final ChangeEventSource.ChangeEventSourceContext context;
+    //private final ScyllaPartition partition;
     private final ScyllaOffsetContext offsetContext;
-    private final EventDispatcher<CollectionId> dispatcher;
+    private final EventDispatcher<ScyllaPartition, CollectionId> dispatcher;
     private final Map<TaskId, Threads.Timer> heartbeatTimers;
     private final long heartbeatIntervalMs;
 
-    public ScyllaWorkerTransport(ChangeEventSource.ChangeEventSourceContext context, ScyllaOffsetContext offsetContext, EventDispatcher<CollectionId> dispatcher,
-                                 long heartbeatIntervalMs) {
+    public ScyllaWorkerTransport(ChangeEventSource.ChangeEventSourceContext context,
+                                 ScyllaOffsetContext offsetContext,
+                                 EventDispatcher<ScyllaPartition, CollectionId> dispatcher, long heartbeatIntervalMs) {
         this.context = context;
+        //this.partition = partition;
         this.offsetContext = offsetContext;
         this.dispatcher = dispatcher;
         this.heartbeatTimers = new HashMap<>();
@@ -56,7 +59,7 @@ public class ScyllaWorkerTransport implements WorkerTransport {
         taskStateOffsetContext.dataChangeEvent(newState);
         try {
             if (heartbeatTimer.expired()) {
-                dispatcher.alwaysDispatchHeartbeatEvent(taskStateOffsetContext);
+                dispatcher.alwaysDispatchHeartbeatEvent(new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo), taskStateOffsetContext);
                 // Reset the timer.
                 heartbeatTimers.put(task, buildHeartbeatTimer());
             }

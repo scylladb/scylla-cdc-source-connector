@@ -17,19 +17,23 @@ import java.util.concurrent.CompletableFuture;
 public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
-    private final EventDispatcher<CollectionId> dispatcher;
+    private final EventDispatcher<ScyllaPartition, CollectionId> dispatcher;
     private final ScyllaOffsetContext offsetContext;
     private final ScyllaSchema schema;
     private final Clock clock;
     private final boolean usePreimages;
     private final Map<TaskId, RawChange> lastPreImage;
+    private final ScyllaConnectorConfig connectorConfig;
 
-    public ScyllaChangesConsumer(EventDispatcher<CollectionId> dispatcher, ScyllaOffsetContext offsetContext, ScyllaSchema schema, Clock clock, boolean usePreimages) {
+    public ScyllaChangesConsumer(EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
+                                 ScyllaOffsetContext offsetContext, ScyllaSchema schema, Clock clock,
+                                 ScyllaConnectorConfig connectorConfig) {
         this.dispatcher = dispatcher;
         this.offsetContext = offsetContext;
         this.schema = schema;
         this.clock = clock;
-        this.usePreimages = usePreimages;
+        this.connectorConfig = connectorConfig;
+        this.usePreimages = connectorConfig.getPreimagesEnabled();
         if (usePreimages) {
             this.lastPreImage = new HashMap<>();
         } else {
@@ -73,13 +77,13 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
             }
 
             if (usePreimages && lastPreImage.containsKey(task.id)) {
-                dispatcher.dispatchDataChangeEvent(new CollectionId(task.id.getTable()),
-                    new ScyllaChangeRecordEmitter(lastPreImage.get(task.id), change, taskStateOffsetContext, schema, clock));
+                dispatcher.dispatchDataChangeEvent(new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo), new CollectionId(task.id.getTable()),
+                    new ScyllaChangeRecordEmitter(new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo), lastPreImage.get(task.id), change, taskStateOffsetContext, schema, clock, connectorConfig));
                 lastPreImage.remove(task.id);
             }
             else {
-                dispatcher.dispatchDataChangeEvent(new CollectionId(task.id.getTable()),
-                    new ScyllaChangeRecordEmitter(change, taskStateOffsetContext, schema, clock));
+                dispatcher.dispatchDataChangeEvent(new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo), new CollectionId(task.id.getTable()),
+                    new ScyllaChangeRecordEmitter(new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo), null, change, taskStateOffsetContext, schema, clock, connectorConfig));
             }
         } catch (InterruptedException e) {
             logger.error("Exception while dispatching change: {}", change.getId().toString());

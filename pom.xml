@@ -106,8 +106,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>11</maven.compiler.release>
-        <!-- highest compatible with java 8 -->
-        <debezium.version>1.4.1.Final</debezium.version>
+        <debezium.version>2.6.2.Final</debezium.version>
         <!-- Docs claim java 8 supported, but support is deprecated -->
         <kafka.version>3.3.1</kafka.version>
         <scylla.driver.version>3.11.5.3</scylla.driver.version>

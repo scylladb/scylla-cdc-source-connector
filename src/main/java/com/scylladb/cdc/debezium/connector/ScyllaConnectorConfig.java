@@ -5,6 +5,7 @@ import com.scylladb.cdc.model.TableName;
 import io.debezium.config.CommonConnectorConfig;
 import io.debezium.config.ConfigDefinition;
 import io.debezium.config.Configuration;
+import io.debezium.config.EnumeratedValue;
 import io.debezium.config.Field;
 import io.debezium.connector.SourceInfoStructMaker;
 import io.debezium.heartbeat.Heartbeat;
@@ -14,6 +15,7 @@ import org.apache.kafka.common.config.ConfigDef;
 
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class ScyllaConnectorConfig extends CommonConnectorConfig {
@@ -22,17 +24,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withDescription("Internal use only")
             .withType(ConfigDef.Type.STRING)
             .withInvisibleRecommender();
-
-    public static final Field LOGICAL_NAME = Field.create("scylla.name")
-            .withDisplayName("Namespace")
-            .withType(ConfigDef.Type.STRING)
-            .withWidth(ConfigDef.Width.MEDIUM)
-            .withImportance(ConfigDef.Importance.HIGH)
-            .withValidation(Field::isRequired)
-            .withDescription("Unique name that identifies the Scylla cluster and "
-                    + "that is used as a prefix for all schemas and topics. "
-                    + "Each distinct Scylla installation should have a separate namespace and be monitored by "
-                    + "at most one Debezium connector.");
 
     public static final Field CLUSTER_IP_ADDRESSES = Field.create("scylla.cluster.ip.addresses")
             .withDisplayName("Hosts")
@@ -200,10 +191,13 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withDefault(30000)
             .withValidation(Field::isRequired, Field::isPositiveInteger);
 
+    public static final Field SOURCE_INFO_STRUCT_MAKER = CommonConnectorConfig.SOURCE_INFO_STRUCT_MAKER
+        .withDefault(ScyllaSourceInfoStructMaker.class.getName());
+
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
-                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, TOPIC_PREFIX, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
                     .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
@@ -224,7 +218,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     private final Configuration config;
 
     protected ScyllaConnectorConfig(Configuration config) {
-        super(config, config.getString(LOGICAL_NAME), 0);
+        super(config, 0);
         this.config = config;
     }
 
@@ -327,8 +321,32 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
         return "scylla";
     }
 
+    public enum SnapshotMode implements EnumeratedValue {
+        INITIAL("initial");
+
+        private final String value;
+
+        SnapshotMode(String value) {
+            this.value = value;
+        }
+        @Override
+        public String getValue() {
+            return value;
+        }
+    }
+
+    @Override
+    public EnumeratedValue getSnapshotMode() {
+        return SnapshotMode.INITIAL;
+    }
+
+    @Override
+    public Optional<? extends EnumeratedValue> getSnapshotLockingMode() {
+        return Optional.empty();
+    }
+
     @Override
     protected SourceInfoStructMaker<?> getSourceInfoStructMaker(Version version) {
-        return new ScyllaSourceInfoStructMaker("scylla", Module.version(), this);
+        return getSourceInfoStructMaker(SOURCE_INFO_STRUCT_MAKER, Module.name(), Module.version(), this);
     }
 }
