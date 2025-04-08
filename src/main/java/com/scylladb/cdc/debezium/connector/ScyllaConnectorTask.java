@@ -2,6 +2,7 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.datastax.driver.core.utils.Bytes;
 import com.datastax.driver.core.utils.UUIDs;
+import com.google.common.collect.ImmutableMap;
 import com.scylladb.cdc.model.StreamId;
 import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.Timestamp;
@@ -12,15 +13,22 @@ import io.debezium.config.Configuration;
 import io.debezium.config.Field;
 import io.debezium.connector.base.ChangeEventQueue;
 import io.debezium.connector.common.BaseSourceTask;
+import io.debezium.document.DocumentReader;
 import io.debezium.pipeline.ChangeEventSourceCoordinator;
 import io.debezium.pipeline.DataChangeEvent;
 import io.debezium.pipeline.ErrorHandler;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.metrics.DefaultChangeEventSourceMetricsFactory;
+import io.debezium.pipeline.notification.NotificationService;
+import io.debezium.pipeline.signal.SignalProcessor;
+import io.debezium.pipeline.spi.Offsets;
 import io.debezium.pipeline.txmetadata.TransactionContext;
-import io.debezium.schema.TopicSelector;
+import io.debezium.schema.DefaultTopicNamingStrategy;
+import io.debezium.schema.SchemaFactory;
+import io.debezium.snapshot.SnapshotterService;
+import io.debezium.spi.topic.TopicNamingStrategy;
 import io.debezium.util.Clock;
-import io.debezium.util.SchemaNameAdjuster;
+import io.debezium.schema.SchemaNameAdjuster;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.source.SourceRecord;
@@ -30,7 +38,7 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class ScyllaConnectorTask extends BaseSourceTask {
+public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaOffsetContext> {
     static {
         // Route Flogger logs from scylla-cdc-java library
         // to log4j.
@@ -48,11 +56,9 @@ public class ScyllaConnectorTask extends BaseSourceTask {
     private volatile ErrorHandler errorHandler;
 
     @Override
-    protected ChangeEventSourceCoordinator start(Configuration configuration) {
-        final String logicalName = configuration.getString(ScyllaConnectorConfig.LOGICAL_NAME);
-
+    protected ChangeEventSourceCoordinator<ScyllaPartition, ScyllaOffsetContext> start(Configuration configuration) {
         final ScyllaConnectorConfig connectorConfig = new ScyllaConnectorConfig(configuration);
-        final TopicSelector<CollectionId> topicSelector = ScyllaTopicSelector.defaultSelector(logicalName, connectorConfig.getHeartbeatTopicsPrefix());
+        final TopicNamingStrategy topicNamingStrategy = DefaultTopicNamingStrategy.create(connectorConfig);
 
         final Schema structSchema = connectorConfig.getSourceInfoStructMaker().schema();
         this.schema = new ScyllaSchema(connectorConfig, structSchema);
@@ -70,34 +76,51 @@ public class ScyllaConnectorTask extends BaseSourceTask {
 
         final ScyllaEventMetadataProvider metadataProvider = new ScyllaEventMetadataProvider();
 
-        final EventDispatcher<CollectionId> dispatcher = new EventDispatcher<CollectionId>(
+        final ScyllaOffsetContext previousOffsets = getPreviousOffsets(connectorConfig, tasks);
+
+        SignalProcessor<ScyllaPartition, ScyllaOffsetContext> signalProcessor = new SignalProcessor<>(
+            ScyllaConnector.class, connectorConfig, Map.of(),
+            getAvailableSignalChannels(),
+            DocumentReader.defaultReader(),
+            Offsets.of(new ScyllaPartition(null, null), previousOffsets));
+
+        this.errorHandler = new ScyllaErrorHandler(connectorConfig, queue, errorHandler);
+
+        final EventDispatcher<ScyllaPartition, CollectionId> dispatcher = new EventDispatcher<ScyllaPartition, CollectionId>(
                 connectorConfig,
-                topicSelector,
+                topicNamingStrategy,
                 schema,
                 queue,
                 (id) -> true,
                 DataChangeEvent::new,
                 new ScyllaInconsistentSchemaHandler(),
                 metadataProvider,
-                null,
-                SchemaNameAdjuster.create(logger)
+                connectorConfig.createHeartbeat(topicNamingStrategy, connectorConfig.schemaNameAdjuster(),
+                    null, null),
+                SchemaNameAdjuster.create(),
+                signalProcessor
         );
-
-        final ScyllaOffsetContext previousOffsets = getPreviousOffsets(connectorConfig, tasks);
-
-        this.errorHandler = new ScyllaErrorHandler(logicalName, queue);
 
         final Clock clock = Clock.system();
 
-        ChangeEventSourceCoordinator coordinator = new ChangeEventSourceCoordinator(
-                previousOffsets,
+        NotificationService<ScyllaPartition, ScyllaOffsetContext> notificationService = new NotificationService<>(getNotificationChannels(),
+            connectorConfig, SchemaFactory.get(), dispatcher::enqueueNotification);
+
+        final SnapshotterService snapshotterService = connectorConfig.getServiceRegistry().tryGetService(SnapshotterService.class);
+
+        ChangeEventSourceCoordinator<ScyllaPartition, ScyllaOffsetContext> coordinator = new ChangeEventSourceCoordinator<>(
+                Offsets.of(new ScyllaPartition(null, null), previousOffsets),
                 errorHandler,
                 ScyllaConnector.class,
                 connectorConfig,
                 new ScyllaChangeEventSourceFactory(connectorConfig, taskContext, schema, dispatcher, clock),
-                new DefaultChangeEventSourceMetricsFactory(),
+                new DefaultChangeEventSourceMetricsFactory<>(),
                 dispatcher,
-                schema);
+                schema,
+                signalProcessor,
+                notificationService,
+                snapshotterService
+        );
 
         coordinator.start(taskContext, this.queue, metadataProvider);
 

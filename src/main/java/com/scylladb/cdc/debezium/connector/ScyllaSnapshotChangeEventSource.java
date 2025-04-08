@@ -1,37 +1,45 @@
 package com.scylladb.cdc.debezium.connector;
 
+import io.debezium.pipeline.notification.NotificationService;
+import io.debezium.pipeline.signal.actions.snapshotting.SnapshotConfiguration;
 import io.debezium.pipeline.source.AbstractSnapshotChangeEventSource;
 import io.debezium.pipeline.source.spi.SnapshotProgressListener;
+import io.debezium.pipeline.source.SnapshottingTask;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.pipeline.spi.SnapshotResult;
 
-public class ScyllaSnapshotChangeEventSource extends AbstractSnapshotChangeEventSource {
+import java.util.Collections;
 
-    private final SnapshotProgressListener snapshotProgressListener;
+public class ScyllaSnapshotChangeEventSource extends AbstractSnapshotChangeEventSource<ScyllaPartition, ScyllaOffsetContext> {
 
-    public ScyllaSnapshotChangeEventSource(ScyllaConnectorConfig connectorConfig, ScyllaOffsetContext previousOffset, SnapshotProgressListener snapshotProgressListener) {
-        super(connectorConfig, previousOffset, snapshotProgressListener);
+    private final SnapshotProgressListener<ScyllaPartition> snapshotProgressListener;
+
+    public ScyllaSnapshotChangeEventSource(ScyllaConnectorConfig connectorConfig, SnapshotProgressListener<ScyllaPartition> snapshotProgressListener, NotificationService<ScyllaPartition, ScyllaOffsetContext> notificationService) {
+        super(connectorConfig, snapshotProgressListener, notificationService);
         this.snapshotProgressListener = snapshotProgressListener;
     }
 
     @Override
-    protected SnapshotResult doExecute(ChangeEventSourceContext changeEventSourceContext, SnapshotContext snapshotContext, SnapshottingTask snapshottingTask) throws Exception {
-        snapshotProgressListener.snapshotCompleted();
-        return SnapshotResult.completed(snapshotContext.offset);
+    protected SnapshotResult<ScyllaOffsetContext> doExecute(ChangeEventSourceContext changeEventSourceContext,
+                                                            ScyllaOffsetContext previousOffset,
+                                                            SnapshotContext<ScyllaPartition, ScyllaOffsetContext> snapshotContext,
+                                                            SnapshottingTask snapshottingTask) throws Exception {
+        snapshotProgressListener.snapshotCompleted(snapshotContext.partition);
+        return SnapshotResult.completed(previousOffset);
     }
 
     @Override
-    protected SnapshottingTask getSnapshottingTask(OffsetContext offsetContext) {
-        return new SnapshottingTask(false, false);
+    public SnapshottingTask getSnapshottingTask(ScyllaPartition partition, ScyllaOffsetContext offsetContext) {
+        return new SnapshottingTask(false, false, Collections.emptyList(), Collections.emptyMap(), false);
     }
 
     @Override
-    protected SnapshotContext prepare(ChangeEventSourceContext changeEventSourceContext) throws Exception {
-        throw new UnsupportedOperationException();
+    public SnapshottingTask getBlockingSnapshottingTask(ScyllaPartition partition, ScyllaOffsetContext offsetContext, SnapshotConfiguration snapshotConfiguration) {
+        return new SnapshottingTask(false, false, Collections.emptyList(), Collections.emptyMap(), true);
     }
 
     @Override
-    protected void complete(SnapshotContext snapshotContext) {
-
+    protected SnapshotContext<ScyllaPartition, ScyllaOffsetContext> prepare(ScyllaPartition partition, boolean onDemand) throws Exception {
+        return new SnapshotContext<>(partition);
     }
 }

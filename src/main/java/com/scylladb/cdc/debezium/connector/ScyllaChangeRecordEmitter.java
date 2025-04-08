@@ -1,36 +1,28 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.ChangeSchema;
+import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.cql.Cell;
 import com.scylladb.cdc.model.worker.cql.CqlDate;
-import com.scylladb.cdc.model.worker.cql.CqlDuration;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.util.Clock;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
 
-public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<ScyllaCollectionSchema> {
-
+public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<ScyllaPartition, ScyllaCollectionSchema> {
     private final RawChange change;
     private final ScyllaSchema schema;
     private final RawChange preImage;
 
-    public ScyllaChangeRecordEmitter(RawChange change, OffsetContext offsetContext, ScyllaSchema schema, Clock clock) {
-        this(null, change, offsetContext, schema, clock);
-    }
-
-    public ScyllaChangeRecordEmitter(RawChange preImage, RawChange change, OffsetContext offsetContext, ScyllaSchema schema, Clock clock) {
-        super(offsetContext, clock);
+    public ScyllaChangeRecordEmitter(ScyllaPartition partition, RawChange preImage, RawChange change, OffsetContext offsetContext, ScyllaSchema schema, Clock clock, ScyllaConnectorConfig connectorConfig) {
+        super(partition, offsetContext, clock, connectorConfig);
         this.change = change;
         this.schema = schema;
         this.preImage = preImage;
@@ -45,7 +37,7 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
     }
 
     @Override
-    protected Envelope.Operation getOperation() {
+    public Envelope.Operation getOperation() {
         RawChange.OperationType operationType = this.change.getOperationType();
         switch (operationType) {
             case ROW_UPDATE:
@@ -66,7 +58,7 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
     }
 
     @Override
-    protected void emitCreateRecord(Receiver receiver, ScyllaCollectionSchema scyllaCollectionSchema) throws InterruptedException {
+    protected void emitCreateRecord(Receiver<ScyllaPartition> receiver, ScyllaCollectionSchema scyllaCollectionSchema) throws InterruptedException {
         scyllaCollectionSchema = this.schema.updateChangeSchema(scyllaCollectionSchema.id(), change.getSchema());
 
         Struct keyStruct = new Struct(scyllaCollectionSchema.keySchema());
@@ -83,11 +75,11 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
             envelope = scyllaCollectionSchema.getEnvelopeSchema().create(afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
         }
 
-        receiver.changeRecord(scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
+        receiver.changeRecord(getPartition(), scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
     }
 
     @Override
-    protected void emitUpdateRecord(Receiver receiver, ScyllaCollectionSchema scyllaCollectionSchema) throws InterruptedException {
+    protected void emitUpdateRecord(Receiver<ScyllaPartition> receiver, ScyllaCollectionSchema scyllaCollectionSchema) throws InterruptedException {
         scyllaCollectionSchema = this.schema.updateChangeSchema(scyllaCollectionSchema.id(), change.getSchema());
 
         Struct keyStruct = new Struct(scyllaCollectionSchema.keySchema());
@@ -104,11 +96,11 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
             envelope = scyllaCollectionSchema.getEnvelopeSchema().update(null, afterStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
         }
 
-        receiver.changeRecord(scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
+        receiver.changeRecord(getPartition(), scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
     }
 
     @Override
-    protected void emitDeleteRecord(Receiver receiver, ScyllaCollectionSchema scyllaCollectionSchema) throws InterruptedException {
+    protected void emitDeleteRecord(Receiver<ScyllaPartition> receiver, ScyllaCollectionSchema scyllaCollectionSchema) throws InterruptedException {
         scyllaCollectionSchema = this.schema.updateChangeSchema(scyllaCollectionSchema.id(), change.getSchema());
 
         Struct keyStruct = new Struct(scyllaCollectionSchema.keySchema());
@@ -121,7 +113,7 @@ public class ScyllaChangeRecordEmitter extends AbstractChangeRecordEmitter<Scyll
 
         Struct envelope = scyllaCollectionSchema.getEnvelopeSchema().delete(beforeStruct, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
 
-        receiver.changeRecord(scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
+        receiver.changeRecord(getPartition(), scyllaCollectionSchema, getOperation(), keyStruct, envelope, getOffset(), null);
     }
 
     private void fillStructWithChange(ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {

@@ -7,9 +7,9 @@ import io.debezium.schema.DataCollectionSchema;
 
 import java.util.Optional;
 
-public class ScyllaInconsistentSchemaHandler implements EventDispatcher.InconsistentSchemaHandler<CollectionId> {
+public class ScyllaInconsistentSchemaHandler implements EventDispatcher.InconsistentSchemaHandler<ScyllaPartition, CollectionId> {
     @Override
-    public Optional<DataCollectionSchema> handle(CollectionId collectionId, ChangeRecordEmitter changeRecordEmitter) {
+    public Optional<DataCollectionSchema> handle(ScyllaPartition partition, CollectionId collectionId, ChangeRecordEmitter changeRecordEmitter) {
         ScyllaChangeRecordEmitter scyllaChangeRecordEmitter = (ScyllaChangeRecordEmitter) changeRecordEmitter;
         RawChange change = scyllaChangeRecordEmitter.getChange();
         ScyllaSchema scyllaSchema = scyllaChangeRecordEmitter.getSchema();

@@ -1,9 +1,12 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.google.common.collect.ImmutableMap;
 import com.scylladb.cdc.model.TaskId;
+import io.debezium.connector.SnapshotRecord;
 import io.debezium.pipeline.spi.OffsetContext;
+import io.debezium.pipeline.spi.Offsets;
 import io.debezium.pipeline.txmetadata.TransactionContext;
-import io.debezium.schema.DataCollectionId;
+import io.debezium.spi.schema.DataCollectionId;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 
@@ -24,10 +27,10 @@ public class ScyllaOffsetContext implements OffsetContext {
         return new TaskStateOffsetContext(this, sourceInfos.get(taskId));
     }
 
-    @Override
-    public Map<String, ?> getPartition() {
-        // See TaskStateOffsetContext
-        throw new UnsupportedOperationException();
+    public Offsets<ScyllaPartition, TaskStateOffsetContext> toDebeziumOffsets() {
+        ImmutableMap.Builder<ScyllaPartition, TaskStateOffsetContext> builder = new ImmutableMap.Builder<ScyllaPartition, TaskStateOffsetContext>();
+        sourceInfos.values().forEach(sourceInfo -> builder.put(new ScyllaPartition(this, sourceInfo), new TaskStateOffsetContext(this, sourceInfo)));
+        return Offsets.of(builder.build());
     }
 
     @Override
@@ -54,7 +57,7 @@ public class ScyllaOffsetContext implements OffsetContext {
     }
 
     @Override
-    public void markLastSnapshotRecord() {
+    public void markSnapshotRecord(SnapshotRecord snapshotRecord) {
 
     }
 

@@ -1,22 +1,21 @@
 package com.scylladb.cdc.debezium.connector;
 
 import io.debezium.config.CommonConnectorConfig;
+import io.debezium.connector.AbstractSourceInfo;
 import io.debezium.connector.AbstractSourceInfoStructMaker;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 
 public class ScyllaSourceInfoStructMaker extends AbstractSourceInfoStructMaker<SourceInfo> {
+    private Schema schema;
 
-    private static final String TS_US = "ts_us";
-    private final Schema schema;
-
-    public ScyllaSourceInfoStructMaker(String connector, String version, CommonConnectorConfig connectorConfig) {
-        super(connector, version, connectorConfig);
+    @Override
+    public void init(String connector, String version, CommonConnectorConfig connectorConfig) {
+        super.init(connector, version, connectorConfig);
         schema = commonSchemaBuilder()
                 .name("com.scylladb.cdc.debezium.connector")
                 .field(SourceInfo.KEYSPACE_NAME, Schema.STRING_SCHEMA)
                 .field(SourceInfo.TABLE_NAME, Schema.STRING_SCHEMA)
-                .field(TS_US, Schema.INT64_SCHEMA)
                 .build();
     }
 
@@ -30,6 +29,6 @@ public class ScyllaSourceInfoStructMaker extends AbstractSourceInfoStructMaker<S
         return super.commonStruct(sourceInfo)
                 .put(SourceInfo.KEYSPACE_NAME, sourceInfo.getTableName().keyspace)
                 .put(SourceInfo.TABLE_NAME, sourceInfo.getTableName().name)
-                .put(TS_US, sourceInfo.timestampUs());
+                .put(AbstractSourceInfo.TIMESTAMP_US_KEY, sourceInfo.timestampUs());
     }
 }
