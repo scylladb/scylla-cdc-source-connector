@@ -1,6 +1,7 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.cql.CQLConfiguration;
+import com.scylladb.cdc.model.ExponentialRetryBackoffWithJitter;
 import com.scylladb.cdc.model.TableName;
 import io.debezium.config.CommonConnectorConfig;
 import io.debezium.config.ConfigDefinition;
@@ -194,11 +195,104 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     public static final Field SOURCE_INFO_STRUCT_MAKER = CommonConnectorConfig.SOURCE_INFO_STRUCT_MAKER
         .withDefault(ScyllaSourceInfoStructMaker.class.getName());
 
+    public static final Field RETRY_BACKOFF_BASE_MS = Field.create("worker.retry.backoff.base")
+        .withDisplayName("Worker's retry base backoff (ms)")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("The initial backoff in milliseconds that will be used for queries to Scylla. " +
+            "Each consecutive retry will increase exponentially by a factor of 2 up to configured max backoff.")
+        .withValidation(Field::isNonNegativeInteger)
+        .optional()
+        .withDefault(50);
+
+    public static final Field RETRY_MAX_BACKOFF_MS = Field.create("worker.maximum.backoff")
+        .withDisplayName("Worker's retry maximum backoff (ms)")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("Maximum backoff in milliseconds that will be used for queries to Scylla.")
+        .withValidation(Field::isNonNegativeInteger)
+        .optional()
+        .withDefault(30000);
+
+    public static final Field RETRY_BACKOFF_JITTER_PERCENTAGE = Field.create("worker.jitter.percentage")
+        .withDisplayName("Worker's retry jitter percentage")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("The jitter applied to the retry backoffs to make them more spread out in case of the " +
+            "surges in retries performed. Setting 20 (20%) means that the backoff will have randomly up to 20% of its value " +
+            "subtracted before application. The jitter does not modify base backoff and has no impact on exponential rise. " +
+            "Minimal allowed value is 1. Max is 100.")
+        .withValidation(Field::isPositiveInteger)
+        .optional()
+        .withDefault(20);
+
+    public static final Field POOLING_CORE_POOL_LOCAL = Field.create("worker.pooling.core.pool.local")
+        .withDisplayName("Number of connections to DB node")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("Worker's target number of connections to a singular Scylla node within distance 'LOCAL'. " +
+            "Local nodes are the nodes of local datacenter. " +
+            "Driver session used by worker will aim to maintain this number of connections per local node."
+            )
+        .withValidation(Field::isNonNegativeInteger)
+        .optional()
+        .withDefault(1);
+
+    public static final Field POOLING_MAX_POOL_LOCAL = Field.create("worker.pooling.max.pool.local")
+        .withDisplayName("Max number of connections to DB node")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("Worker's maximum number of connections to a singular Scylla node within distance 'LOCAL'. " +
+            "Worker will open additional connections up to this maximum whenever existing ones go above certain threshold" +
+            " of concurrent requests.")
+        .withValidation(Field::isNonNegativeInteger)
+        .optional()
+        .withDefault(1);
+
+    public static final Field POOLING_MAX_QUEUE_SIZE = Field.create("worker.pooling.max.queue.size")
+        .withDisplayName("Max requests queue size")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("Worker's maximum requests queue size per connection pool. Requests get enqueued if no connection " +
+            "is available. For some setups (many nodes, many shards, few connector tasks, few connections) it may " +
+            "be necessary to increase this to avoid BusyPoolException. Additional requests above this limit will be " +
+            "rejected. Requests that wait for longer than pool timeout value also will be rejected.")
+        .withValidation(Field::isNonNegativeInteger)
+        .optional()
+        .withDefault(512);
+
+    public static final Field POOLING_MAX_REQUESTS_PER_CONNECTION = Field.create("worker.pooling.max.requests.per.connection")
+        .withDisplayName("Max requests per DB connection")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("Worker's maximum requests per connection to a Scylla node within distance 'LOCAL'. Requests above " +
+            "this quantity will be enqueued.")
+        .withValidation(Field::isNonNegativeInteger)
+        .optional()
+        .withDefault(1024);
+
+    public static final Field POOLING_POOL_TIMEOUT_MS = Field.create("worker.pooling.pool.timeout.ms")
+        .withDisplayName("Timeout for acquiring a DB connection")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.MEDIUM)
+        .withImportance(ConfigDef.Importance.LOW)
+        .withDescription("Worker's timeout for trying to acquire a connection from a host's pool.")
+        .withValidation(Field::isNonNegativeInteger)
+        .optional()
+        .withDefault(5000);
+
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
                     .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, TOPIC_PREFIX, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
-                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED)
+                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED, RETRY_BACKOFF_BASE_MS, RETRY_MAX_BACKOFF_MS, RETRY_BACKOFF_JITTER_PERCENTAGE, POOLING_CORE_POOL_LOCAL, POOLING_MAX_POOL_LOCAL, POOLING_MAX_REQUESTS_PER_CONNECTION, POOLING_MAX_QUEUE_SIZE, POOLING_POOL_TIMEOUT_MS)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
                     // Exclude some Debezium options, which are not applicable/not supported by
@@ -310,6 +404,46 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     public int getQueryOptionsFetchSize() {
         return config.getInteger(ScyllaConnectorConfig.QUERY_OPTIONS_FETCH_SIZE);
     }
+
+    public int getRetryBackoffBaseMs() {
+        return config.getInteger(ScyllaConnectorConfig.RETRY_BACKOFF_BASE_MS);
+    }
+
+    public int getRetryMaxBackoffMs() {
+        return config.getInteger(ScyllaConnectorConfig.RETRY_MAX_BACKOFF_MS);
+    }
+
+    public int getRetryBackoffJitterPercentage() {
+        return config.getInteger(ScyllaConnectorConfig.RETRY_BACKOFF_JITTER_PERCENTAGE);
+    }
+
+    public ExponentialRetryBackoffWithJitter createCDCWorkerRetryBackoff() {
+        int backoffMs = getRetryBackoffBaseMs();
+        int maxBackoffMs = getRetryMaxBackoffMs();
+        double jitter = getRetryBackoffJitterPercentage() / 100.0;
+        return new ExponentialRetryBackoffWithJitter(backoffMs, maxBackoffMs, jitter);
+    }
+
+    public int getPoolingCorePoolLocal() {
+        return config.getInteger(POOLING_CORE_POOL_LOCAL);
+    }
+
+    public int getPoolingMaxPoolLocal() {
+        return config.getInteger(POOLING_MAX_POOL_LOCAL);
+    }
+
+    public int getPoolingMaxRequestsPerConnection() {
+        return config.getInteger(POOLING_MAX_REQUESTS_PER_CONNECTION);
+    }
+
+    public int getPoolingMaxQueueSize() {
+        return config.getInteger(POOLING_MAX_QUEUE_SIZE);
+    }
+
+    public int getPoolingPoolTimeoutMs() {
+        return config.getInteger(POOLING_POOL_TIMEOUT_MS);
+    }
+
 
     @Override
     public String getContextName() {
