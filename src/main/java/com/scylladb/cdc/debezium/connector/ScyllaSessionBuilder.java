@@ -36,6 +36,11 @@ public class ScyllaSessionBuilder {
             builder.withSslConfig(sslBuilder.build());
         }
         builder.withQueryOptionsFetchSize(configuration.getQueryOptionsFetchSize());
+        builder.withCorePoolLocal(configuration.getPoolingCorePoolLocal());
+        builder.withMaxPoolLocal(configuration.getPoolingMaxPoolLocal());
+        builder.withPoolingMaxRequestsPerConnectionLocal(configuration.getPoolingMaxRequestsPerConnection());
+        builder.withPoolingMaxQueueSize(configuration.getPoolingMaxQueueSize());
+        builder.withPoolTimeoutMillis(configuration.getPoolingPoolTimeoutMs());
 
         return new Driver3Session(builder.build());
     }
