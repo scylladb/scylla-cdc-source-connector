@@ -2,6 +2,7 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.cql.driver3.Driver3Session;
 import com.scylladb.cdc.cql.driver3.Driver3WorkerCQL;
+import com.scylladb.cdc.model.RetryBackoff;
 import com.scylladb.cdc.model.worker.Worker;
 import com.scylladb.cdc.model.worker.WorkerConfiguration;
 import io.debezium.pipeline.EventDispatcher;
@@ -36,6 +37,7 @@ public class ScyllaStreamingChangeEventSource implements StreamingChangeEventSou
     public void execute(ChangeEventSourceContext context, ScyllaPartition partition, ScyllaOffsetContext offsetContext) throws InterruptedException {
         Driver3Session session = new ScyllaSessionBuilder(configuration).build();
         Driver3WorkerCQL cql = new Driver3WorkerCQL(session);
+        RetryBackoff retryBackoff = configuration.createCDCWorkerRetryBackoff();
         ScyllaWorkerTransport workerTransport = new ScyllaWorkerTransport(context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
         ScyllaChangesConsumer changeConsumer = new ScyllaChangesConsumer(dispatcher, offsetContext, schema, clock, configuration);
         WorkerConfiguration workerConfiguration = WorkerConfiguration.builder()
@@ -44,6 +46,7 @@ public class ScyllaStreamingChangeEventSource implements StreamingChangeEventSou
                 .withConsumer(changeConsumer)
                 .withQueryTimeWindowSizeMs(configuration.getQueryTimeWindowSizeMs())
                 .withConfidenceWindowSizeMs(configuration.getConfidenceWindowSizeMs())
+                .withWorkerRetryBackoff(retryBackoff)
                 .build();
         Worker worker = new Worker(workerConfiguration);
         try {
