@@ -445,6 +445,15 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     }
 
 
+    public int getDefaultPort() {
+        for(InetSocketAddress cp: this.getContactPoints()) {
+            if (cp.getPort() != 0) {
+                return cp.getPort();
+            }
+        }
+        return 9042;
+    }
+
     @Override
     public String getContextName() {
         return "Scylla";
