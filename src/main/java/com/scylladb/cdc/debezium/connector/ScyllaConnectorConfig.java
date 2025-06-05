@@ -35,6 +35,14 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                     "will use to open initial connections to the cluster. " +
                     "In the form of a comma-separated list of pairs <IP>:<PORT>");
 
+    public static final Field DEFAULT_PORT = Field.create("scylla.cluster.port.default")
+        .withDisplayName("Default Port")
+        .withType(ConfigDef.Type.INT)
+        .withWidth(ConfigDef.Width.SHORT)
+        .withDefault(9042)
+        .withImportance(ConfigDef.Importance.HIGH)
+        .withValidation(Field::isNonNegativeInteger)
+        .withDescription("Default CQL port that will be used to connect to discovered hosts");
 
     public static final Field SSL_ENABLED = Field.create("scylla.ssl.enabled")
             .withDisplayName("SSL")
@@ -197,7 +205,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
-                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, TOPIC_PREFIX, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY)
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, TOPIC_PREFIX, CONSISTENCY_LEVEL, QUERY_OPTIONS_FETCH_SIZE, LOCAL_DC_NAME, SSL_ENABLED, SSL_PROVIDER, SSL_TRUSTSTORE_PATH, SSL_TRUSTSTORE_PASSWORD, SSL_KEYSTORE_PATH, SSL_KEYSTORE_PASSWORD,SSL_CIPHER_SUITES, SSL_OPENSLL_KEYCERTCHAIN, SSL_OPENSLL_PRIVATEKEY, DEFAULT_PORT)
                     .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE, PREIMAGES_ENABLED)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
@@ -309,6 +317,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public int getQueryOptionsFetchSize() {
         return config.getInteger(ScyllaConnectorConfig.QUERY_OPTIONS_FETCH_SIZE);
+    }
+
+    public int getDefaultPort() {
+        return config.getInteger(ScyllaConnectorConfig.DEFAULT_PORT);
     }
 
     @Override
