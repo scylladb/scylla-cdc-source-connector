@@ -13,6 +13,7 @@ public class ScyllaSessionBuilder {
 
     public Driver3Session build() {
         CQLConfiguration.Builder builder = CQLConfiguration.builder();
+        builder.withDefaultPort(configuration.getDefaultPort());
         builder.addContactPoints(configuration.getContactPoints());
         if (configuration.getUser() != null && configuration.getPassword() != null) {
             builder.withCredentials(configuration.getUser(), configuration.getPassword());
