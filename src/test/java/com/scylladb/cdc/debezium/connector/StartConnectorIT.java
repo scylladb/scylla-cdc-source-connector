@@ -7,8 +7,8 @@ import io.debezium.testing.testcontainers.DebeziumContainer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.lifecycle.Startables;
@@ -40,7 +40,7 @@ public class StartConnectorIT {
           .withKafka(kafkaContainer)
           .dependsOn(kafkaContainer);
 
-  @BeforeClass
+  @BeforeAll
   public static void startContainers() {
     Startables.deepStart(Stream.of(
             kafkaContainer, scyllaDBContainer, debeziumContainer))
