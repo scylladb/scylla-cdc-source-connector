@@ -7,45 +7,15 @@ import io.debezium.testing.testcontainers.DebeziumContainer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.KafkaContainer;
-import org.testcontainers.containers.Network;
-import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.scylladb.ScyllaDBContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Stream;
 
-public class StartConnectorIT {
-
-  private static Network network = Network.newNetwork();
-
-  private static KafkaContainer kafkaContainer = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.3.12"))
-      .withNetwork(network);
-
-  public static ScyllaDBContainer scyllaDBContainer = new ScyllaDBContainer("scylladb/scylla:6.2")
-      .withNetwork(network)
-      .withNetworkAliases("scylla")
-      .withExposedPorts(9042, 19042);
-
-  public static DebeziumContainer debeziumContainer =
-      new DebeziumContainer("quay.io/debezium/connect:2.6.2.Final")
-          // Requires connector to be built first
-          .withFileSystemBind("target/components/packages/", "/kafka/connect/plugins/")
-          .withNetwork(network)
-          .withKafka(kafkaContainer)
-          .dependsOn(kafkaContainer);
-
-  @BeforeAll
-  public static void startContainers() {
-    Startables.deepStart(Stream.of(
-            kafkaContainer, scyllaDBContainer, debeziumContainer))
-        .join();
-  }
+public class StartConnectorIT extends BaseConnectorIT {
 
   @Test
   public void canRegisterScyllaConnector() {
@@ -91,19 +61,5 @@ public class StartConnectorIT {
       consumer.unsubscribe();
       assert messageConsumed;
     }
-  }
-
-  private KafkaConsumer<String, String> getConsumer(
-      KafkaContainer kafkaContainer) {
-    return new KafkaConsumer<>(
-        Map.of(
-            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
-            kafkaContainer.getBootstrapServers(),
-            ConsumerConfig.GROUP_ID_CONFIG,
-            "tc-" + UUID.randomUUID(),
-            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-            "earliest"),
-        new StringDeserializer(),
-        new StringDeserializer());
   }
 }
