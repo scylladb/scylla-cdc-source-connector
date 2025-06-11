@@ -4,6 +4,7 @@ import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
 import io.debezium.testing.testcontainers.ConnectorConfiguration;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.net.UnknownHostException;
@@ -11,17 +12,15 @@ import java.util.List;
 
 public class ScyllaTypesIT extends BaseConnectorIT {
 
-  @Test
-  public void canReplicateAllPrimitiveTypes() throws UnknownHostException {
+  @BeforeAll
+  public static void setupTable() {
     // Does not include counter columns, as they are not allowed to be mixed with non-counter columns in the same table.
     try (Cluster cluster =
              Cluster
                  .builder()
                  .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
                  .withPort(scyllaDBContainer.getMappedPort(9042))
-                 .build();
-         KafkaConsumer<String, String> consumer =
-             getConsumer(kafkaContainer)) {
+                 .build()) {
       Session session = cluster.connect();
       session.execute("CREATE KEYSPACE IF NOT EXISTS primitive_types_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
       session.execute("CREATE TABLE IF NOT EXISTS primitive_types_ks.tab ("
@@ -51,6 +50,13 @@ public class ScyllaTypesIT extends BaseConnectorIT {
           + "1, 'ascii', 1234567890123, 0xCAFEBABE, true, '2024-06-10', 12345.67, 3.14159, 1d12h30m, 2.71828, '127.0.0.1', 42, 7, 'some text', '12:34:56.789', '2024-06-10T12:34:56.789Z', 81d4a030-4632-11f0-9484-409dd8f36eba, 5, 453662fa-db4b-4938-9033-d8523c0a371c, 'varchar text', 999999999)"
           + ";");
       session.close();
+    }
+  }
+
+  @Test
+  public void canReplicateAllPrimitiveTypes() throws UnknownHostException {
+    try (KafkaConsumer<String, String> consumer =
+             getConsumer(kafkaContainer)) {
       ConnectorConfiguration connector =
           ConnectorConfiguration
               .create()
@@ -97,6 +103,64 @@ public class ScyllaTypesIT extends BaseConnectorIT {
             assert value.contains("\"uuid_col\":{" + "\"value\":\"453662fa-db4b-4938-9033-d8523c0a371c\"}");
             assert value.contains("\"varchar_col\":{" + "\"value\":\"varchar text\"}");
             assert value.contains("\"varint_col\":{" + "\"value\":\"999999999\"}");
+          });
+          break;
+        }
+      }
+      debeziumContainer.deleteAllConnectors();
+      consumer.unsubscribe();
+      assert messageConsumed;
+    }
+  }
+
+  @Test
+  public void canExtractNewRecordState() {
+    try (KafkaConsumer<String, String> consumer =
+             getConsumer(kafkaContainer)) {
+      ConnectorConfiguration connector =
+          ConnectorConfiguration
+              .create()
+              .with("connector.class", "com.scylladb.cdc.debezium.connector.ScyllaConnector")
+              .with("scylla.cluster.ip.addresses", "scylla:9042")
+              .with("topic.prefix", "canExtractNewRecordState")
+              .with("scylla.table.names", "primitive_types_ks.tab")
+              .with("tasks.max", "1")
+              .with("name", "canExtractNewRecordState")
+              .with("scylla.query.time.window.size", "10000")
+              .with("scylla.confidence.window.size", "5000")
+              .with("transforms", "extractNewRecordState")
+              .with("transforms.extractNewRecordState.type", "com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState");
+      debeziumContainer.registerConnector("canExtractNewRecordState", connector);
+      consumer.subscribe(List.of("canExtractNewRecordState.primitive_types_ks.tab"));
+      long startTime = System.currentTimeMillis();
+      boolean messageConsumed = false;
+      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+        var records = consumer.poll(java.time.Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          messageConsumed = true;
+          records.forEach(record -> {
+            String value = record.value();
+            assert value.contains("{\"ascii_col\":\"ascii\"");
+            assert value.contains("\"bigint_col\":1234567890123");
+            assert value.contains("\"blob_col\":\"yv66vg==\"");
+            assert value.contains("\"boolean_col\":true");
+            assert value.contains("\"date_col\":19884");
+            assert value.contains("\"decimal_col\":\"12345.67\"");
+            assert value.contains("\"double_col\":3.14159");
+            assert value.contains("\"duration_col\":\"1d12h30m\"");
+            assert value.contains("\"float_col\":2.71828");
+            assert value.contains("\"id\":1");
+            assert value.contains("\"inet_col\":\"127.0.0.1\"");
+            assert value.contains("\"int_col\":42");
+            assert value.contains("\"smallint_col\":7");
+            assert value.contains("\"text_col\":\"some text\"");
+            assert value.contains("\"time_col\":45296789000000");
+            assert value.contains("\"timestamp_col\":1718022896789");
+            assert value.contains("\"timeuuid_col\":\"81d4a030-4632-11f0-9484-409dd8f36eba\"");
+            assert value.contains("\"tinyint_col\":5");
+            assert value.contains("\"uuid_col\":\"453662fa-db4b-4938-9033-d8523c0a371c\"");
+            assert value.contains("\"varchar_col\":\"varchar text\"");
+            assert value.contains("\"varint_col\":\"999999999\"}");
           });
           break;
         }
