@@ -16,6 +16,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '11'
+          cache: maven
       - name: Maven verify
         run: mvn -B verify
 
