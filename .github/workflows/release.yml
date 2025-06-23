@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        type: boolean
+        description: 'dry-run: run without pushing SCM changes to upstream'
+        default: false
+
+      skip-tests:
+        type: boolean
+        description: 'skip-tests: do not run tests while releasing'
+        default: false
+
+      target-tag:
+        type: string
+        description: 'target-tag: tag or branch name to release. Use to to re-release failed releases'
+        default: master
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    env:
+      MVNCMD: mvn -B -X -ntp
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout Code One Commit Before ${{ inputs.target-tag }}
+        if: inputs.target-tag != 'master'
+        run: |
+          git fetch --prune --unshallow || true
+          git checkout ${{ inputs.target-tag }}~1
+          git tag -d ${{ inputs.target-tag }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          server-id: central
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          server-username: SONATYPE_TOKEN_USERNAME
+          server-password: SONATYPE_TOKEN_PASSWORD
+          cache: maven
+
+      - name: Configure Git user
+        run: |
+          git config user.name "ScyllaDB Promoter"
+          git config user.email "github-promoter@scylladb.com"
+
+      - name: Clean project
+        run: $MVNCMD clean
+
+      - name: Clean release
+        run: $MVNCMD release:clean
+
+      - name: Prepare release
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
+            MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
+          fi
+          export MAVEN_OPTS
+          $MVNCMD release:prepare -DpushChanges=false -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Perform release
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
+          SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
+        run: |
+          if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+            MAVEN_OPTS="${MAVEN_OPTS} -Drelease.autopublish=false"
+          fi
+          if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
+            MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
+          fi
+          export MAVEN_OPTS
+          $MVNCMD release:perform -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }} > >(tee /tmp/logs-stdout.log) 2> >(tee /tmp/logs-stderr.log)
+
+      - name: Upload stdout.log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-stdout
+          path: /tmp/logs-stdout.log
+
+      - name: Upload stderr.log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-stderr
+          path: /tmp/logs-stderr.log
+
+      - name: Push changes to SCM
+        if: inputs.dry-run == 'false' && inputs.target-tag == 'master'
+        run: |
+          git status && git log -3
+          git push origin --follow-tags -v
