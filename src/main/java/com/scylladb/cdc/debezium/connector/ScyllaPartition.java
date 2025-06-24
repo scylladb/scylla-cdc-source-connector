@@ -1,8 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
 import io.debezium.pipeline.spi.Partition;
-import io.debezium.util.Collect;
-
 import java.util.Map;
 
 public class ScyllaPartition implements Partition {

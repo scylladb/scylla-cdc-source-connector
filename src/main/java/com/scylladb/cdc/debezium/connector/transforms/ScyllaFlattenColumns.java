@@ -1,5 +1,7 @@
 package com.scylladb.cdc.debezium.connector.transforms;
 
+import java.util.Map;
+import java.util.Objects;
 import org.apache.kafka.common.cache.Cache;
 import org.apache.kafka.common.cache.LRUCache;
 import org.apache.kafka.common.cache.SynchronizedCache;
@@ -12,9 +14,6 @@ import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.transforms.Transformation;
 import org.apache.kafka.connect.transforms.util.SchemaUtil;
 
-import java.util.Map;
-import java.util.Objects;
-
 public class ScyllaFlattenColumns<R extends ConnectRecord<R>> implements Transformation<R> {
   private Cache<Schema, Schema> schemaUpdateCache = new SynchronizedCache<>(new LRUCache<>(16));
   private Cache<Schema, Schema> subSchemaUpdateCache = new SynchronizedCache<>(new LRUCache<>(16));
@@ -24,7 +23,7 @@ public class ScyllaFlattenColumns<R extends ConnectRecord<R>> implements Transfo
     if (record.value() == null || !(record.value() instanceof Struct)) {
       return record;
     }
-    Struct value = (Struct)record.value();
+    Struct value = (Struct) record.value();
 
     Schema updatedSchema = schemaUpdateCache.get(value.schema());
     if (updatedSchema == null) {
@@ -41,7 +40,8 @@ public class ScyllaFlattenColumns<R extends ConnectRecord<R>> implements Transfo
           for (Field subField : field.schema().fields()) {
             if (isSimplifiableField(subField)) {
               Struct subFieldValue = (Struct) fieldValue.get(subField);
-              updatedFieldValue.put(subField.name(), subFieldValue == null ? null : subFieldValue.get("value"));
+              updatedFieldValue.put(
+                  subField.name(), subFieldValue == null ? null : subFieldValue.get("value"));
             } else {
               updatedFieldValue.put(subField.name(), fieldValue.get(subField));
             }
@@ -55,7 +55,14 @@ public class ScyllaFlattenColumns<R extends ConnectRecord<R>> implements Transfo
       }
     }
 
-    return record.newRecord(record.topic(), record.kafkaPartition(), record.keySchema(), record.key(), updatedSchema, updatedValue, record.timestamp());
+    return record.newRecord(
+        record.topic(),
+        record.kafkaPartition(),
+        record.keySchema(),
+        record.key(),
+        updatedSchema,
+        updatedValue,
+        record.timestamp());
   }
 
   private boolean isSimplifiableField(Field field) {
@@ -119,6 +126,5 @@ public class ScyllaFlattenColumns<R extends ConnectRecord<R>> implements Transfo
   }
 
   @Override
-  public void configure(Map<String, ?> map) {
-  }
+  public void configure(Map<String, ?> map) {}
 }
