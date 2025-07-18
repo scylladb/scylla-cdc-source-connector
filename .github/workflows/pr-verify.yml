@@ -17,6 +17,13 @@ jobs:
           distribution: 'temurin'
           java-version: '11'
           cache: maven
+      - name: Increase fs.aio-max-nr limit
+        run: |
+          echo "Current fs.aio-max-nr value:"
+          cat /proc/sys/fs/aio-max-nr
+          sudo sysctl -w fs.aio-max-nr=1048576
+          echo "New fs.aio-max-nr value:"
+          cat /proc/sys/fs/aio-max-nr
       - name: Maven verify
         run: mvn -B verify
 
