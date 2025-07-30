@@ -8,6 +8,25 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - kafka_provider: "confluent"
+            kafka_version: "8.0.0"
+            kafka_connect_mode: "distributed"
+            scylla_version: "6.2"
+          - kafka_provider: "confluent"
+            kafka_version: "7.4.10"
+            kafka_connect_mode: "standalone"
+            scylla_version: "6.2"
+          - kafka_provider: "apache"
+            kafka_version: "4.0.0"
+            kafka_connect_mode: "distributed"
+            scylla_version: "6.2"
+          - kafka_provider: "apache"
+            kafka_version: "3.7.2"
+            kafka_connect_mode: "standalone"
+            scylla_version: "6.2"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,5 +44,4 @@ jobs:
           echo "New fs.aio-max-nr value:"
           cat /proc/sys/fs/aio-max-nr
       - name: Maven verify
-        run: mvn -B verify
-
+        run: mvn -B verify -Dit.kafka.provider=${{ matrix.kafka_provider }} -Dit.kafka.version=${{ matrix.kafka_version }} -Dit.kafka.connect.mode=${{ matrix.kafka_connect_mode }} -Dit.scylla.version=${{ matrix.scylla_version }}
