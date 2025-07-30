@@ -2,12 +2,23 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
-import io.debezium.testing.testcontainers.ConnectorConfiguration;
 import java.util.List;
+import java.util.Properties;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class StartConnectorIT extends BaseConnectorIT {
+public class StartConnectorIT extends AbstractContainerBaseIT {
+
+  @AfterEach
+  public void removeAllConnectors() {
+    try {
+      KafkaConnectUtils.removeAllConnectors();
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to clean up connectors after the test.", e);
+    }
+  }
 
   @Test
   public void canRegisterScyllaConnector() {
@@ -16,7 +27,7 @@ public class StartConnectorIT extends BaseConnectorIT {
                 .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
                 .withPort(scyllaDBContainer.getMappedPort(9042))
                 .build();
-        KafkaConsumer<String, String> consumer = getConsumer(kafkaContainer)) {
+        KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
       Session session = cluster.connect();
       session.execute(
           "CREATE KEYSPACE IF NOT EXISTS connectortest WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
@@ -25,15 +36,20 @@ public class StartConnectorIT extends BaseConnectorIT {
           "CREATE TABLE IF NOT EXISTS connectortest.test_table (id int PRIMARY KEY, name text) WITH cdc = {'enabled':true}");
       session.execute("INSERT INTO connectortest.test_table (id, name) VALUES (1, 'test_text');");
       session.close();
-      ConnectorConfiguration connector =
-          ConnectorConfiguration.create()
-              .with("connector.class", "com.scylladb.cdc.debezium.connector.ScyllaConnector")
-              .with("scylla.cluster.ip.addresses", "scylla:9042")
-              .with("topic.prefix", "namespace")
-              .with("scylla.table.names", "connectortest.test_table")
-              .with("tasks.max", "1")
-              .with("name", "ScyllaTestConnector");
-      debeziumContainer.registerConnector("ScyllaTestConnector", connector);
+      Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+      connectorConfiguration.put("topic.prefix", "namespace");
+      connectorConfiguration.put("scylla.table.names", "connectortest.test_table");
+      connectorConfiguration.put("name", "ScyllaTestConnector");
+      try {
+        int responseCode =
+            KafkaConnectUtils.registerConnector(connectorConfiguration, "ScyllaTestConnector");
+        Assertions.assertEquals(
+            2,
+            responseCode / 100,
+            "Received non-success response code on connector registration: " + responseCode);
+      } catch (Exception e) {
+        throw new RuntimeException("Could not register connector.", e);
+      }
       consumer.subscribe(List.of("namespace.connectortest.test_table"));
       // Wait for at most 65 seconds for the connector to start and generate the message
       // corresponding to the inserted row
