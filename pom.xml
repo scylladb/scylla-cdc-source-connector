@@ -127,6 +127,11 @@
                     </execution>
                 </executions>
                 <configuration>
+                    <systemPropertyVariables>
+                        <java.util.logging.config.file>
+                            ${project.basedir}/src/test/resources/logging.properties
+                        </java.util.logging.config.file>
+                    </systemPropertyVariables>
                     <includes>
                         <include>**/*IT.java</include>
                     </includes>
