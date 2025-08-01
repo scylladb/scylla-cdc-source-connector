@@ -9,6 +9,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
@@ -193,6 +194,9 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
   @Test
   @EnabledIf("isConfluentKafkaProvider")
   public void canReplicateAllPrimitiveTypesWithAvro() {
+    Assumptions.assumeTrue(
+        KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED,
+        "AvroConverter is not available in cp-kafka image.");
     try (KafkaConsumer<GenericRecord, GenericRecord> consumer = KafkaUtils.createAvroConsumer()) {
       Properties connectorConfiguration = KafkaConnectUtils.createAvroConnectorProperties();
       connectorConfiguration.put("topic.prefix", "canReplicateAllPrimitiveTypesWithAvro");
