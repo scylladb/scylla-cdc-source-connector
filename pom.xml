@@ -148,7 +148,7 @@
                     <releaseProfiles>release</releaseProfiles>
                     <localCheckout>true</localCheckout>
                     <pushChanges>false</pushChanges>
-                    <arguments>-Dgpg.passphrase=${gpg.passphrase}</arguments>
+                    <arguments>-Dgpg.passphrase=${gpg.passphrase} -Drelease.autopublish=${release.autopublish}</arguments>
                 </configuration>
                 <dependencies>
                     <dependency>
@@ -174,7 +174,7 @@
     </build>
 
     <properties>
-        <release.autopublish>true</release.autopublish>
+        <release.autopublish>false</release.autopublish>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>11</maven.compiler.release>
         <debezium.version>2.6.2.Final</debezium.version>
