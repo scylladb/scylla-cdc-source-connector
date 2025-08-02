@@ -78,14 +78,15 @@ jobs:
           SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
           SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
         run: |
-          if [[ "${{ inputs.dry-run }}" == "true" ]]; then
-            MAVEN_OPTS="${MAVEN_OPTS} -Drelease.autopublish=false"
+          CMD_OPTS = ""
+          if [[ "${{ inputs.dry-run }}" != "true" ]]; then
+            CMD_OPTS="-Drelease.autopublish=true"
           fi
           if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
             MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
           fi
           export MAVEN_OPTS
-          $MVNCMD release:perform -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }} > >(tee /tmp/logs-stdout.log) 2> >(tee /tmp/logs-stderr.log)
+          $MVNCMD release:perform $CMD_OPTS -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }} > >(tee /tmp/logs-stdout.log) 2> >(tee /tmp/logs-stderr.log)
 
       - name: Upload stdout.log
         if: failure()
