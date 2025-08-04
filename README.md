@@ -32,15 +32,13 @@ The connector has the following limitations:
 
 ## Connector installation
 
-### Building 
-
 ### Prebuilt images
 
 You can download the connector as a prebuilt package:
-1. JAR with dependencies (fat JAR): [scylla-cdc-source-connector-1.0.1-jar-with-dependencies.jar](https://github.com/scylladb/scylla-cdc-source-connector/releases/download/scylla-cdc-source-connector-1.0.1/scylla-cdc-source-connector-1.0.1-jar-with-dependencies.jar)
-2. Confluent Hub package (ZIP): [ScyllaDB-scylla-cdc-source-connector-1.0.1.zip](https://github.com/scylladb/scylla-cdc-source-connector/releases/download/scylla-cdc-source-connector-1.0.1/ScyllaDB-scylla-cdc-source-connector-1.0.1.zip)
+1. JAR with dependencies from [github releases](https://github.com/scylladb/scylla-cdc-source-connector/releases) (fat JAR)
+2. [Confluent Hub](https://www.confluent.io/hub/scylladb/scylla-cdc-source-connector) package (ZIP)
 
-The artifacts are also available in [Maven Central Repository](https://search.maven.org/artifact/com.scylladb/scylla-cdc-source-connector/1.0.1/pom) - we recommend using the "JAR with dependencies" file there.
+The artifacts are also available in [Maven Central Repository](https://central.sonatype.com/artifact/com.scylladb/scylla-cdc-source-connector) - we recommend using the "JAR with dependencies" file there.
 
 #### Building from source
 
@@ -53,6 +51,7 @@ mvn clean package
 
 The connector JAR file will be available in `scylla-cdc-kafka-connect/target/fat-jar` directory.
 
+
 ### Installation
 
 Copy the JAR file with connector into your Kafka Connect deployment and append the directory containing the connector to your Kafka Connect's plugin path (`plugin.path` configuration property).
@@ -61,13 +60,13 @@ Copy the JAR file with connector into your Kafka Connect deployment and append t
 
 Scylla CDC Source Connector exposes many configuration properties. These are the most important:
 
-| Property | Required | Description |
-| --- | --- | --- |
-| `scylla.name` | **Yes** | A unique name that identifies the Scylla cluster and that is used as a prefix for all schemas, topics. The logical name allows you to easily differentiate between your different Scylla cluster deployments. Each distinct Scylla installation should have a separate namespace and be monitored by at most one Scylla CDC Source Connector. It should consist of alphanumeric or underscore (`_`) characters. |
-| `scylla.cluster.ip.addresses` | **Yes** | List of IP addresses of nodes in the Scylla cluster that the connector will use to open initial connections to the cluster. In the form of a comma-separated list of pairs <IP>:<PORT> (`host1:port1,host2:port2`). |
-| `scylla.table.names` | **Yes** | List of CDC-enabled table names for connector to read. See [Change Data Capture (CDC)](https://docs.scylladb.com/using-scylla/cdc/) for more information about configuring CDC on Scylla. Provided as a comma-separated list of pairs `<keyspace name>.<table name>`. |
-| `scylla.user` | No | The username to connect to Scylla with. If not set, no authorization is done. |
-| `scylla.password` | No | The password to connect to Scylla with. If not set, no authorization is done. |
+| Property                                                   | Required | Description |
+|------------------------------------------------------------| --- | --- |
+| (until 1.2.2)`scylla.name`<br/>(since 1.2.3)`topic.prefix` | **Yes** | A unique name that identifies the Scylla cluster and that is used as a prefix for all schemas, topics. The logical name allows you to easily differentiate between your different Scylla cluster deployments. Each distinct Scylla installation should have a separate namespace and be monitored by at most one Scylla CDC Source Connector. It should consist of alphanumeric or underscore (`_`) characters. |
+| `scylla.cluster.ip.addresses`                              | **Yes** | List of IP addresses of nodes in the Scylla cluster that the connector will use to open initial connections to the cluster. In the form of a comma-separated list of pairs <IP>:<PORT> (`host1:port1,host2:port2`). |
+| `scylla.table.names`                                       | **Yes** | List of CDC-enabled table names for connector to read. See [Change Data Capture (CDC)](https://docs.scylladb.com/using-scylla/cdc/) for more information about configuring CDC on Scylla. Provided as a comma-separated list of pairs `<keyspace name>.<table name>`. |
+| `scylla.user`                                              | No | The username to connect to Scylla with. If not set, no authorization is done. |
+| `scylla.password`                                          | No | The password to connect to Scylla with. If not set, no authorization is done. |
 
 See additional configuration properties in the ["Advanced administration"](#advanced-administration) section.
 
@@ -75,7 +74,8 @@ Example configuration (as `.properties` file):
 ```
 name=ScyllaCDCSourceConnector
 connector.class=com.scylladb.cdc.debezium.connector.ScyllaConnector
-scylla.name=MyScyllaCluster
+# use scylla.name instead for versions < 1.2.3
+topic.prefix=MyScyllaCluster
 scylla.cluster.ip.addresses=127.0.0.1:9042,127.0.0.2:9042
 scylla.table.names=ks.my_table
 
@@ -90,7 +90,11 @@ auto.create.topics.enable=true
 
 This configuration will capture row-level changes in the `ks.my_table` table from Scylla cluster (`127.0.0.1`, `127.0.0.2`). Change data capture events will appear on `MyScyllaCluster.ks.my_table` Kafka topic encoded as JSONs with schema information.
 
-Scylla CDC Source Connector writes events to a separate Kafka topic for each source Scylla table. The topic name will be: `logicalName.keyspaceName.tableName` (logical name configured by `scylla.name` property). You can turn on automatic topic creation by using the `auto.create.topics.enable` property.
+Note that some of the unspecified properties will be set according to the defaults or your common connector configuration
+defined by your Kafka Connect installation. For example if you skip converter settings, they can be different depending
+on the Kafka Connect version you're using.
+
+Scylla CDC Source Connector writes events to a separate Kafka topic for each source Scylla table. The topic name will be: `logicalName.keyspaceName.tableName` (logical name configured by `topic.prefix` property). You can turn on automatic topic creation by using the `auto.create.topics.enable` property.
 
 ## Data change events
 Scylla CDC Source Connector generates a data change event for each row-level `INSERT`, `UPDATE` or `DELETE` operation. Each event consists of key and value.
