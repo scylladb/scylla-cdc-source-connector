@@ -1,0 +1,6 @@
+FROM cnfldemos/kafka-connect-datagen:0.6.4-7.6.0
+# Make sure you have built the project first
+# for example with `mvn clean package`
+# Also the context needs to be set to the root of the project
+# so that the target directory is available
+COPY /target/components/packages /usr/share/java
