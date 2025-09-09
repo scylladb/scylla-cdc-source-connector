@@ -103,7 +103,7 @@ jobs:
           path: /tmp/logs-stderr.log
 
       - name: Push changes to SCM
-        if: inputs.dry-run == 'false' && inputs.target-tag == 'master'
+        if: inputs.dry-run == false && inputs.target-tag == 'master'
         run: |
           git status && git log -3
           git push origin --follow-tags -v
