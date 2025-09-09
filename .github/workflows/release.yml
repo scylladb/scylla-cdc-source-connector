@@ -78,7 +78,7 @@ jobs:
           SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
           SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
         run: |
-          CMD_OPTS = ""
+          CMD_OPTS=""
           if [[ "${{ inputs.dry-run }}" != "true" ]]; then
             CMD_OPTS="-Drelease.autopublish=true"
           fi
