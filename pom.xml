@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.scylladb</groupId>
     <artifactId>scylla-cdc-source-connector</artifactId>
-    <version>1.2.5-SNAPSHOT</version>
+    <version>1.2.6-SNAPSHOT</version>
     <name>Scylla CDC Source Connector</name>
     <description>Kafka Connect Source Connector from Scylla CDC.</description>
     <url>https://github.com/scylladb/scylla-cdc-source-connector</url>
