@@ -1,177 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.scylladb</groupId>
-    <artifactId>scylla-cdc-source-connector</artifactId>
+    <artifactId>scylla-cdc-source-connector-parent</artifactId>
     <version>1.2.7-SNAPSHOT</version>
-    <name>Scylla CDC Source Connector</name>
-    <description>Kafka Connect Source Connector from Scylla CDC.</description>
+    <packaging>pom</packaging>
+    <name>Scylla CDC Source Connector Parent</name>
+    <description>Parent POM for Scylla CDC Source Connector modules.</description>
     <url>https://github.com/scylladb/scylla-cdc-source-connector</url>
     <inceptionYear>2020</inceptionYear>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>3.2.7</version>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-install-plugin</artifactId>
-                <version>3.1.4</version>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-deploy-plugin</artifactId>
-                <version>3.1.4</version>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.0</version>
-            </plugin>
-            <plugin>
-                <groupId>com.spotify.fmt</groupId>
-                <artifactId>fmt-maven-plugin</artifactId>
-                <version>2.25</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.7.1</version>
-
-                <configuration>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                    <outputDirectory>target/fat-jar/</outputDirectory>
-                </configuration>
-
-                <executions>
-                    <execution>
-                        <id>make-assembly</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>io.confluent</groupId>
-                <version>0.12.0</version>
-                <artifactId>kafka-connect-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>kafka-connect</goal>
-                        </goals>
-                        <configuration>
-                            <name>scylla-cdc-source-connector</name>
-                            <title>Scylla CDC Source Connector</title>
-                            <documentationUrl>https://github.com/scylladb/scylla-cdc-source-connector</documentationUrl>
-                            <description>
-                                Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster.
-                            </description>
-                            <logo>images/connector.png</logo>
-
-                            <ownerUsername>scylladb</ownerUsername>
-                            <ownerName>ScyllaDB</ownerName>
-                            <ownerType>organization</ownerType>
-                            <ownerUrl>https://www.scylladb.com/</ownerUrl>
-                            <ownerLogo>images/scylla.png</ownerLogo>
-
-                            <supportLogo>images/scylla.png</supportLogo>
-                            <supportProviderName>ScyllaDB</supportProviderName>
-                            <supportSummary>Officially supported by ScyllaDB.</supportSummary>
-                            <supportUrl>https://github.com/scylladb/scylla-cdc-source-connector</supportUrl>
-
-                            <componentTypes>
-                                <componentType>source</componentType>
-                            </componentTypes>
-
-                            <tags>
-                                <tag>Scylla Database</tag>
-                            </tags>
-
-                            <requirements>
-                                <requirement>Kafka 2.6.0+</requirement>
-                            </requirements>
-
-                            <deliveryGuarantee>
-                                <deliveryGuarantee>atLeastOnce</deliveryGuarantee>
-                            </deliveryGuarantee>
-
-                            <confluentControlCenterIntegration>true</confluentControlCenterIntegration>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-failsafe-plugin</artifactId>
-                <version>3.5.3</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>integration-test</goal>
-                            <goal>verify</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <systemPropertyVariables>
-                        <java.util.logging.config.file>
-                            ${project.basedir}/src/test/resources/logging.properties
-                        </java.util.logging.config.file>
-                    </systemPropertyVariables>
-                    <includes>
-                        <include>**/*IT.java</include>
-                    </includes>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-release-plugin</artifactId>
-                <version>3.1.1</version>
-                <configuration>
-                    <tagNameFormat>v@{project.version}</tagNameFormat>
-                    <autoVersionSubmodules>true</autoVersionSubmodules>
-                    <useReleaseProfile>false</useReleaseProfile>
-                    <releaseProfiles>release</releaseProfiles>
-                    <localCheckout>true</localCheckout>
-                    <pushChanges>false</pushChanges>
-                    <arguments>-Dgpg.passphrase=${gpg.passphrase} -Drelease.autopublish=${release.autopublish}</arguments>
-                </configuration>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.apache.maven.scm</groupId>
-                        <artifactId>maven-scm-provider-gitexe</artifactId>
-                        <version>2.1.0</version>
-                    </dependency>
-                </dependencies>
-            </plugin>
-        </plugins>
-
-        <resources>
-            <!-- Apply the properties set in the POM to the resource files -->
-            <resource>
-                <filtering>true</filtering>
-                <directory>src/main/resources</directory>
-                <includes>
-                    <include>*</include>
-                    <include>**/*</include>
-                </includes>
-            </resource>
-        </resources>
-    </build>
+    <modules>
+        <module>connector</module>
+        <module>tests</module>
+    </modules>
 
     <properties>
         <release.autopublish>false</release.autopublish>
@@ -193,6 +35,81 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.scylladb</groupId>
+                <artifactId>scylla-cdc-source-connector</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.scylladb</groupId>
+                <artifactId>scylla-cdc-base</artifactId>
+                <version>${scylla.cdc.java.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.scylladb</groupId>
+                <artifactId>scylla-cdc-driver3</artifactId>
+                <version>${scylla.cdc.java.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.scylladb</groupId>
+                <artifactId>scylla-driver-core</artifactId>
+                <version>${scylla.driver.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.debezium</groupId>
+                <artifactId>debezium-core</artifactId>
+                <version>${debezium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.debezium</groupId>
+                <artifactId>debezium-testing-testcontainers</artifactId>
+                <version>${debezium.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${commons.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>connect-transforms</artifactId>
+                <version>${kafka.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>connect-api</artifactId>
+                <version>${kafka.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>1.12.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers</artifactId>
+                <version>1.21.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>scylladb</artifactId>
+                <version>1.21.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>kafka</artifactId>
+                <version>1.21.1</version>
+            </dependency>
+            <dependency>
+                <groupId>io.confluent</groupId>
+                <artifactId>kafka-avro-serializer</artifactId>
+                <version>8.0.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>5.13.1</version>
+            </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
@@ -286,11 +203,6 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
-                <groupId>io.confluent</groupId>
-                <artifactId>kafka-avro-serializer</artifactId>
-                <version>8.0.0</version>
-            </dependency>
-            <dependency>
                 <groupId>org.bouncycastle</groupId>
                 <artifactId>bcpkix-jdk18on</artifactId>
                 <version>1.79</version>
@@ -298,127 +210,85 @@
         </dependencies>
     </dependencyManagement>
 
-    <dependencies>
-        <dependency>
-            <groupId>com.scylladb</groupId>
-            <artifactId>scylla-cdc-base</artifactId>
-            <version>${scylla.cdc.java.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.scylladb</groupId>
-            <artifactId>scylla-cdc-driver3</artifactId>
-            <version>${scylla.cdc.java.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.debezium</groupId>
-            <artifactId>debezium-core</artifactId>
-            <version>${debezium.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>${commons.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>connect-transforms</artifactId>
-            <version>${kafka.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>connect-api</artifactId>
-            <version>${kafka.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.debezium</groupId>
-            <artifactId>debezium-testing-testcontainers</artifactId>
-            <version>${debezium.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers</artifactId>
-            <version>1.21.1</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>scylladb</artifactId>
-            <version>1.21.1</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>kafka</artifactId>
-            <version>1.21.1</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>io.confluent</groupId>
-            <artifactId>kafka-avro-serializer</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.avro</groupId>
-            <artifactId>avro</artifactId>
-            <version>1.12.0</version>
-        </dependency>
-
-        <!-- FIXME: Delete this dependency:-->
-        <dependency>
-            <groupId>com.scylladb</groupId>
-            <artifactId>scylla-driver-core</artifactId>
-            <version>${scylla.driver.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.google.guava</groupId>
-                    <artifactId>guava</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>32.0.0-jre</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.google.flogger</groupId>
-            <artifactId>flogger-log4j-backend</artifactId>
-            <exclusions>
-                <!--
-                This is a known (not fixed) problem, that
-                flogger-log4j-backend pulls some log4j
-                transitive dependencies that have now been
-                removed from Maven due to licensing issues.
-                The workaround is to exclude those dependencies.
-                -->
-                <exclusion>
-                    <groupId>com.sun.jmx</groupId>
-                    <artifactId>jmxri</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.sun.jdmk</groupId>
-                    <artifactId>jmxtools</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>javax.jms</groupId>
-                    <artifactId>jms</artifactId>
-                </exclusion>
-
-                <exclusion>
-                    <groupId>log4j</groupId>
-                    <artifactId>log4j</artifactId>
-                </exclusion>
-
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.14.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>com.spotify.fmt</groupId>
+                    <artifactId>fmt-maven-plugin</artifactId>
+                    <version>2.25</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-assembly-plugin</artifactId>
+                    <version>3.7.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>io.confluent</groupId>
+                    <artifactId>kafka-connect-maven-plugin</artifactId>
+                    <version>0.12.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.3</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>3.5.3</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>3.2.7</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.1.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.1.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>3.1.1</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-release-plugin</artifactId>
+                <configuration>
+                    <tagNameFormat>v@{project.version}</tagNameFormat>
+                    <autoVersionSubmodules>true</autoVersionSubmodules>
+                    <useReleaseProfile>false</useReleaseProfile>
+                    <releaseProfiles>release</releaseProfiles>
+                    <localCheckout>true</localCheckout>
+                    <pushChanges>false</pushChanges>
+                    <arguments>-Dgpg.passphrase=${gpg.passphrase} -Drelease.autopublish=${release.autopublish}</arguments>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.maven.scm</groupId>
+                        <artifactId>maven-scm-provider-gitexe</artifactId>
+                        <version>2.1.0</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+        </plugins>
+    </build>
 
     <!--
     Profile activated when releasing. See:
@@ -454,6 +324,10 @@
 
         <profile>
             <id>release</id>
+            <modules>
+                <module>connector</module>
+                <!-- Skip tests module during release -->
+            </modules>
             <build>
                 <plugins>
                     <plugin>
@@ -491,7 +365,7 @@
                                 <configuration>
                                     <gpgArguments>
                                         <arg>--pinentry-mode</arg>
-                                        <arg>loopback</arg>
+                                        <arg>--loopback</arg>
                                     </gpgArguments>
                                 </configuration>
                             </execution>
