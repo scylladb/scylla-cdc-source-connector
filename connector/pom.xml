@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <parent>
+        <groupId>com.scylladb</groupId>
+        <artifactId>scylla-cdc-source-connector-parent</artifactId>
+        <version>1.2.7-SNAPSHOT</version>
+    </parent>
+    
+    <artifactId>scylla-cdc-source-connector</artifactId>
+    <name>Scylla CDC Source Connector</name>
+    <description>Kafka Connect Source Connector from Scylla CDC.</description>
+    
+    <dependencies>
+        <dependency>
+            <groupId>com.scylladb</groupId>
+            <artifactId>scylla-cdc-base</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.scylladb</groupId>
+            <artifactId>scylla-cdc-driver3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>connect-transforms</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>connect-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
+        </dependency>
+        
+        <!-- FIXME: Delete this dependency:-->
+        <dependency>
+            <groupId>com.scylladb</groupId>
+            <artifactId>scylla-driver-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.guava</groupId>
+                    <artifactId>guava</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+        
+        <dependency>
+            <groupId>com.google.flogger</groupId>
+            <artifactId>flogger-log4j-backend</artifactId>
+            <exclusions>
+                <!--
+                This is a known (not fixed) problem, that
+                flogger-log4j-backend pulls some log4j
+                transitive dependencies that have now been
+                removed from Maven due to licensing issues.
+                The workaround is to exclude those dependencies.
+                -->
+                <exclusion>
+                    <groupId>com.sun.jmx</groupId>
+                    <artifactId>jmxri</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.sun.jdmk</groupId>
+                    <artifactId>jmxtools</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>javax.jms</groupId>
+                    <artifactId>jms</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <resources>
+            <!-- Apply the properties set in the POM to the resource files -->
+            <resource>
+                <filtering>true</filtering>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>*</include>
+                    <include>**/*</include>
+                </includes>
+            </resource>
+        </resources>
+        
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            
+            <plugin>
+                <groupId>com.spotify.fmt</groupId>
+                <artifactId>fmt-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                    <outputDirectory>target/fat-jar/</outputDirectory>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <plugin>
+                <groupId>io.confluent</groupId>
+                <artifactId>kafka-connect-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>kafka-connect</goal>
+                        </goals>
+                        <configuration>
+                            <name>scylla-cdc-source-connector</name>
+                            <title>Scylla CDC Source Connector</title>
+                            <documentationUrl>https://github.com/scylladb/scylla-cdc-source-connector</documentationUrl>
+                            <description>
+                                Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster.
+                            </description>
+                            <logo>images/connector.png</logo>
+
+                            <ownerUsername>scylladb</ownerUsername>
+                            <ownerName>ScyllaDB</ownerName>
+                            <ownerType>organization</ownerType>
+                            <ownerUrl>https://www.scylladb.com/</ownerUrl>
+                            <ownerLogo>images/scylla.png</ownerLogo>
+
+                            <supportLogo>images/scylla.png</supportLogo>
+                            <supportProviderName>ScyllaDB</supportProviderName>
+                            <supportSummary>Officially supported by ScyllaDB.</supportSummary>
+                            <supportUrl>https://github.com/scylladb/scylla-cdc-source-connector</supportUrl>
+
+                            <componentTypes>
+                                <componentType>source</componentType>
+                            </componentTypes>
+
+                            <tags>
+                                <tag>Scylla Database</tag>
+                            </tags>
+
+                            <requirements>
+                                <requirement>Kafka 2.6.0+</requirement>
+                            </requirements>
+
+                            <deliveryGuarantee>
+                                <deliveryGuarantee>atLeastOnce</deliveryGuarantee>
+                            </deliveryGuarantee>
+
+                            <confluentControlCenterIntegration>true</confluentControlCenterIntegration>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
