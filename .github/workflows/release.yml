@@ -36,9 +36,13 @@ jobs:
       - name: Checkout Code One Commit Before ${{ inputs.target-tag }}
         if: inputs.target-tag != 'master'
         run: |
-          git fetch --prune --unshallow || true
-          git checkout ${{ inputs.target-tag }}~1
-          git tag -d ${{ inputs.target-tag }}
+          if [[ "${{ inputs.target-tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            git fetch --prune --unshallow || true
+            git checkout ${{ inputs.target-tag }}~1
+            git tag -d ${{ inputs.target-tag }}
+          else
+            echo "Skipping: ${{ inputs.target-tag }} is not a semver tag"
+          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
