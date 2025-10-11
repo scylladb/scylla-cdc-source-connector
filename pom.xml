@@ -187,7 +187,7 @@
         <log4j.version>2.25.2</log4j.version>
         <jackson-databind.version>2.20.0</jackson-databind.version>
         <guava.version>33.5.0-jre</guava.version>
-        <jetty.version>12.1.1</jetty.version>
+        <jetty.version>12.1.2</jetty.version>
         <commons.version>3.19.0</commons.version>
     </properties>
 
