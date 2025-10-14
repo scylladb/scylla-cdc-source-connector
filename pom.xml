@@ -266,12 +266,12 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-common</artifactId>
-                <version>4.2.6.Final</version>
+                <version>4.2.7.Final</version>
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-handler</artifactId>
-                <version>4.2.6.Final</version>
+                <version>4.2.7.Final</version>
             </dependency>
             <dependency>
                 <groupId>org.xerial.snappy</groupId>
