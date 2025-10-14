@@ -90,7 +90,7 @@
 
                             <supportLogo>images/scylla.png</supportLogo>
                             <supportProviderName>ScyllaDB</supportProviderName>
-                            <supportSummary>Officially supported by ScyllaDB.</supportSummary>
+                            <supportSummary>Officially supported by ScyllaDB. Questions regarding usage can be asked at https://forum.scylladb.com/. Bug reports can be filed at project's GitHub repository.</supportSummary>
                             <supportUrl>https://github.com/scylladb/scylla-cdc-source-connector</supportUrl>
 
                             <componentTypes>
@@ -98,7 +98,10 @@
                             </componentTypes>
 
                             <tags>
-                                <tag>Scylla Database</tag>
+                                <tag>Scylla</tag>
+                                <tag>database</tag>
+                                <tag>ScyllaDB</tag>
+                                <tag>CDC</tag>
                             </tags>
 
                             <requirements>
@@ -108,6 +111,8 @@
                             <deliveryGuarantee>
                                 <deliveryGuarantee>atLeastOnce</deliveryGuarantee>
                             </deliveryGuarantee>
+                            <kafkaConnectApi>true</kafkaConnectApi>
+                            <singleMessageTransforms>true</singleMessageTransforms>
 
                             <confluentControlCenterIntegration>true</confluentControlCenterIntegration>
                         </configuration>
