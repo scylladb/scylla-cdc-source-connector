@@ -224,7 +224,7 @@ public abstract class AbstractContainerBaseIT {
   private static final String DEFAULT_KAFKA_PROVIDER = "apache";
 
   /** The default Kafka version when system property is not defined */
-  private static final String DEFAULT_KAFKA_VERSION = "4.0.0";
+  private static final String DEFAULT_PROVIDER_IMAGE_VERSION = "4.0.0";
 
   /** The default Kafka Connect mode when system property is not defined */
   private static final String DEFAULT_KAFKA_CONNECT_MODE = "distributed";
@@ -240,12 +240,13 @@ public abstract class AbstractContainerBaseIT {
       KafkaProvider.fromString(System.getProperty("it.kafka.provider", DEFAULT_KAFKA_PROVIDER));
 
   /**
-   * The Kafka version, read from the "it.kafka.version" system property. Expected format:
+   * The Kafka version, read from the "it.provider.image.version" system property. Expected format:
    * major.minor.patch[-label] (e.g. "2.8.1" or "4.1.0-rc1") Defaults to "4.0.0" if system property
    * is not defined.
    */
-  public static final KafkaVersion KAFKA_VERSION =
-      new KafkaVersion(System.getProperty("it.kafka.version", DEFAULT_KAFKA_VERSION));
+  public static final KafkaVersion PROVIDER_IMAGE_VERSION =
+      new KafkaVersion(
+          System.getProperty("it.provider.image.version", DEFAULT_PROVIDER_IMAGE_VERSION));
 
   /**
    * The Kafka Connect deployment mode, read from the "it.kafka.connect.mode" system property.
@@ -331,10 +332,10 @@ public abstract class AbstractContainerBaseIT {
     }
 
     // Determine the right Apache Kafka version based on the configuration
-    String kafkaVersion = KAFKA_VERSION.toString();
+    String imageVersion = PROVIDER_IMAGE_VERSION.toString();
 
     apacheKafkaContainer =
-        new KafkaContainer(DockerImageName.parse("apache/kafka:" + kafkaVersion))
+        new KafkaContainer(DockerImageName.parse("apache/kafka:" + imageVersion))
             .withNetwork(NETWORK)
             .withExposedPorts(KAFKA_PORT, KAFKA_CONNECT_PORT)
             .withListener("broker:19092")
@@ -473,11 +474,11 @@ public abstract class AbstractContainerBaseIT {
       return;
     }
 
-    String confluentVersion = KAFKA_VERSION.toString();
+    String imageVersion = PROVIDER_IMAGE_VERSION.toString();
     String cpPrefix = "confluentinc/cp-";
 
     confluentKafkaContainer =
-        new ConfluentKafkaContainer("confluentinc/cp-kafka:" + confluentVersion)
+        new ConfluentKafkaContainer("confluentinc/cp-kafka:" + imageVersion)
             .withNetwork(NETWORK)
             .withNetworkAliases("broker")
             .withListener("broker:19092")
@@ -486,8 +487,7 @@ public abstract class AbstractContainerBaseIT {
             .withStartupTimeout(Duration.ofMinutes(5));
 
     schemaRegistryContainer =
-        new GenericContainer<>(
-                DockerImageName.parse(cpPrefix + "schema-registry:" + confluentVersion))
+        new GenericContainer<>(DockerImageName.parse(cpPrefix + "schema-registry:" + imageVersion))
             .withNetwork(NETWORK)
             .withNetworkAliases("schema-registry")
             .withExposedPorts(SCHEMA_REGISTRY_PORT)
@@ -499,8 +499,7 @@ public abstract class AbstractContainerBaseIT {
 
     if (KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED) {
       kafkaConnectContainer =
-          new GenericContainer<>(
-                  DockerImageName.parse(cpPrefix + "kafka-connect:" + confluentVersion))
+          new GenericContainer<>(DockerImageName.parse(cpPrefix + "kafka-connect:" + imageVersion))
               .dependsOn(confluentKafkaContainer, schemaRegistryContainer)
               .withNetwork(NETWORK)
               .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
@@ -726,7 +725,7 @@ public abstract class AbstractContainerBaseIT {
     // Start the Kafka infrastructure containers
     logger.atInfo().log(
         "Starting Kafka infrastructure with provider: %s, version: %s, connect mode: %s",
-        KAFKA_PROVIDER, KAFKA_VERSION, KAFKA_CONNECT_MODE);
+        KAFKA_PROVIDER, PROVIDER_IMAGE_VERSION, KAFKA_CONNECT_MODE);
     startKafkaInfrastructure();
     // Start the ScyllaDB container
     logger.atInfo().log("Starting ScyllaDB container with version: %s", SCYLLA_VERSION);
