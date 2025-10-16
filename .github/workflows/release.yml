@@ -47,8 +47,8 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
-          java-version: '11'
-          distribution: 'temurin'
+          java-version: 17
+          distribution: temurin
           server-id: central
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           server-username: SONATYPE_TOKEN_USERNAME
