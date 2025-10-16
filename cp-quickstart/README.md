@@ -5,7 +5,7 @@ This guide will walk you through setting up and using the Scylla CDC Source Conn
 ## Prerequisites
 
 - Clone this repository
-- Have Java 11 or later and Maven installed
+- Have Java 17 or later and Maven installed
 - Make sure you fulfill the requirements listed at https://docs.confluent.io/platform/current/get-started/platform-quickstart.html
 
 ## Setup Process
