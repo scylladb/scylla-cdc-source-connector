@@ -30,6 +30,25 @@ The connector has the following limitations:
 - No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
 - No support for postimage, preimage needs to be enabled - By default changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
 
+### Compatibility
+
+[![Integration testing](https://github.com/scylladb/scylla-cdc-source-connector/actions/workflows/pr-verify.yml/badge.svg?branch=master)](https://github.com/scylladb/scylla-cdc-source-connector/actions/workflows/pr-verify.yml?query=branch%3Amaster)
+
+The connector is tested against the latest Apache Kafka 3.x, 4.x and currently last 6 minor Confluent Platform releases.
+It should remain compatible with those versions.
+
+Below is a summary of the Debezium and Kafka (Connect API) dependency versions used by the last few tagged connector releases.
+
+| Connector version | Debezium version    | Connect API |
+|-------------------|---------------------|-------------|
+| v1.2.6            | 2.6.2.Final         | 3.9.1       |
+| v1.2.5            | 2.6.2.Final         | 3.3.1       |
+| v1.2.4            | 2.6.2.Final         | 3.3.1       |
+| v1.2.3            | 2.6.2.Final         | 3.3.1       |
+| v1.2.2            | 1.4.1.Final         | 3.3.1       |
+
+For older releases, consult the corresponding tag's `pom.xml` for the `<debezium.version>` and `<kafka.version>` properties.
+
 ## Connector installation
 
 ### Prebuilt images
