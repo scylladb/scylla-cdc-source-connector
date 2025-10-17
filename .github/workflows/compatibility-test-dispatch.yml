@@ -1,0 +1,24 @@
+# Basically multiple integration tests. Can pass versions list as input.
+name: compatibility-test-dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: |
+          List of version combinations to test. Each item should be a JSON object with keys:
+          kafka_provider, provider_version, kafka_connect_mode, scylla_version, repo_version_tag (optional).
+          Example:
+          [
+            {"kafka_provider": "confluent", "provider_version": "7.5.0", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "apache", "provider_version": "3.7.2", "kafka_connect_mode": "distributed", "scylla_version": "latest"}
+          ]
+        required: false
+        type: string
+
+jobs:
+  compatibility-test:
+    uses: ./.github/workflows/compatibility-test.yml
+    secrets: inherit
+    with:
+      versions: ${{ inputs.versions }}
