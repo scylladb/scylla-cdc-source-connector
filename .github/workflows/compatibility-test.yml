@@ -1,0 +1,68 @@
+# Basically multiple integration tests. Can pass versions list as input.
+name: compatibility-test
+
+on:
+  workflow_call:
+    inputs:
+      versions:
+        description: |
+          List of version combinations to test. Each item should be a JSON object with keys:
+          kafka_provider, provider_version, kafka_connect_mode, scylla_version, repo_version_tag (optional).
+          Example:
+          [
+            {"kafka_provider": "confluent", "provider_version": "7.5.0", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "apache", "provider_version": "3.7.2", "kafka_connect_mode": "distributed", "scylla_version": "latest"}
+          ]
+        required: false
+        type: string
+
+jobs:
+  get-matrix:
+    name: Read input version matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      use_default: ${{ steps.set-matrix.outputs.use_default }}
+    steps:
+      - name: Set matrix from input or fallback to defaults
+        id: set-matrix
+        run: |
+          raw='${{ inputs.versions }}'
+          # If input is empty or only whitespace -> fallback.
+          if [ -z "${raw//[[:space:]]/}" ]; then
+            echo "No versions input provided; falling back to default version matrix." >&2
+            echo "use_default=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Validate JSON is a non-empty array; fallback otherwise.
+          if echo "$raw" | jq -e 'type=="array" and length>0' >/dev/null 2>&1; then
+            compact=$(echo "$raw" | jq -c .)
+            echo "matrix=$compact" >> $GITHUB_OUTPUT
+            echo "use_default=false" >> $GITHUB_OUTPUT
+          else
+            echo "Provided versions input is invalid JSON or empty array; falling back to default version matrix." >&2
+            echo "use_default=true" >> $GITHUB_OUTPUT
+          fi
+
+  set-default-matrix:
+    if: needs.get-matrix.outputs.use_default == 'true'
+    uses: ./.github/workflows/set-default-matrix.yml
+    secrets: inherit
+    needs: get-matrix
+
+  integration-tests:
+    if: always() && !cancelled() && !failure()
+    needs: [get-matrix, set-default-matrix]
+    strategy:
+      fail-fast: false
+      matrix:
+        # Expression inside brackets is equivalent to (condition ? if_true : if_false)
+        include: ${{ fromJson(needs.get-matrix.outputs.use_default == 'true' && needs.set-default-matrix.outputs.matrix || needs.get-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/integration-test.yml
+    with:
+      kafka_provider: ${{ matrix.kafka_provider }}
+      provider_version: ${{ matrix.provider_version }}
+      kafka_connect_mode: ${{ matrix.kafka_connect_mode }}
+      scylla_version: ${{ matrix.scylla_version }}
+      repo_version_tag: ${{ matrix.repo_version_tag }}

@@ -1,0 +1,127 @@
+name: set-default-matrix
+
+on:
+  workflow_call:
+    outputs:
+      matrix:
+        description: 'Default matrix for compatibility tests'
+        value: ${{ jobs.set-matrix.outputs.matrix }}
+
+jobs:
+  get-confluent-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      latest: ${{ fromJson(steps.get-latest.outputs.versions)[0] }}
+      v8_0: ${{ fromJson(steps.get-v8-0.outputs.versions)[0] }}
+      v7_9: ${{ fromJson(steps.get-v7-9.outputs.versions)[0] }}
+      v7_8: ${{ fromJson(steps.get-v7-8.outputs.versions)[0] }}
+      v7_7: ${{ fromJson(steps.get-v7-7.outputs.versions)[0] }}
+      v7_6: ${{ fromJson(steps.get-v7-6.outputs.versions)[0] }}
+    steps:
+      - name: Get latest Confluent version
+        id: get-latest
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: confluentinc/cp-kafka
+          filters: LAST.LAST.LAST
+
+      - name: Get latest Confluent 8.0.x version
+        id: get-v8-0
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: confluentinc/cp-kafka
+          filters: 8.0.LAST
+
+      - name: Get latest Confluent 7.9.x version
+        id: get-v7-9
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: confluentinc/cp-kafka
+          filters: 7.9.LAST
+
+      - name: Get latest Confluent 7.8.x version
+        id: get-v7-8
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: confluentinc/cp-kafka
+          filters: 7.8.LAST
+
+      - name: Get latest Confluent 7.7.x version
+        id: get-v7-7
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: confluentinc/cp-kafka
+          filters: 7.7.LAST
+
+      - name: Get latest Confluent 7.6.x version
+        id: get-v7-6
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: confluentinc/cp-kafka
+          filters: 7.6.LAST
+
+  get-apache-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      latest: ${{ fromJson(steps.get-latest.outputs.versions)[0] }}
+      v4_latest: ${{ fromJson(steps.get-v4-latest.outputs.versions)[0] }}
+      v3_latest: ${{ fromJson(steps.get-v3-latest.outputs.versions)[0] }}
+    steps:
+      - name: Get latest Apache Kafka version
+        id: get-latest
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: apache/kafka
+          filters: LAST.LAST.LAST
+
+      - name: Get latest Apache Kafka 4.x version
+        id: get-v4-latest
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: apache/kafka
+          filters: 4.LAST.LAST
+
+      - name: Get latest Apache Kafka 3.x version
+        id: get-v3-latest
+        uses: scylladb-actions/get-version@v0.3.0
+        with:
+          source: dockerhub-imagetag
+          repo: apache/kafka
+          filters: 3.LAST.LAST
+
+  set-matrix:
+    name: Set default version matrix
+    runs-on: ubuntu-latest
+    needs: [get-confluent-versions, get-apache-versions]
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set default matrix
+        id: set-matrix
+        run: |
+          MATRIX='[
+            {"kafka_provider": "confluent", "provider_version": "${{ needs.get-confluent-versions.outputs.latest }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "confluent", "provider_version": "${{ needs.get-confluent-versions.outputs.latest }}", "kafka_connect_mode": "standalone", "scylla_version": "latest"},
+            {"kafka_provider": "confluent", "provider_version": "${{ needs.get-confluent-versions.outputs.v8_0 }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "confluent", "provider_version": "${{ needs.get-confluent-versions.outputs.v7_9 }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "confluent", "provider_version": "${{ needs.get-confluent-versions.outputs.v7_8 }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "confluent", "provider_version": "${{ needs.get-confluent-versions.outputs.v7_7 }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "confluent", "provider_version": "${{ needs.get-confluent-versions.outputs.v7_6 }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "apache", "provider_version": "${{ needs.get-apache-versions.outputs.v4_latest }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "apache", "provider_version": "${{ needs.get-apache-versions.outputs.v3_latest }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "apache", "provider_version": "${{ needs.get-apache-versions.outputs.latest }}", "kafka_connect_mode": "distributed", "scylla_version": "latest"},
+            {"kafka_provider": "apache", "provider_version": "${{ needs.get-apache-versions.outputs.latest }}", "kafka_connect_mode": "standalone", "scylla_version": "latest"}
+          ]'
+          
+          # Deduplicate the matrix using jq
+          DEDUPLICATED_MATRIX=$(echo "$MATRIX" | jq -c 'unique')
+          
+          echo "matrix=$DEDUPLICATED_MATRIX" >> $GITHUB_OUTPUT

@@ -1,0 +1,37 @@
+name: integration-test-dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      kafka_provider:
+        description: 'Kafka provider'
+        required: true
+        type: string
+      provider_version:
+        description: 'Kafka provider version'
+        required: true
+        type: string
+      kafka_connect_mode:
+        description: 'Kafka Connect mode'
+        required: true
+        type: string
+      scylla_version:
+        description: 'Scylla version'
+        required: true
+        type: string
+        default: 'latest'
+      repo_version_tag:
+        description: 'Repository version tag'
+        required: false
+        type: string
+
+jobs:
+  integration-test:
+    uses: ./.github/workflows/integration-test.yml
+    with:
+      kafka_provider: ${{ inputs.kafka_provider }}
+      provider_version: ${{ inputs.provider_version }}
+      kafka_connect_mode: ${{ inputs.kafka_connect_mode }}
+      scylla_version: ${{ inputs.scylla_version }}
+      repo_version_tag: ${{ inputs.repo_version_tag }}
+
