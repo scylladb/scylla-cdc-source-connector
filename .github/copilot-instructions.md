@@ -89,7 +89,7 @@ These instructions help AI coding agents quickly work productively in this repo.
 ## Configuration Highlights
 - Required: `scylla.cluster.ip.addresses`, `scylla.name`, `scylla.table.names`.
 - Optional: `scylla.user`, `scylla.password`, `scylla.consistency.level`, TCP keepalive.
-- Collections: `scylla.collection.mode` and `scylla.collection.operation` control non-frozen behavior.
+
 - Converters: JSON or Avro via standard Kafka Connect converters.
 
 ## Debugging & Offsets
@@ -99,7 +99,7 @@ These instructions help AI coding agents quickly work productively in this repo.
 
 ## Project Conventions
 - **Schema building:** Centralized in `ScyllaChangeRecordEmitter` and `ScyllaCollectionSchema`; prefer extending rather than custom emitters.
-- **SMT usage:** Use `transforms/ScyllaExtractNewState` when downstream requires flattened fields; understand trade-off (NULL vs non-modification).
+
 - **Topic creation:** Can be auto-enabled via `auto.create.topics.enable`.
 - **Compatibility:** Kafka 2.6.0+ only; no pre/postimage support; partition/range deletes ignored by design.
 
@@ -108,8 +108,8 @@ These instructions help AI coding agents quickly work productively in this repo.
 - `README-QUICKSTART.md`: Control Center and OSS Kafka setup guide.
 - `pom.xml`: Plugin packaging config and dependency versions.
 - `src/main/java/com/scylladb/cdc/debezium/connector/`: Connector core implementation.
-- `src/main/java/.../transforms/`: SMTs.
-- `connector-config/scylla-cdc-connector.json`: JSON example config.
+
+
 
 ---
 Questions or missing pieces? Tell me where guidance was unclear (build/run steps, config fields, or data format nuances) and I’ll refine this for your workflows.
