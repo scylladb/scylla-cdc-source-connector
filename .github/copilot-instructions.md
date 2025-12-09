@@ -15,16 +15,13 @@ These instructions help AI coding agents quickly work productively in this repo.
 - `ScyllaStreamingChangeEventSource` and `ScyllaSnapshotChangeEventSource`: Core readers producing Debezium events.
 - `ScyllaChangeRecordEmitter`: Builds Connect `SourceRecord` payloads and schemas.
 - `ScyllaSourceInfoStructMaker` / `SourceInfo`: Source metadata fields (`ts_ms`, `ts_us`, keyspace/table, logical name).
-- `ScyllaCollectionSchema`, `CollectionsMode`, `CollectionOperation`: Collection (frozen/non-frozen) representations and delta mode logic.
+- `ScyllaCollectionSchema`, `CollectionsMode`, `CollectionOperation`: Schema-related classes/enums present in the codebase; **collection types (LIST, SET, MAP, UDT, TUPLE) are not supported** and are filtered out (see README and ScyllaSchema.java).
 - `transforms/ScyllaExtractNewState`: SMT flattening one-field Cell wrappers for easier sinks (similar to Debezium ExtractNewRecordState).
 
 ## Data Model & Topics
 - **Topic naming:** `logicalName.keyspace.table` from `scylla.name` (see README examples).
 - **Keys:** Primary key columns only.
 - **Values:** `op`, `before`, `after`, `source`, `ts_ms`; non-PK columns wrapped in single-field `Cell` structs to distinguish non-modification vs `NULL`.
-- **Collections:**
-  - Frozen: `List/Set → array(T)`, `Map → array([key,value])`, `UDT → struct`.
-  - Non-frozen delta mode: struct `{mode, elements}`; remove indicated by `null` values; UDT fields as per-Cell wrappers.
 
 ## Build & Artifacts
 - **Build fat JAR:**
@@ -43,7 +40,6 @@ These instructions help AI coding agents quickly work productively in this repo.
   # Create properties from JSON (or use Control Center UI)
   bin/connect-standalone.sh config/connect-standalone.properties connector.properties
   ```
-- **Docker Compose:** Check `docker-compose.yml` and `manage-docker.sh` for orchestrating Scylla/Kafka in docs/testing scenarios.
 
 ### Minimal Local Run (Docker Compose)
 - **Bring up stack:**
