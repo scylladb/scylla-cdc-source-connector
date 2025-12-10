@@ -231,10 +231,10 @@ Each non-frozen collection column is represented as a struct, with fields `mode`
 - `OVERWRITE` - whole content of collection was removed, and new elements were added. If no elements were added (meaning the collection was just removed), this mode won't be used - instead, whole struct (stored in `field` value of "Cell" struct, as mentioned previously) will be null.
 
 Type of `elements` field depends on collection type:
-- For `Set` of type T it will be `Schema.map(T, Schema.BOOLEAN_SCHEMA)`. The boolean value signals wheter value was added (true) or removed (false) from set.
+- For `Set` of type T it will be `Schema.map(T, Schema.BOOLEAN_SCHEMA)`. The boolean value signals whether value was added (true) or removed (false) from set.
 - For `List` of type T, it will be `Schema.map(Schema.STRING_SCHEMA, T)` - key of this map is timeuuid, as described in https://docs.scylladb.com/using-scylla/cdc/cdc-advanced-types/#lists. Removed elements are marked by null value.
 - For `Map` with key K and value V, it will be `Schema.map(K, V)` (same as in frozen collection). Removed elements are marked by null value.
-- For `UDT` it will be struct representing this UDT, bit a bit differently than in frozen UDT: each field of this struct is a "Cell" (a struct with a single field, `value`). "Cell" is used the same way as with columns - null means that the field wasn't changed, "Cell" with null value means field was removed, field with non-null value means that field was overwritten.
+- For `UDT` it will be struct representing this UDT, but a bit differently than in frozen UDT: each field of this struct is a "Cell" (a struct with a single field, `value`). "Cell" is used the same way as with columns - null means that the field wasn't changed, "Cell" with null value means field was removed, field with non-null value means that field was overwritten.
 
 #### Single Message Transformations (SMTs)
 The connector provides two single message transformations (SMTs): `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) and `ScyllaFlattenColumns` (`com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`).
