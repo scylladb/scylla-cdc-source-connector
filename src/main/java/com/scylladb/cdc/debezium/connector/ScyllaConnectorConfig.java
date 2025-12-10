@@ -99,30 +99,32 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription("Path to the SSL certificate file, when using OpenSSL.");
 
   public static final Field SSL_OPENSLL_PRIVATEKEY =
-    Field.create("scylla.ssl.openssl.privateKey")
-      .withDisplayName("The path to the private key file")
-      .withType(ConfigDef.Type.STRING)
-      .withImportance(ConfigDef.Importance.HIGH)
-      .withDescription("Path to the private key file, when using OpenSSL.");
+      Field.create("scylla.ssl.openssl.privateKey")
+          .withDisplayName("The path to the private key file")
+          .withType(ConfigDef.Type.STRING)
+          .withImportance(ConfigDef.Importance.HIGH)
+          .withDescription("Path to the private key file, when using OpenSSL.");
 
   public static final Field TABLE_NAMES =
-    Field.create("scylla.table.names")
-      .withDisplayName("Table Names")
-      .withType(ConfigDef.Type.LIST)
-      .withWidth(ConfigDef.Width.LONG)
-      .withImportance(ConfigDef.Importance.HIGH)
-      .withValidation(ConfigSerializerUtil::validateTableNames)
-      .withDescription(
-        "List of CDC-enabled table names for connector to read. "
-          + "Provided as a comma-separated list of pairs <keyspace name>.<table name>");
+      Field.create("scylla.table.names")
+          .withDisplayName("Table Names")
+          .withType(ConfigDef.Type.LIST)
+          .withWidth(ConfigDef.Width.LONG)
+          .withImportance(ConfigDef.Importance.HIGH)
+          .withValidation(ConfigSerializerUtil::validateTableNames)
+          .withDescription(
+              "List of CDC-enabled table names for connector to read. "
+                  + "Provided as a comma-separated list of pairs <keyspace name>.<table name>");
 
   public static final CollectionsMode DEFAULT_COLLECTIONS_MODE = CollectionsMode.DELTA;
-  public static final Field COLLECTIONS_MODE = Field.create("scylla.collections.mode")
-    .withDisplayName("Collections format")
-    .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
-    .withWidth(ConfigDef.Width.SHORT)
-    .withImportance(ConfigDef.Importance.MEDIUM)
-    .withDescription("How to represent non-frozen collections. Currently, only 'delta' mode is supported - in the future support for more modes may be added. 'Delta' mode: change in collection is represented as a struct with 2 fields, 'mode' and 'elements'. 'mode' describes what type of change happened (modifying collection, overwriting collection), 'elements' contains added/removed elements.");
+  public static final Field COLLECTIONS_MODE =
+      Field.create("scylla.collections.mode")
+          .withDisplayName("Collections format")
+          .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
+          .withWidth(ConfigDef.Width.SHORT)
+          .withImportance(ConfigDef.Importance.MEDIUM)
+          .withDescription(
+              "How to represent non-frozen collections. Currently, only 'delta' mode is supported - in the future support for more modes may be added. 'Delta' mode: change in collection is represented as a struct with 2 fields, 'mode' and 'elements'. 'mode' describes what type of change happened (modifying collection, overwriting collection), 'elements' contains added/removed elements.");
 
   /*
    * Scylla CDC Source Connector relies on heartbeats to move the offset,
@@ -560,6 +562,15 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     return 9042;
   }
 
+  public CollectionsMode getCollectionsMode() {
+    String collectionsModeValue = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
+    try {
+      return CollectionsMode.valueOf(collectionsModeValue.toUpperCase());
+    } catch (IllegalArgumentException ex) {
+      return DEFAULT_COLLECTIONS_MODE;
+    }
+  }
+
   @Override
   public String getContextName() {
     return "Scylla";
@@ -577,15 +588,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     SnapshotMode(String value) {
       this.value = value;
-    }
-
-    public CollectionsMode getCollectionsMode() {
-        String collectionsModeValue = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
-        try {
-            return CollectionsMode.valueOf(collectionsModeValue.toUpperCase());
-        } catch (IllegalArgumentException ex) {
-            return DEFAULT_COLLECTIONS_MODE;
-        }
     }
 
     @Override
