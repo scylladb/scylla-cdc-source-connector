@@ -2,6 +2,7 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.TaskState;
+import com.scylladb.cdc.transport.TaskAbortedException;
 import com.scylladb.cdc.transport.WorkerTransport;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.source.spi.ChangeEventSource;
@@ -27,7 +28,6 @@ public class ScyllaWorkerTransport implements WorkerTransport {
       EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
       long heartbeatIntervalMs) {
     this.context = context;
-    // this.partition = partition;
     this.offsetContext = offsetContext;
     this.dispatcher = dispatcher;
     this.heartbeatTimers = new HashMap<>();
@@ -81,5 +81,11 @@ public class ScyllaWorkerTransport implements WorkerTransport {
   @Override
   public boolean shouldStop() {
     return !context.isRunning();
+  }
+
+  @Override
+  public void updateState(TaskId task, TaskState newState) throws TaskAbortedException {
+    TaskStateOffsetContext taskStateOffsetContext = offsetContext.taskStateOffsetContext(task);
+    taskStateOffsetContext.dataChangeEvent(newState);
   }
 }
