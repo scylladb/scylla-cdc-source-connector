@@ -2,16 +2,15 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
-import com.scylladb.cdc.model.worker.cql.Cell;
 import com.scylladb.cdc.model.worker.cql.CqlDate;
+import com.scylladb.cdc.model.worker.cql.Field;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.util.Clock;
 import java.time.Instant;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.TimeZone;
+import java.util.*;
+import java.util.stream.Collectors;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 
@@ -183,9 +182,11 @@ public class ScyllaChangeRecordEmitter
   private void fillStructWithChange(
       ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {
     for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
-      if (!ScyllaSchema.isSupportedColumnSchema(cdef)) continue;
+      if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
 
-      Object value = translateCellToKafka(change.getCell(cdef.getColumnName()));
+      Schema cellSchema = schema.cellSchema(cdef.getColumnName());
+      Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
+      Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
 
       if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY
           || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
@@ -196,7 +197,7 @@ public class ScyllaChangeRecordEmitter
       } else {
         Boolean isDeleted = this.change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
         if (value != null || (isDeleted != null && isDeleted)) {
-          Struct cell = new Struct(schema.cellSchema(cdef.getColumnName()));
+          Struct cell = new Struct(cellSchema);
           cell.put(ScyllaSchema.CELL_VALUE, value);
           valueStruct.put(cdef.getColumnName(), cell);
         }
@@ -228,35 +229,35 @@ public class ScyllaChangeRecordEmitter
     return struct;
   }
 
-  private Object translateCellToKafka(Cell cell) {
-    ChangeSchema.DataType dataType = cell.getColumnDefinition().getCdcLogDataType();
+  private Object translateFieldToKafka(Field field, Schema resultSchema) {
+    ChangeSchema.DataType dataType = field.getDataType();
 
-    if (cell.getAsObject() == null) {
+    if (field.getAsObject() == null) {
       return null;
     }
 
     if (dataType.getCqlType() == ChangeSchema.CqlType.DECIMAL) {
-      return cell.getDecimal().toString();
+      return field.getDecimal().toString();
     }
 
     if (dataType.getCqlType() == ChangeSchema.CqlType.UUID) {
-      return cell.getUUID().toString();
+      return field.getUUID().toString();
     }
 
     if (dataType.getCqlType() == ChangeSchema.CqlType.TIMEUUID) {
-      return cell.getUUID().toString();
+      return field.getUUID().toString();
     }
 
     if (dataType.getCqlType() == ChangeSchema.CqlType.VARINT) {
-      return cell.getVarint().toString();
+      return field.getVarint().toString();
     }
 
     if (dataType.getCqlType() == ChangeSchema.CqlType.INET) {
-      return cell.getInet().getHostAddress();
+      return field.getInet().getHostAddress();
     }
 
     if (dataType.getCqlType() == ChangeSchema.CqlType.DATE) {
-      CqlDate cqlDate = cell.getDate();
+      CqlDate cqlDate = field.getDate();
       Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
       calendar.clear();
       // Months start from 0 in Calendar:
@@ -265,9 +266,58 @@ public class ScyllaChangeRecordEmitter
     }
 
     if (dataType.getCqlType() == ChangeSchema.CqlType.DURATION) {
-      return cell.getDuration().toString();
+      return field.getDuration().toString();
     }
 
-    return cell.getAsObject();
+    if (dataType.getCqlType() == ChangeSchema.CqlType.LIST) {
+      Schema innerSchema = resultSchema.valueSchema();
+      return field.getList().stream()
+          .map((element) -> this.translateFieldToKafka(element, innerSchema))
+          .collect(Collectors.toList());
+    }
+
+    if (dataType.getCqlType() == ChangeSchema.CqlType.SET) {
+      Schema innerSchema = resultSchema.valueSchema();
+      return field.getSet().stream()
+          .map((element) -> this.translateFieldToKafka(element, innerSchema))
+          .collect(Collectors.toList());
+    }
+
+    if (dataType.getCqlType() == ChangeSchema.CqlType.MAP) {
+      Map<Field, Field> map = field.getMap();
+      Map<Object, Object> kafkaMap = new LinkedHashMap<>();
+      Schema keySchema = resultSchema.keySchema();
+      Schema valueSchema = resultSchema.valueSchema();
+      map.forEach(
+          (key, value) -> {
+            Object kafkaKey = translateFieldToKafka(key, keySchema);
+            Object kafkaValue = translateFieldToKafka(value, valueSchema);
+            kafkaMap.put(kafkaKey, kafkaValue);
+          });
+      return kafkaMap;
+    }
+
+    if (dataType.getCqlType() == ChangeSchema.CqlType.TUPLE) {
+      List<org.apache.kafka.connect.data.Field> fieldSchemas = resultSchema.fields();
+      Struct tupleStruct = new Struct(resultSchema);
+      List<Field> tuple = field.getTuple();
+      for (int i = 0; i < tuple.size(); i++) {
+        tupleStruct.put(
+            "tuple_member_" + i, translateFieldToKafka(tuple.get(i), fieldSchemas.get(i).schema()));
+      }
+      return tupleStruct;
+    }
+
+    if (dataType.getCqlType() == ChangeSchema.CqlType.UDT) {
+      Struct udtStruct = new Struct(resultSchema);
+      Map<String, Field> udt = field.getUDT();
+      udt.forEach(
+          (name, value) -> {
+            udtStruct.put(name, translateFieldToKafka(value, resultSchema.field(name).schema()));
+          });
+      return udtStruct;
+    }
+
+    return field.getAsObject();
   }
 }
