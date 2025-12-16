@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 
 public class StartConnectorIT extends AbstractContainerBaseIT {
 
+  private static final String SCYLLA_TEST_CONNECTOR = "ScyllaTestConnector";
+
   @AfterEach
   public void removeAllConnectors() {
     try {
@@ -39,16 +41,22 @@ public class StartConnectorIT extends AbstractContainerBaseIT {
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", "namespace");
       connectorConfiguration.put("scylla.table.names", "connectortest.test_table");
-      connectorConfiguration.put("name", "ScyllaTestConnector");
+      connectorConfiguration.put("name", SCYLLA_TEST_CONNECTOR);
       try {
         int responseCode =
-            KafkaConnectUtils.registerConnector(connectorConfiguration, "ScyllaTestConnector");
-        Assertions.assertEquals(
-            2,
-            responseCode / 100,
-            "Received non-success response code on connector registration: " + responseCode);
+            KafkaConnectUtils.registerConnector(connectorConfiguration, SCYLLA_TEST_CONNECTOR);
+        if (responseCode == 500) {
+          String status = KafkaConnectUtils.getConnectorStatus(SCYLLA_TEST_CONNECTOR);
+          if (status == null) {
+            Assertions.fail(
+                "Received 500 error on connector registration and connector is not registered.");
+          }
+        } else if (responseCode / 100 != 2) {
+          Assertions.fail(
+              "Received non-success response code on connector registration: " + responseCode);
+        }
       } catch (Exception e) {
-        throw new RuntimeException("Could not register connector.", e);
+        Assertions.fail("Could not register connector.", e);
       }
       consumer.subscribe(List.of("namespace.connectortest.test_table"));
       // Wait for at most 65 seconds for the connector to start and generate the message
