@@ -45,6 +45,7 @@ public class StartConnectorIT extends AbstractContainerBaseIT {
       try {
         int responseCode =
             KafkaConnectUtils.registerConnector(connectorConfiguration, SCYLLA_TEST_CONNECTOR);
+        // If we get a 500 error, check if the connector is actually registered (see issue #195)
         if (responseCode == 500) {
           String status = KafkaConnectUtils.getConnectorStatus(SCYLLA_TEST_CONNECTOR);
           if (status == null) {

@@ -103,21 +103,21 @@ public class ScyllaMasterTransport implements MasterTransport {
     if (globalWorkerTasks != null) {
       return globalWorkerTasks.getTasks();
     }
-    if (!tableWorkerTasks.isEmpty()) {
-      return tableWorkerTasks.values().stream()
-          .map(GroupedTasks::getTasks)
-          .flatMap(m -> m.entrySet().stream())
-          .collect(
-              Collectors.toMap(
-                  Map.Entry::getKey,
-                  Map.Entry::getValue,
-                  (existing, replacement) -> {
-                    logger.warn(
-                        "TaskId conflict detected when merging worker configurations: TaskId {} appears in multiple tables. Keeping the first occurrence.",
-                        existing);
-                    return existing;
-                  }));
+    if (tableWorkerTasks.isEmpty()) {
+      return Collections.emptyMap();
     }
-    return Collections.emptyMap();
+    return tableWorkerTasks.values().stream()
+        .map(GroupedTasks::getTasks)
+        .flatMap(m -> m.entrySet().stream())
+        .collect(
+            Collectors.toMap(
+                Map.Entry::getKey,
+                Map.Entry::getValue,
+                (existing, replacement) -> {
+                  logger.warn(
+                      "TaskId conflict detected when merging worker configurations: TaskId {} appears in multiple tables. Keeping the first occurrence.",
+                      existing);
+                  return existing;
+                }));
   }
 }

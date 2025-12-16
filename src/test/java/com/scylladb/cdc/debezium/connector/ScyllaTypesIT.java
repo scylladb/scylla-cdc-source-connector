@@ -82,6 +82,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       try {
         returnCode =
             KafkaConnectUtils.registerConnector(connectorConfiguration, SCYLLA_ALL_TYPES_CONNECTOR);
+        // If we get a 500 error, check if the connector is actually registered (see issue #195)
         if (returnCode == 500) {
           String status = KafkaConnectUtils.getConnectorStatus(SCYLLA_ALL_TYPES_CONNECTOR);
           if (status == null) {
