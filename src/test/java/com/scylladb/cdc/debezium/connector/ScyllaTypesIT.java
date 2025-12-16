@@ -16,6 +16,8 @@ import org.junit.jupiter.api.condition.EnabledIf;
 
 public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
+  private static final String SCYLLA_ALL_TYPES_CONNECTOR = "ScyllaAllTypesConnector";
+
   @BeforeAll
   public static void setupTable() {
     // Does not include counter columns, as they are not allowed to be mixed with non-counter
@@ -75,15 +77,25 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", "canReplicateAllPrimitiveTypes");
       connectorConfiguration.put("scylla.table.names", "primitive_types_ks.tab");
-      connectorConfiguration.put("name", "ScyllaAllTypesConnector");
+      connectorConfiguration.put("name", SCYLLA_ALL_TYPES_CONNECTOR);
       int returnCode = -1;
       try {
         returnCode =
-            KafkaConnectUtils.registerConnector(connectorConfiguration, "ScyllaAllTypesConnector");
+            KafkaConnectUtils.registerConnector(connectorConfiguration, SCYLLA_ALL_TYPES_CONNECTOR);
+        // If we get a 500 error, check if the connector is actually registered (see issue #195)
+        if (returnCode == 500) {
+          String status = KafkaConnectUtils.getConnectorStatus(SCYLLA_ALL_TYPES_CONNECTOR);
+          if (status == null) {
+            Assertions.fail(
+                "Received 500 error on connector registration and connector is not registered.");
+          }
+        } else if (returnCode / 100 != 2) {
+          Assertions.fail(
+              "Received non-success response code on connector registration: " + returnCode);
+        }
       } catch (Exception e) {
-        throw new RuntimeException("Failed to register connector.", e);
+        Assertions.fail("Failed to register connector.", e);
       }
-      Assertions.assertEquals(201, returnCode, "Connector registration failed");
       consumer.subscribe(List.of("canReplicateAllPrimitiveTypes.primitive_types_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;

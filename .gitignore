@@ -1,8 +1,10 @@
+# IDE and build system files
 .project
 .classpath
 **/.settings/**
 **/target/**
 .idea
+.vscode/
 **/*.iml
 **/dependency-reduced-pom.xml
 
