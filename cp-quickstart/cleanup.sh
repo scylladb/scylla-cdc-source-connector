@@ -8,12 +8,22 @@ NC='\033[0m' # No Color
 
 echo -e "${YELLOW}Cleaning up Scylla CDC Source Connector environment...${NC}"
 
+# Prefer 'docker compose' (plugin), fallback to legacy 'docker-compose'
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker-compose)
+else
+  echo "Neither 'docker compose' nor 'docker-compose' is available. Please install one of them."
+  exit 1
+fi
+
 # Navigate to the cp-quickstart directory
 cd "$(dirname "$0")"
 
 # Stop and remove all containers
 echo -e "${YELLOW}Stopping and removing all containers...${NC}"
-docker-compose down -v
+"${COMPOSE_CMD[@]}" down -v
 
 echo -e "${GREEN}Cleanup complete!${NC}"
 echo -e "${YELLOW}All containers and networks have been removed.${NC}"

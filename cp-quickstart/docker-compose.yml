@@ -42,9 +42,7 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
   connect:
-    build:
-      context: ../
-      dockerfile: cp-quickstart/Dockerfile.connect
+    image: confluentinc/cp-kafka-connect:8.1.1
     hostname: connect
     container_name: connect
     depends_on:
@@ -66,7 +64,9 @@ services:
       CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
       CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
       CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+      CONNECT_PLUGIN_PATH: "/usr/share/confluent-hub-components"
+    volumes:
+      - ../target/components/packages:/usr/share/confluent-hub-components
 
   ksqldb-server:
     image: confluentinc/cp-ksqldb-server:8.1.1
@@ -180,7 +180,7 @@ services:
       - "9042:9042"   # CQL
       - "10000:10000" # REST API (optional)
     environment:
-      SCYLLA_CLUSTER_NAME: "scylla-cluster"
+      SCYLLA_CLUSTER_NAME: "scylla_cluster"
       SCYLLA_DEVELOPER_MODE: "1"
     healthcheck:
       test: ["CMD", "cqlsh", "localhost", "9042", "-e", "describe keyspaces"]

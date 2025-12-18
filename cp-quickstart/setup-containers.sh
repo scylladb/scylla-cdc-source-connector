@@ -11,11 +11,49 @@ echo -e "${YELLOW}Building Scylla CDC Source Connector...${NC}"
 cd "$(dirname "$0")/.."
 mvn clean package -DskipTests
 
-echo -e "${YELLOW}Starting containers with docker-compose...${NC}"
+echo -e "${YELLOW}Detecting docker compose command...${NC}"
+# Ensure Docker CLI is available
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker CLI not found. Please install Docker and try again."
+  exit 1
+fi
+
+# Prefer 'docker compose' (plugin), fallback to legacy 'docker-compose'
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD="docker-compose"
+else
+  echo "Neither 'docker compose' nor 'docker-compose' is available. Please install one of them."
+  exit 1
+fi
+
+echo -e "${YELLOW}Starting containers with docker compose...${NC}"
 # Navigate back to cp-quickstart directory
 cd cp-quickstart
-docker-compose down -v
-docker-compose up -d
+"${COMPOSE_CMD[@]}" down -v
+"${COMPOSE_CMD[@]}" up -d --force-recreate
+
+echo -e "${YELLOW}Waiting for Kafka Connect REST API to be ready...${NC}"
+READY_CODE=""
+for i in {1..60}; do
+  READY_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/ || true)
+  if [ "$READY_CODE" = "200" ]; then
+    echo -e "${GREEN}Kafka Connect REST API is ready.${NC}"
+    break
+  fi
+  echo "Waiting for Connect... ($i/60)"
+  sleep 2
+done
+if [ "$READY_CODE" != "200" ]; then
+  echo "Kafka Connect REST API not ready after waiting, continuing anyway."
+fi
+
+echo -e "${YELLOW}Verifying loaded Scylla connector JARs in Connect...${NC}"
+docker exec -it connect bash -lc 'echo "Loaded Scylla JARs:"; find /usr/share -type f -name "*scylla*jar" -printf "%TY-%Tm-%Td %TT %p\n" | sort || true' || true
+
+echo -e "${YELLOW}Checking Kafka Connect plugin discovery logs...${NC}"
+docker logs connect 2>&1 | grep -i -E "Scanning plugin path|Added plugin|ScyllaConnector|scylla-cdc" || true
 
 echo -e "${YELLOW}Waiting for Scylla to be ready...${NC}"
 # Wait for Scylla to be ready
