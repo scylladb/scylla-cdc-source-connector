@@ -264,6 +264,33 @@ public abstract class AbstractContainerBaseIT {
   public static final String SCYLLA_VERSION =
       System.getProperty("it.scylla.version", DEFAULT_SCYLLA_VERSION);
 
+  /**
+   * Builds the ScyllaDB server command used by the container. Includes developer/overprovisioned
+   * defaults and allows reducing log verbosity via system properties:
+   * -Dit.scylla.log.default=warn|error|info (default: warn)
+   * -Dit.scylla.log.modules="cql_server=warn,sstable=error" (comma or colon separated)
+   *
+   * @return the complete ScyllaDB server command string with configured logging options
+   */
+  private static String buildScyllaCommand() {
+    // Default to WARN to reduce verbosity; keep essential module(s) at INFO
+    // so readiness logs are still emitted.
+    String defaultLevel = System.getProperty("it.scylla.log.default", "warn");
+    // If caller did not provide module overrides, ensure init=info for readiness.
+    String modules = System.getProperty("it.scylla.log.modules", "init=info");
+
+    StringBuilder cmd =
+        new StringBuilder("--developer-mode=1 --overprovisioned=1 --default-log-level=")
+            .append(defaultLevel);
+
+    if (!modules.trim().isEmpty()) {
+      String normalized = modules.trim().replace(",", ":").replaceAll("\\s+", "");
+      cmd.append(" --logger-log-level ").append(normalized);
+    }
+
+    return cmd.toString();
+  }
+
   /** The Network shared by all containers in this setup */
   protected static final Network NETWORK = Network.newNetwork();
 
@@ -645,7 +672,11 @@ public abstract class AbstractContainerBaseIT {
             .withNetwork(NETWORK)
             .withNetworkAliases("scylla")
             .withExposedPorts(SCYLLA_PORT)
+            .withCommand(
+                buildScyllaCommand()) // Configure Scylla logging verbosity via command flags
             .withStartupTimeout(Duration.ofMinutes(5));
+
+    logger.atInfo().log("Using Scylla command: %s", buildScyllaCommand());
 
     scyllaDBContainer.start();
 
