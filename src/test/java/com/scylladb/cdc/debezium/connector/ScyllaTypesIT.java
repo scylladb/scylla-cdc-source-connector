@@ -1,5 +1,8 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
 import java.net.UnknownHostException;
@@ -16,51 +19,71 @@ import org.junit.jupiter.api.condition.EnabledIf;
 
 public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
+  private static final String FROZEN_COLLECTIONS_CONNECTOR = "FrozenCollectionsConnector";
   private static final String CAN_EXTRACT_NEW_RECORD_STATE_CONNECTOR = "canExtractNewRecordState";
   private static final String SCYLLA_ALL_TYPES_CONNECTOR = "ScyllaAllTypesConnector";
 
   @BeforeAll
-  public static void setupTable() {
-    // Does not include counter columns, as they are not allowed to be mixed with non-counter
-    // columns in the same table.
+  public static void setupTables() {
     try (Cluster cluster =
-        Cluster.builder()
-            .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
-            .withPort(scyllaDBContainer.getMappedPort(9042))
-            .build()) {
-      Session session = cluster.connect();
-      session.execute(
-          "CREATE KEYSPACE IF NOT EXISTS primitive_types_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
-      session.execute(
-          "CREATE TABLE IF NOT EXISTS primitive_types_ks.tab ("
-              + "id int PRIMARY KEY,"
-              + "ascii_col ascii,"
-              + "bigint_col bigint,"
-              + "blob_col blob,"
-              + "boolean_col boolean,"
-              + "date_col date,"
-              + "decimal_col decimal,"
-              + "double_col double,"
-              + "duration_col duration,"
-              + "float_col float,"
-              + "inet_col inet,"
-              + "int_col int,"
-              + "smallint_col smallint,"
-              + "text_col text,"
-              + "time_col time,"
-              + "timestamp_col timestamp,"
-              + "timeuuid_col timeuuid,"
-              + "tinyint_col tinyint,"
-              + "uuid_col uuid,"
-              + "varchar_col varchar,"
-              + "varint_col varint"
-              + ") WITH cdc = {'enabled':true}");
-      session.execute(
-          "INSERT INTO primitive_types_ks.tab (id, ascii_col, bigint_col, blob_col, boolean_col, date_col, decimal_col, double_col, duration_col, float_col, inet_col, int_col, smallint_col, text_col, time_col, timestamp_col, timeuuid_col, tinyint_col, uuid_col, varchar_col, varint_col) VALUES ("
-              + "1, 'ascii', 1234567890123, 0xCAFEBABE, true, '2024-06-10', 12345.67, 3.14159, 1d12h30m, 2.71828, '127.0.0.1', 42, 7, 'some text', '12:34:56.789', '2024-06-10T12:34:56.789Z', 81d4a030-4632-11f0-9484-409dd8f36eba, 5, 453662fa-db4b-4938-9033-d8523c0a371c, 'varchar text', 999999999)"
-              + ";");
-      session.close();
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      setupPrimitiveTypesTable(session);
+      setupFrozenCollectionsTable(session);
     }
+  }
+
+  private static void setupPrimitiveTypesTable(Session session) {
+    session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS primitive_types_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+    session.execute(
+        "CREATE TABLE IF NOT EXISTS primitive_types_ks.tab ("
+            + "id int PRIMARY KEY,"
+            + "ascii_col ascii,"
+            + "bigint_col bigint,"
+            + "blob_col blob,"
+            + "boolean_col boolean,"
+            + "date_col date,"
+            + "decimal_col decimal,"
+            + "double_col double,"
+            + "duration_col duration,"
+            + "float_col float,"
+            + "inet_col inet,"
+            + "int_col int,"
+            + "smallint_col smallint,"
+            + "text_col text,"
+            + "time_col time,"
+            + "timestamp_col timestamp,"
+            + "timeuuid_col timeuuid,"
+            + "tinyint_col tinyint,"
+            + "uuid_col uuid,"
+            + "varchar_col varchar,"
+            + "varint_col varint"
+            + ") WITH cdc = {'enabled':true}");
+    session.execute(
+        "INSERT INTO primitive_types_ks.tab (id, ascii_col, bigint_col, blob_col, boolean_col, date_col, decimal_col, double_col, duration_col, float_col, inet_col, int_col, smallint_col, text_col, time_col, timestamp_col, timeuuid_col, tinyint_col, uuid_col, varchar_col, varint_col) VALUES ("
+            + "1, 'ascii', 1234567890123, 0xCAFEBABE, true, '2024-06-10', 12345.67, 3.14159, 1d12h30m, 2.71828, '127.0.0.1', 42, 7, 'some text', '12:34:56.789', '2024-06-10T12:34:56.789Z', 81d4a030-4632-11f0-9484-409dd8f36eba, 5, 453662fa-db4b-4938-9033-d8523c0a371c, 'varchar text', 999999999)"
+            + ";");
+  }
+
+  private static void setupFrozenCollectionsTable(Session session) {
+    session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS frozen_collections_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+    session.execute(
+        "CREATE TABLE IF NOT EXISTS frozen_collections_ks.tab ("
+            + "id int PRIMARY KEY,"
+            + "frozen_list_col frozen<list<int>>,"
+            + "frozen_set_col frozen<set<text>>,"
+            + "frozen_map_col frozen<map<int, text>>,"
+            + "frozen_tuple_col frozen<tuple<int, text>>"
+            + ") WITH cdc = {'enabled':true}");
+    session.execute(
+        "INSERT INTO frozen_collections_ks.tab (id, frozen_list_col, frozen_set_col, frozen_map_col, frozen_tuple_col) VALUES ("
+            + "1, [1,2,3], {'a','b','c'}, {1:'one',2:'two'}, (42, 'foo')"
+            + ");");
   }
 
   @AfterEach
@@ -139,9 +162,177 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         }
       }
       consumer.unsubscribe();
-      Assertions.assertTrue(
+      assertTrue(
           messageConsumed,
           "No message consumed from the topic. Topic may be empty or connector may have crashed.");
+    }
+  }
+
+  @Test
+  public void canReplicateFrozenCollections() throws UnknownHostException {
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+      connectorConfiguration.put("topic.prefix", "canReplicateFrozenCollections");
+      connectorConfiguration.put("scylla.table.names", "frozen_collections_ks.tab");
+      connectorConfiguration.put("name", FROZEN_COLLECTIONS_CONNECTOR);
+      try {
+        int returnCode =
+            KafkaConnectUtils.registerConnector(
+                connectorConfiguration, FROZEN_COLLECTIONS_CONNECTOR);
+        if (returnCode == 500) {
+          String status = KafkaConnectUtils.getConnectorStatus(FROZEN_COLLECTIONS_CONNECTOR);
+          if (status == null) {
+            Assertions.fail(
+                "Received 500 error on connector registration and connector is not registered.");
+          }
+        } else if (returnCode / 100 != 2) {
+          Assertions.fail(
+              "Received non-success response code on connector registration: " + returnCode);
+        }
+      } catch (Exception e) {
+        Assertions.fail("Failed to register connector.", e);
+      }
+      consumer.subscribe(List.of("canReplicateFrozenCollections.frozen_collections_ks.tab"));
+      long startTime = System.currentTimeMillis();
+      boolean messageConsumed = false;
+      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+        var records = consumer.poll(java.time.Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+            if (value.contains("\"id\":1")) {
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_list_col\":{\"value\":[1,2,3]}"),
+                          "Expected frozen_list_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_set_col\":{\"value\":[\"a\",\"b\",\"c\"]}"),
+                          "Expected frozen_set_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains(
+                              "\"frozen_map_col\":{\"value\":[[1,\"one\"],[2,\"two\"]]}"),
+                          "Expected frozen_map_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains(
+                              "\"frozen_tuple_col\":{\"value\":{\"tuple_member_0\":42,\"tuple_member_1\":\"foo\"}}"),
+                          "Expected frozen_tuple_col in value: " + value));
+              messageConsumed = true;
+              break;
+            }
+          }
+          if (messageConsumed) break;
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(
+          messageConsumed,
+          "No message consumed from the topic. Topic may be empty or connector may have crashed.");
+    }
+  }
+
+  @Test
+  public void canReplicateFrozenCollectionsEdgeCases() throws UnknownHostException {
+    // Insert a row with empty and null frozen collections
+    try (Cluster cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      // Insert row with empty collections
+      session.execute(
+          "INSERT INTO frozen_collections_ks.tab (id, frozen_list_col, frozen_set_col, frozen_map_col, frozen_tuple_col) VALUES (2, [], {}, {}, (null, null));");
+      // Insert row with null collections (tuple must be present, so set to (null, null))
+      session.execute(
+          "INSERT INTO frozen_collections_ks.tab (id, frozen_list_col, frozen_set_col, frozen_map_col, frozen_tuple_col) VALUES (3, null, null, null, (null, null));");
+    }
+
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+      connectorConfiguration.put("topic.prefix", "canReplicateFrozenCollectionsEdgeCases");
+      connectorConfiguration.put("scylla.table.names", "frozen_collections_ks.tab");
+      connectorConfiguration.put("name", "FrozenCollectionsEdgeCasesConnector");
+      try {
+        int returnCode =
+            KafkaConnectUtils.registerConnector(
+                connectorConfiguration, "FrozenCollectionsEdgeCasesConnector");
+        if (returnCode == 500) {
+          String status =
+              KafkaConnectUtils.getConnectorStatus("FrozenCollectionsEdgeCasesConnector");
+          if (status == null) {
+            Assertions.fail(
+                "Received 500 error on connector registration and connector is not registered.");
+          }
+        } else if (returnCode / 100 != 2) {
+          Assertions.fail(
+              "Received non-success response code on connector registration: " + returnCode);
+        }
+      } catch (Exception e) {
+        Assertions.fail("Failed to register connector.", e);
+      }
+      consumer.subscribe(
+          List.of("canReplicateFrozenCollectionsEdgeCases.frozen_collections_ks.tab"));
+      long startTime = System.currentTimeMillis();
+      boolean foundEmpty = false;
+      boolean foundNull = false;
+      while (System.currentTimeMillis() - startTime < 65 * 1000 && (!foundEmpty || !foundNull)) {
+        var records = consumer.poll(java.time.Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+            if (value.contains("\"id\":2")) {
+              // Empty collections
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_list_col\":{\"value\":[]}"),
+                          "Expected empty frozen_list_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_set_col\":{\"value\":[]}"),
+                          "Expected empty frozen_set_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_map_col\":{\"value\":[]}"),
+                          "Expected empty frozen_map_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains(
+                              "\"frozen_tuple_col\":{\"value\":{\"tuple_member_0\":null,\"tuple_member_1\":null}}"),
+                          "Expected null tuple members in value: " + value));
+              foundEmpty = true;
+            } else if (value.contains("\"id\":3")) {
+              // Null collections (should be {"value":null})
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_list_col\":{\"value\":null}"),
+                          "Expected null frozen_list_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_set_col\":{\"value\":null}"),
+                          "Expected null frozen_set_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_map_col\":{\"value\":null}"),
+                          "Expected null frozen_map_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains(
+                              "\"frozen_tuple_col\":{\"value\":{\"tuple_member_0\":null,\"tuple_member_1\":null}}"),
+                          "Expected null tuple members in value: " + value));
+              foundNull = true;
+            }
+          }
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(foundEmpty, "No message consumed for empty frozen collections row.");
+      assertTrue(foundNull, "No message consumed for null frozen collections row.");
     }
   }
 
@@ -211,7 +402,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         }
       }
       consumer.unsubscribe();
-      Assertions.assertTrue(
+      assertTrue(
           messageConsumed,
           "No message consumed from the topic. Topic may be empty or connector may have crashed.");
     }
@@ -295,7 +486,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         }
       }
       consumer.unsubscribe();
-      Assertions.assertTrue(
+      assertTrue(
           messageConsumed,
           "No message consumed from the topic. Topic may be empty or connector may have crashed.");
 
