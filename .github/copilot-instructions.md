@@ -15,13 +15,23 @@ These instructions help AI coding agents quickly work productively in this repo.
 - `ScyllaStreamingChangeEventSource` and `ScyllaSnapshotChangeEventSource`: Core readers producing Debezium events.
 - `ScyllaChangeRecordEmitter`: Builds Connect `SourceRecord` payloads and schemas.
 - `ScyllaSourceInfoStructMaker` / `SourceInfo`: Source metadata fields (`ts_ms`, `ts_us`, keyspace/table, logical name).
-- `ScyllaCollectionSchema`, `CollectionsMode`, `CollectionOperation`: Schema-related classes/enums present in the codebase; **collection types (LIST, SET, MAP, UDT, TUPLE) are not supported** and are filtered out (see README and ScyllaSchema.java).
+- `ScyllaCollectionSchema`, `CollectionsMode`, `CollectionOperation`: Schema-related classes/enums present in the codebase; non-frozen collections are currently supported only in **delta** mode as described in the README.
 - `transforms/ScyllaExtractNewState`: SMT flattening one-field Cell wrappers for easier sinks (similar to Debezium ExtractNewRecordState).
 
 ## Data Model & Topics
 - **Topic naming:** `logicalName.keyspace.table` from `scylla.name` (see README examples).
 - **Keys:** Primary key columns only.
 - **Values:** `op`, `before`, `after`, `source`, `ts_ms`; non-PK columns wrapped in single-field `Cell` structs to distinguish non-modification vs `NULL`.
+
+### Collections specifics
+- **Frozen collections:** Represented as a single Cell `value` field; empty vs `NULL` is preserved and asserted by `ScyllaTypesIT.canReplicateFrozenCollectionsEdgeCases`.
+- **Non-frozen collections (delta mode):**
+  - Represented as a Cell whose `value` holds `{mode, elements}` as documented in `README.md`.
+  - When element-level deltas exist, `mode` is `OVERWRITE` (INSERT) or `MODIFY` (UPDATE) and `elements` carries the per-element changes.
+  - When there are no element-level deltas and only the top-level CDC deleted flag is set for a non-frozen collection on INSERT, Scylla CDC does not distinguish explicit empty (`[]/{}`) from `NULL`. The connector emits a **top-level null** for that column in this ambiguous case.
+  - For non-INSERT operations that delete the entire non-frozen collection, the connector emits a Cell with `value = null`.
+
+Refer to `ScyllaTypesIT.canReplicateNonFrozenCollectionsEdgeCases` for concrete examples and assertions of this behavior.
 
 ## Build & Artifacts
 - **Build fat JAR:**
