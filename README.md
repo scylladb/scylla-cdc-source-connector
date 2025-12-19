@@ -236,6 +236,19 @@ Type of `elements` field depends on collection type:
 - For `Map` with key K and value V, it will be `Schema.map(K, V)` (same as in frozen collection). Removed elements are marked by null value.
 - For `UDT` it will be struct representing this UDT, but a bit differently than in frozen UDT: each field of this struct is a "Cell" (a struct with a single field, `value`). "Cell" is used the same way as with columns - null means that the field wasn't changed, "Cell" with null value means field was removed, field with non-null value means that field was overwritten.
 
+###### Limitations for empty vs NULL on non-frozen collections
+
+When using non-frozen collections in delta mode, Scylla CDC exposes element-level additions and removals via the `cdc$deleted_elements_` columns and a single top-level `cdc$deleted_` flag per collection column. For some write patterns (in particular, `INSERT` with empty collections such as `[], {}, {}` versus `INSERT` with `NULL` for the same columns), the CDC log does not contain enough information to distinguish between "explicit empty" and "explicit NULL" for non-frozen collections without performing an additional read from the base table.
+
+To avoid guessing, the connector intentionally treats INSERTs of non-frozen collections that have no element-level deltas (no added or deleted elements in CDC) as **ambiguous** and represents them as a top-level `null` in the Kafka record. In practice this means:
+
+- For non-frozen collections in delta mode, on INSERT:
+  - If there are concrete element deltas (elements added/removed), the connector emits a `value` struct with `mode` (`OVERWRITE`) and `elements`.
+  - If there are no element deltas and only the top-level deleted flag is present, the connector emits the collection column as `null` in the Debezium `after` struct, regardless of whether the original CQL write used `[]/{}` or `NULL`.
+- On UPDATE/DELETE where the whole non-frozen collection is removed, the connector emits a Cell with `value = null` (consistent with other column types).
+
+Consumers that need to distinguish between empty and NULL collections should either use frozen collections (which preserve this distinction) or perform their own lookups against the base table.
+
 #### Single Message Transformations (SMTs)
 The connector provides two single message transformations (SMTs): `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) and `ScyllaFlattenColumns` (`com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`).
 
