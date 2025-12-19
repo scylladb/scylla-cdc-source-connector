@@ -355,16 +355,49 @@ public class ScyllaChangeRecordEmitter
     }
 
     if (!hasModified) {
-      if (isDeleted) {
-        cell.put(ScyllaSchema.CELL_VALUE, null);
-        return cell;
-      } else {
+      // When there is no per-element delta, we only have the top-level
+      // deleted flag for this non-frozen collection column. Scylla CDC does
+      // not distinguish between an empty collection and NULL in this case
+      // for non-frozen types – both appear as a "deleted" collection with no
+      // element-level information. Because of this, we cannot reliably emit
+      // different Kafka representations for "[]/{}" vs "null" on INSERT.
+      //
+      // To avoid guessing, we treat such ambiguous non-frozen collection
+      // INSERTs as if the column remains NULL at the top level. This means
+      // that for non-frozen collections in delta mode, the connector only
+      // guarantees a distinction between:
+      //   * collection was touched and has concrete element deltas
+      //     (hasModified == true) – we emit OVERWRITE/MODIFY with elements
+      //   * collection was fully removed on UPDATE/DELETE – we emit a Cell
+      //     with CELL_VALUE == null
+      //   * all other cases (including "empty" vs "null" on INSERT without
+      //     element deltas) – we emit a top-level null and let consumers
+      //     interpret it as "not changed / unknown".
+
+      RawChange.OperationType operationType = change.getOperationType();
+
+      if (operationType == RawChange.OperationType.ROW_INSERT) {
+        // Ambiguous non-frozen INSERT without element deltas: keep the
+        // column as a top-level null. See comment above for rationale and
+        // limitations.
         return null;
       }
+
+      if (isDeleted) {
+        // Non-INSERT operations which delete the whole collection.
+        cell.put(ScyllaSchema.CELL_VALUE, null);
+        return cell;
+      }
+
+      // No delta and not deleted: nothing to emit.
+      return null;
     }
 
+    RawChange.OperationType operationType = change.getOperationType();
     CollectionOperation mode =
-        isDeleted ? CollectionOperation.OVERWRITE : CollectionOperation.MODIFY;
+        operationType == RawChange.OperationType.ROW_INSERT
+            ? CollectionOperation.OVERWRITE
+            : CollectionOperation.MODIFY;
     value.put(ScyllaSchema.MODE_VALUE, mode.toString());
     value.put(ScyllaSchema.ELEMENTS_VALUE, elements);
 

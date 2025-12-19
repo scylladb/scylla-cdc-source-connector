@@ -19,10 +19,6 @@ import org.junit.jupiter.api.condition.EnabledIf;
 
 public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
-  private static final String FROZEN_COLLECTIONS_CONNECTOR = "FrozenCollectionsConnector";
-  private static final String CAN_EXTRACT_NEW_RECORD_STATE_CONNECTOR = "canExtractNewRecordState";
-  private static final String SCYLLA_ALL_TYPES_CONNECTOR = "ScyllaAllTypesConnector";
-
   @BeforeAll
   public static void setupTables() {
     try (Cluster cluster =
@@ -33,6 +29,8 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         Session session = cluster.connect()) {
       setupPrimitiveTypesTable(session);
       setupFrozenCollectionsTable(session);
+      setupNonFrozenCollectionsTable(session);
+      setupNonFrozenCollectionsTable(session);
     }
   }
 
@@ -86,6 +84,22 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
             + ");");
   }
 
+  private static void setupNonFrozenCollectionsTable(Session session) {
+    session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS nonfrozen_collections_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+    session.execute(
+        "CREATE TABLE IF NOT EXISTS nonfrozen_collections_ks.tab ("
+            + "id int PRIMARY KEY,"
+            + "list_col list<int>,"
+            + "set_col set<text>,"
+            + "map_col map<int, text>"
+            + ") WITH cdc = {'enabled':true}");
+    session.execute(
+        "INSERT INTO nonfrozen_collections_ks.tab (id, list_col, set_col, map_col) VALUES ("
+            + "1, [10,20,30], {'x','y','z'}, {10:'ten',20:'twenty'}"
+            + ");");
+  }
+
   @AfterEach
   public void cleanUp() {
     try {
@@ -97,6 +111,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
   @Test
   public void canReplicateAllPrimitiveTypes() throws UnknownHostException {
+    final String SCYLLA_ALL_TYPES_CONNECTOR = "ScyllaAllTypesConnector";
     try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", "canReplicateAllPrimitiveTypes");
@@ -170,6 +185,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
   @Test
   public void canReplicateFrozenCollections() throws UnknownHostException {
+    final String FROZEN_COLLECTIONS_CONNECTOR = "FrozenCollectionsConnector";
     try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", "canReplicateFrozenCollections");
@@ -337,7 +353,215 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
   }
 
   @Test
+  public void canReplicateNonFrozenCollections() throws UnknownHostException {
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+      connectorConfiguration.put("topic.prefix", "canReplicateNonFrozenCollections");
+      connectorConfiguration.put("scylla.table.names", "nonfrozen_collections_ks.tab");
+      connectorConfiguration.put("name", "NonFrozenCollectionsConnector");
+      try {
+        int returnCode =
+            KafkaConnectUtils.registerConnector(
+                connectorConfiguration, "NonFrozenCollectionsConnector");
+        if (returnCode == 500) {
+          String status = KafkaConnectUtils.getConnectorStatus("NonFrozenCollectionsConnector");
+          if (status == null) {
+            Assertions.fail(
+                "Received 500 error on connector registration and connector is not registered.");
+          }
+        } else if (returnCode / 100 != 2) {
+          Assertions.fail(
+              "Received non-success response code on connector registration: " + returnCode);
+        }
+      } catch (Exception e) {
+        Assertions.fail("Failed to register connector.", e);
+      }
+      consumer.subscribe(List.of("canReplicateNonFrozenCollections.nonfrozen_collections_ks.tab"));
+      long startTime = System.currentTimeMillis();
+      boolean messageConsumed = false;
+      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+        var records = consumer.poll(java.time.Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+            if (value.contains("\"id\":1")) {
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"list_col\":{\"value\":{\"mode\":\"OVERWRITE\""),
+                          "Expected list_col delta mode OVERWRITE in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"set_col\":{\"value\":{\"mode\":\"OVERWRITE\""),
+                          "Expected set_col delta mode OVERWRITE in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"map_col\":{\"value\":{\"mode\":\"OVERWRITE\""),
+                          "Expected map_col delta mode OVERWRITE in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"elements\":"),
+                          "Expected elements field in value: " + value));
+              // For list_col, check that at least one expected value is present (robust to timeuuid
+              // key)
+              assertTrue(
+                  value.contains("10") && value.contains("20") && value.contains("30"),
+                  "Expected list_col elements 10, 20, 30 in value: " + value);
+              // For set_col, check that at least one expected value is present
+              assertTrue(
+                  value.contains("x") && value.contains("y") && value.contains("z"),
+                  "Expected set_col elements x, y, z in value: " + value);
+              // For map_col, check that at least one expected key-value is present
+              assertTrue(
+                  value.contains("10")
+                      && value.contains("ten")
+                      && value.contains("20")
+                      && value.contains("twenty"),
+                  "Expected map_col elements 10:ten, 20:twenty in value: " + value);
+              messageConsumed = true;
+              break;
+            }
+          }
+          if (messageConsumed) break;
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(messageConsumed, "No message consumed for non-frozen collections row.");
+    }
+  }
+
+  @Test
+  public void canReplicateNonFrozenCollectionsEdgeCases() throws UnknownHostException {
+    // Insert rows with empty, null, and element removal for non-frozen collections.
+    //
+    // NOTE: For non-frozen collections in CDC "delta" mode, Scylla does not
+    // provide enough information to distinguish an explicit empty collection
+    // value ([], {}, {}) from an explicit NULL on INSERT when there are no
+    // element-level deltas. Both cases surface as a "deleted" collection with
+    // no elements in the CDC log. Because of this, the connector intentionally
+    // treats both of these INSERT patterns as a top-level null for the
+    // non-frozen collection column. This test asserts that behavior.
+    try (Cluster cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      // Empty collections
+      session.execute(
+          "INSERT INTO nonfrozen_collections_ks.tab (id, list_col, set_col, map_col) VALUES (2, [], {}, {});");
+      // Null collections
+      session.execute(
+          "INSERT INTO nonfrozen_collections_ks.tab (id, list_col, set_col, map_col) VALUES (3, null, null, null);");
+      // Remove element from list, set, map
+      session.execute(
+          "UPDATE nonfrozen_collections_ks.tab SET list_col = list_col - [10], set_col = set_col - {'x'}, map_col = map_col - {10} WHERE id = 1;");
+    }
+
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+      connectorConfiguration.put("topic.prefix", "canReplicateNonFrozenCollectionsEdgeCases");
+      connectorConfiguration.put("scylla.table.names", "nonfrozen_collections_ks.tab");
+      connectorConfiguration.put("name", "NonFrozenCollectionsEdgeCasesConnector");
+      try {
+        int returnCode =
+            KafkaConnectUtils.registerConnector(
+                connectorConfiguration, "NonFrozenCollectionsEdgeCasesConnector");
+        if (returnCode == 500) {
+          String status =
+              KafkaConnectUtils.getConnectorStatus("NonFrozenCollectionsEdgeCasesConnector");
+          if (status == null) {
+            Assertions.fail(
+                "Received 500 error on connector registration and connector is not registered.");
+          }
+        } else if (returnCode / 100 != 2) {
+          Assertions.fail(
+              "Received non-success response code on connector registration: " + returnCode);
+        }
+      } catch (Exception e) {
+        Assertions.fail("Failed to register connector.", e);
+      }
+      consumer.subscribe(
+          List.of("canReplicateNonFrozenCollectionsEdgeCases.nonfrozen_collections_ks.tab"));
+      long startTime = System.currentTimeMillis();
+      boolean foundEmpty = false;
+      boolean foundNull = false;
+      boolean foundRemoval = false;
+      while (System.currentTimeMillis() - startTime < 65 * 1000
+          && (!foundEmpty || !foundNull || !foundRemoval)) {
+        var records = consumer.poll(java.time.Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+            if (value.contains("\"id\":2")) {
+              // Empty collections. Due to CDC limitations described above,
+              // these appear the same as explicit NULL collections on INSERT
+              // for non-frozen types, so we expect top-level nulls.
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"list_col\":null"),
+                          "Expected null list_col in value for empty collection row: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"set_col\":null"),
+                          "Expected null set_col in value for empty collection row: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"map_col\":null"),
+                          "Expected null map_col in value for empty collection row: " + value));
+              foundEmpty = true;
+            } else if (value.contains("\"id\":3")) {
+              // Null collections
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"list_col\":null"),
+                          "Expected null list_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"set_col\":null"),
+                          "Expected null set_col in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"map_col\":null"),
+                          "Expected null map_col in value: " + value));
+              foundNull = true;
+            } else if (value.contains("\"id\":1") && value.contains("\"op\":\"u\"")) {
+              // Element removal (UPDATE event only; skip initial CREATE)
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"list_col\":{\"value\":{\"mode\":\"MODIFY\""),
+                          "Expected list_col removal delta mode MODIFY in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"set_col\":{\"value\":{\"mode\":\"MODIFY\""),
+                          "Expected set_col removal delta mode MODIFY in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"map_col\":{\"value\":{\"mode\":\"MODIFY\""),
+                          "Expected map_col removal delta mode MODIFY in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"elements\":"),
+                          "Expected elements field in removal delta in value: " + value));
+              foundRemoval = true;
+            }
+          }
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(foundEmpty, "No message consumed for empty non-frozen collections row.");
+      assertTrue(foundNull, "No message consumed for null non-frozen collections row.");
+      assertTrue(
+          foundRemoval, "No message consumed for element removal in non-frozen collections row.");
+    }
+  }
+
+  @Test
   public void canExtractNewRecordState() {
+    final String CAN_EXTRACT_NEW_RECORD_STATE_CONNECTOR = "canExtractNewRecordState";
     try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", CAN_EXTRACT_NEW_RECORD_STATE_CONNECTOR);
