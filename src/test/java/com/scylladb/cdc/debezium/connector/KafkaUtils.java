@@ -1,13 +1,20 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.function.Function;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 
 /** Utility class for creating Kafka consumers for testing purposes. */
 public final class KafkaUtils {
+
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private KafkaUtils() {
     throw new UnsupportedOperationException(
@@ -54,5 +61,51 @@ public final class KafkaUtils {
     }
 
     return new KafkaConsumer<>(props);
+  }
+
+  /**
+   * Parses a Debezium-style JSON envelope and extracts a collection of strings from the given field
+   * under the {@code after} section. Expects the structure:
+   *
+   * <pre><code>{ "after": { fieldName: { "value": [ ... ]}}}</code></pre>
+   */
+  public static <T> List<T> extractListFromAfterField(
+      String json, String fieldName, Function<JsonNode, T> mapper) {
+    try {
+      JsonNode valueNode = extractValueNodeFromAfterField(json, fieldName);
+      if (!valueNode.isArray()) {
+        throw new IllegalStateException(
+            "Expected array at after." + fieldName + ".value in JSON: " + json);
+      }
+
+      var result = new ArrayList<T>();
+      for (JsonNode element : valueNode) {
+        result.add(mapper.apply(element));
+      }
+      return result;
+    } catch (Exception e) {
+      throw new IllegalStateException("Failed to parse JSON for field '" + fieldName + "'", e);
+    }
+  }
+
+  /**
+   * Parses a Debezium-style JSON envelope and returns the {@code value} node for a given field
+   * under the {@code after} section. Expects the structure:
+   *
+   * <pre><code>{ "after": { fieldName: { "value": ... }}}</code></pre>
+   */
+  public static JsonNode extractValueNodeFromAfterField(String json, String fieldName) {
+    try {
+      JsonNode root = OBJECT_MAPPER.readTree(json);
+      JsonNode after = root.get("after");
+      if (after == null || after.isNull()) {
+        throw new IllegalStateException("Expected non-null 'after' field in JSON: " + json);
+      }
+
+      return after.path(fieldName).path("value");
+    } catch (Exception e) {
+      throw new IllegalStateException(
+          "Failed to parse JSON value node for field '" + fieldName + "'", e);
+    }
   }
 }
