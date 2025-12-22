@@ -6,14 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.UnknownHostException;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.AfterEach;
@@ -24,8 +24,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 
 public class ScyllaTypesIT extends AbstractContainerBaseIT {
-
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   @BeforeAll
   public static void setupTables() {
@@ -242,7 +240,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                       assertTrue(
                           value.contains("\"frozen_list_col\":{\"value\":[1,2,3]}"),
                           "Expected frozen_list_col in value: " + value),
-                  () -> assertFrozenSetIgnoringOrder(value),
+                  () -> assertFrozenSetIgnoringOrder(value, Set.of("a", "b", "c")),
                   () ->
                       assertTrue(
                           value.contains(
@@ -269,30 +267,12 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
   // A helper to assert frozen set contents ignoring order. Sets are unordered, so we can
   // not rely on the order of elements in the JSON array.
-  // TODO: Replace with a proper JSON path/assertion library for more robust JSON assertions.
-  private static void assertFrozenSetIgnoringOrder(String value) {
-    try {
-      JsonNode root = OBJECT_MAPPER.readTree(value);
-      JsonNode after = root.get("after");
-      Assertions.assertNotNull(after, "Expected non-null 'after' field in value: " + value);
-
-      JsonNode setNode = after.path("frozen_set_col").path("value");
-      Assertions.assertTrue(
-          setNode.isArray(), "Expected frozen_set_col.value to be an array in value: " + value);
-
-      Set<String> actualElements = new HashSet<>();
-      for (JsonNode element : setNode) {
-        actualElements.add(element.asText());
-      }
-
-      Set<String> expectedElements = new HashSet<>(Arrays.asList("a", "b", "c"));
-      Assertions.assertEquals(
-          expectedElements,
-          actualElements,
-          "Unexpected frozen_set_col elements in value: " + value);
-    } catch (Exception e) {
-      Assertions.fail("Failed to parse JSON for frozen_set_col assertion.", e);
-    }
+  private static void assertFrozenSetIgnoringOrder(String value, Set<String> expectedElements) {
+    var actualElements =
+        new HashSet<>(
+            KafkaUtils.extractListFromAfterField(value, "frozen_set_col", JsonNode::asText));
+    Assertions.assertEquals(
+        expectedElements, actualElements, "Unexpected frozen_set_col elements in value: " + value);
   }
 
   @Test
@@ -399,68 +379,66 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
           for (var record : records) {
             String value = record.value();
             if (value.contains("\"id\":1")) {
-              assertAll(
-                  () ->
-                      assertTrue(
-                          value.contains("\"list_col\":{\"value\":{\"mode\":\"OVERWRITE\""),
-                          "Expected list_col delta mode OVERWRITE in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("\"set_col\":{\"value\":{\"mode\":\"OVERWRITE\""),
-                          "Expected set_col delta mode OVERWRITE in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("\"map_col\":{\"value\":{\"mode\":\"OVERWRITE\""),
-                          "Expected map_col delta mode OVERWRITE in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("\"elements\":"),
-                          "Expected elements field in value: " + value));
-              assertAll(
-                  () ->
-                      assertTrue(
-                          value.contains("\"list_col\":{\"value\":{\"mode\":\"MODIFY\""),
-                          "Expected list_col removal delta mode MODIFY in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("\"set_col\":{\"value\":{\"mode\":\"MODIFY\""),
-                          "Expected set_col removal delta mode MODIFY in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("\"map_col\":{\"value\":{\"mode\":\"MODIFY\""),
-                          "Expected map_col removal delta mode MODIFY in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("\"elements\":"),
-                          "Expected elements field in removal delta in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("40"),
-                          "Expected list_col addition of 40 in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("w"),
-                          "Expected set_col addition of 'w' in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("thirty"),
-                          "Expected map_col addition of key 30:'thirty' in value: " + value));
-              // For list_col, check that at least one expected value is present (robust to timeuuid
-              // key)
-              assertTrue(
-                  value.contains("10") && value.contains("20") && value.contains("30"),
-                  "Expected list_col elements 10, 20, 30 in value: " + value);
-              // For set_col, check that at least one expected value is present
-              assertTrue(
-                  value.contains("x") && value.contains("y") && value.contains("z"),
-                  "Expected set_col elements x, y, z in value: " + value);
-              // For map_col, check that at least one expected key-value is present
-              assertTrue(
-                  value.contains("10")
-                      && value.contains("ten")
-                      && value.contains("20")
-                      && value.contains("twenty"),
-                  "Expected map_col elements 10:ten, 20:twenty in value: " + value);
+              // list_col: mode OVERWRITE, values {10,20,30} regardless of internal keys
+              var listValue = KafkaUtils.extractValueNodeFromAfterField(value, "list_col");
+              var listElements = listValue.path("elements");
+              var listValues = new HashSet<>();
+              listElements.fields().forEachRemaining(e -> listValues.add(e.getValue().asInt()));
+
+              Assertions.assertEquals(
+                  "OVERWRITE",
+                  listValue.path("mode").asText(),
+                  "Expected list_col delta mode OVERWRITE in value: " + value);
+
+              Assertions.assertTrue(
+                  listElements.isObject(), "Expected list_col elements object in value: " + value);
+              Assertions.assertEquals(
+                  Set.of(10, 20, 30),
+                  listValues,
+                  "Unexpected list_col elements in value: " + value);
+
+              // set_col: mode OVERWRITE, elements {x,y,z} as keys
+              JsonNode setValue = KafkaUtils.extractValueNodeFromAfterField(value, "set_col");
+              JsonNode setElements = setValue.path("elements");
+              var setValues = new HashSet<String>();
+              setElements.fieldNames().forEachRemaining(setValues::add);
+
+              Assertions.assertEquals(
+                  "OVERWRITE",
+                  setValue.path("mode").asText(),
+                  "Expected set_col delta mode OVERWRITE in value: " + value);
+
+              Assertions.assertTrue(
+                  setElements.isObject(), "Expected set_col elements object in value: " + value);
+              Assertions.assertEquals(
+                  Set.of("x", "y", "z"),
+                  setValues,
+                  "Unexpected set_col elements in value: " + value);
+
+              // map_col: mode OVERWRITE, entries {10:"ten", 20:"twenty"}
+              JsonNode mapValue = KafkaUtils.extractValueNodeFromAfterField(value, "map_col");
+              JsonNode mapElements = mapValue.path("elements");
+              var mapEntries =
+                  StreamSupport.stream(mapElements.spliterator(), false)
+                      .filter(entry -> entry.isArray() && entry.size() == 2)
+                      .collect(
+                          Collectors.toMap(
+                              entry -> entry.get(0).asInt(), entry -> entry.get(1).asText()));
+
+              Assertions.assertEquals(
+                  "OVERWRITE",
+                  mapValue.path("mode").asText(),
+                  "Expected map_col delta mode OVERWRITE in value: " + value);
+              Assertions.assertTrue(
+                  mapElements.isArray(), "Expected map_col elements array in value: " + value);
+              Assertions.assertEquals(
+                  2, mapEntries.size(), "Expected exactly 2 entries in map_col elements: " + value);
+              Assertions.assertEquals(
+                  "ten", mapEntries.get(10), "Expected map_col entry 10:'ten' in value: " + value);
+              Assertions.assertEquals(
+                  "twenty",
+                  mapEntries.get(20),
+                  "Expected map_col entry 20:'twenty' in value: " + value);
               messageConsumed = true;
               break;
             }
