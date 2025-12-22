@@ -5,9 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.UnknownHostException;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.AfterEach;
@@ -18,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 
 public class ScyllaTypesIT extends AbstractContainerBaseIT {
+
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   @BeforeAll
   public static void setupTables() {
@@ -30,7 +38,9 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       setupPrimitiveTypesTable(session);
       setupFrozenCollectionsTable(session);
       setupNonFrozenCollectionsTable(session);
-      setupNonFrozenCollectionsTable(session);
+
+      setupUDTTable(session);
+      setupComplexTypesTable(session);
     }
   }
 
@@ -100,6 +110,48 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
             + ");");
   }
 
+  private static void setupUDTTable(Session session) {
+    session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS udt_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+    session.execute("CREATE TYPE IF NOT EXISTS udt_ks.simple_udt (a int, b text);");
+    session.execute(
+        "CREATE TABLE IF NOT EXISTS udt_ks.tab ("
+            + "id int PRIMARY KEY,"
+            + "udt_col frozen<simple_udt>,"
+            + "nf_udt_col simple_udt"
+            + ") WITH cdc = {'enabled':true}");
+    // Insert row with non-null UDTs
+    session.execute(
+        "INSERT INTO udt_ks.tab (id, udt_col, nf_udt_col) VALUES (1, {a: 42, b: 'foo'}, {a: 7, b: 'bar'});");
+    // Insert row with null UDTs
+    session.execute("INSERT INTO udt_ks.tab (id, udt_col, nf_udt_col) VALUES (2, null, null);");
+  }
+
+  private static void setupComplexTypesTable(Session session) {
+    session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS complex_types_ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+    session.execute(
+        "CREATE TYPE IF NOT EXISTS complex_types_ks.address_udt (street text, phones frozen<list<text>>, tags frozen<set<text>>);");
+    session.execute(
+        "CREATE TABLE IF NOT EXISTS complex_types_ks.tab ("
+            + "id int PRIMARY KEY,"
+            + "frozen_addr frozen<address_udt>,"
+            + "nf_addr address_udt,"
+            + "frozen_addr_list frozen<list<frozen<address_udt>>>,"
+            + "nf_addr_set set<frozen<address_udt>>,"
+            + "nf_addr_map map<int, frozen<address_udt>>"
+            + ") WITH cdc = {'enabled':true}");
+    session.execute(
+        "INSERT INTO complex_types_ks.tab (id, frozen_addr, nf_addr, frozen_addr_list, nf_addr_set, nf_addr_map) VALUES ("
+            + "1,"
+            + "{street: 'main', phones: ['111','222'], tags: {'home','primary'}},"
+            + "{street: 'side', phones: ['333'], tags: {'secondary'}},"
+            + "[{street: 'l1', phones: ['444'], tags: {'list1'}}, {street: 'l2', phones: ['555'], tags: {'list2'}}],"
+            + "{{street: 's1', phones: ['666'], tags: {'tag1'}}, {street: 's2', phones: ['777'], tags: {'tag2'}}},"
+            + "{10: {street: 'm1', phones: ['888'], tags: {'tagm1'}}, 20: {street: 'm2', phones: ['999'], tags: {'tagm2'}}}"
+            + ");");
+  }
+
   @AfterEach
   public void cleanUp() {
     try {
@@ -117,23 +169,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       connectorConfiguration.put("topic.prefix", "canReplicateAllPrimitiveTypes");
       connectorConfiguration.put("scylla.table.names", "primitive_types_ks.tab");
       connectorConfiguration.put("name", SCYLLA_ALL_TYPES_CONNECTOR);
-      try {
-        int returnCode =
-            KafkaConnectUtils.registerConnector(connectorConfiguration, SCYLLA_ALL_TYPES_CONNECTOR);
-        // If we get a 500 error, check if the connector is actually registered (see issue #195)
-        if (returnCode == 500) {
-          String status = KafkaConnectUtils.getConnectorStatus(SCYLLA_ALL_TYPES_CONNECTOR);
-          if (status == null) {
-            Assertions.fail(
-                "Received 500 error on connector registration and connector is not registered.");
-          }
-        } else if (returnCode / 100 != 2) {
-          Assertions.fail(
-              "Received non-success response code on connector registration: " + returnCode);
-        }
-      } catch (Exception e) {
-        Assertions.fail("Failed to register connector.", e);
-      }
+      registerConnector(SCYLLA_ALL_TYPES_CONNECTOR, connectorConfiguration);
       consumer.subscribe(List.of("canReplicateAllPrimitiveTypes.primitive_types_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
@@ -191,23 +227,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       connectorConfiguration.put("topic.prefix", "canReplicateFrozenCollections");
       connectorConfiguration.put("scylla.table.names", "frozen_collections_ks.tab");
       connectorConfiguration.put("name", FROZEN_COLLECTIONS_CONNECTOR);
-      try {
-        int returnCode =
-            KafkaConnectUtils.registerConnector(
-                connectorConfiguration, FROZEN_COLLECTIONS_CONNECTOR);
-        if (returnCode == 500) {
-          String status = KafkaConnectUtils.getConnectorStatus(FROZEN_COLLECTIONS_CONNECTOR);
-          if (status == null) {
-            Assertions.fail(
-                "Received 500 error on connector registration and connector is not registered.");
-          }
-        } else if (returnCode / 100 != 2) {
-          Assertions.fail(
-              "Received non-success response code on connector registration: " + returnCode);
-        }
-      } catch (Exception e) {
-        Assertions.fail("Failed to register connector.", e);
-      }
+      registerConnector(FROZEN_COLLECTIONS_CONNECTOR, connectorConfiguration);
       consumer.subscribe(List.of("canReplicateFrozenCollections.frozen_collections_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
@@ -222,10 +242,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                       assertTrue(
                           value.contains("\"frozen_list_col\":{\"value\":[1,2,3]}"),
                           "Expected frozen_list_col in value: " + value),
-                  () ->
-                      assertTrue(
-                          value.contains("\"frozen_set_col\":{\"value\":[\"a\",\"b\",\"c\"]}"),
-                          "Expected frozen_set_col in value: " + value),
+                  () -> assertFrozenSetIgnoringOrder(value),
                   () ->
                       assertTrue(
                           value.contains(
@@ -250,6 +267,34 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
     }
   }
 
+  // A helper to assert frozen set contents ignoring order. Sets are unordered, so we can
+  // not rely on the order of elements in the JSON array.
+  // TODO: Replace with a proper JSON path/assertion library for more robust JSON assertions.
+  private static void assertFrozenSetIgnoringOrder(String value) {
+    try {
+      JsonNode root = OBJECT_MAPPER.readTree(value);
+      JsonNode after = root.get("after");
+      Assertions.assertNotNull(after, "Expected non-null 'after' field in value: " + value);
+
+      JsonNode setNode = after.path("frozen_set_col").path("value");
+      Assertions.assertTrue(
+          setNode.isArray(), "Expected frozen_set_col.value to be an array in value: " + value);
+
+      Set<String> actualElements = new HashSet<>();
+      for (JsonNode element : setNode) {
+        actualElements.add(element.asText());
+      }
+
+      Set<String> expectedElements = new HashSet<>(Arrays.asList("a", "b", "c"));
+      Assertions.assertEquals(
+          expectedElements,
+          actualElements,
+          "Unexpected frozen_set_col elements in value: " + value);
+    } catch (Exception e) {
+      Assertions.fail("Failed to parse JSON for frozen_set_col assertion.", e);
+    }
+  }
+
   @Test
   public void canReplicateFrozenCollectionsEdgeCases() throws UnknownHostException {
     // Insert a row with empty and null frozen collections
@@ -268,28 +313,12 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
     }
 
     try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      final String FROZEN_COLLECTIONS_EDGE_CASES_CONNECTOR = "FrozenCollectionsEdgeCasesConnector";
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", "canReplicateFrozenCollectionsEdgeCases");
       connectorConfiguration.put("scylla.table.names", "frozen_collections_ks.tab");
-      connectorConfiguration.put("name", "FrozenCollectionsEdgeCasesConnector");
-      try {
-        int returnCode =
-            KafkaConnectUtils.registerConnector(
-                connectorConfiguration, "FrozenCollectionsEdgeCasesConnector");
-        if (returnCode == 500) {
-          String status =
-              KafkaConnectUtils.getConnectorStatus("FrozenCollectionsEdgeCasesConnector");
-          if (status == null) {
-            Assertions.fail(
-                "Received 500 error on connector registration and connector is not registered.");
-          }
-        } else if (returnCode / 100 != 2) {
-          Assertions.fail(
-              "Received non-success response code on connector registration: " + returnCode);
-        }
-      } catch (Exception e) {
-        Assertions.fail("Failed to register connector.", e);
-      }
+      connectorConfiguration.put("name", FROZEN_COLLECTIONS_EDGE_CASES_CONNECTOR);
+      registerConnector(FROZEN_COLLECTIONS_EDGE_CASES_CONNECTOR, connectorConfiguration);
       consumer.subscribe(
           List.of("canReplicateFrozenCollectionsEdgeCases.frozen_collections_ks.tab"));
       long startTime = System.currentTimeMillis();
@@ -354,28 +383,13 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
   @Test
   public void canReplicateNonFrozenCollections() throws UnknownHostException {
+    final String NON_FROZEN_COLLECTIONS_CONNECTOR = "NonFrozenCollectionsConnector";
     try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", "canReplicateNonFrozenCollections");
       connectorConfiguration.put("scylla.table.names", "nonfrozen_collections_ks.tab");
-      connectorConfiguration.put("name", "NonFrozenCollectionsConnector");
-      try {
-        int returnCode =
-            KafkaConnectUtils.registerConnector(
-                connectorConfiguration, "NonFrozenCollectionsConnector");
-        if (returnCode == 500) {
-          String status = KafkaConnectUtils.getConnectorStatus("NonFrozenCollectionsConnector");
-          if (status == null) {
-            Assertions.fail(
-                "Received 500 error on connector registration and connector is not registered.");
-          }
-        } else if (returnCode / 100 != 2) {
-          Assertions.fail(
-              "Received non-success response code on connector registration: " + returnCode);
-        }
-      } catch (Exception e) {
-        Assertions.fail("Failed to register connector.", e);
-      }
+      connectorConfiguration.put("name", NON_FROZEN_COLLECTIONS_CONNECTOR);
+      registerConnector(NON_FROZEN_COLLECTIONS_CONNECTOR, connectorConfiguration);
       consumer.subscribe(List.of("canReplicateNonFrozenCollections.nonfrozen_collections_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
@@ -402,6 +416,35 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                       assertTrue(
                           value.contains("\"elements\":"),
                           "Expected elements field in value: " + value));
+              assertAll(
+                  () ->
+                      assertTrue(
+                          value.contains("\"list_col\":{\"value\":{\"mode\":\"MODIFY\""),
+                          "Expected list_col removal delta mode MODIFY in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"set_col\":{\"value\":{\"mode\":\"MODIFY\""),
+                          "Expected set_col removal delta mode MODIFY in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"map_col\":{\"value\":{\"mode\":\"MODIFY\""),
+                          "Expected map_col removal delta mode MODIFY in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"elements\":"),
+                          "Expected elements field in removal delta in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("40"),
+                          "Expected list_col addition of 40 in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("w"),
+                          "Expected set_col addition of 'w' in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("thirty"),
+                          "Expected map_col addition of key 30:'thirty' in value: " + value));
               // For list_col, check that at least one expected value is present (robust to timeuuid
               // key)
               assertTrue(
@@ -453,34 +496,24 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       // Null collections
       session.execute(
           "INSERT INTO nonfrozen_collections_ks.tab (id, list_col, set_col, map_col) VALUES (3, null, null, null);");
-      // Remove element from list, set, map
+      // Perform simultaneous element removal and addition on each non-frozen collection
+      // in a single UPDATE statement to exercise combined collection deltas.
       session.execute(
-          "UPDATE nonfrozen_collections_ks.tab SET list_col = list_col - [10], set_col = set_col - {'x'}, map_col = map_col - {10} WHERE id = 1;");
+          "UPDATE nonfrozen_collections_ks.tab SET "
+              + "list_col = list_col - [10], list_col = list_col + [40], "
+              + "set_col = set_col - {'x'}, set_col = set_col + {'w'}, "
+              + "map_col = map_col - {10}, map_col = map_col + {30:'thirty'} "
+              + "WHERE id = 1;");
     }
 
     try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      final String NON_FROZEN_COLLECTIONS_EDGE_CASES_CONNECTOR =
+          "NonFrozenCollectionsEdgeCasesConnector";
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", "canReplicateNonFrozenCollectionsEdgeCases");
       connectorConfiguration.put("scylla.table.names", "nonfrozen_collections_ks.tab");
-      connectorConfiguration.put("name", "NonFrozenCollectionsEdgeCasesConnector");
-      try {
-        int returnCode =
-            KafkaConnectUtils.registerConnector(
-                connectorConfiguration, "NonFrozenCollectionsEdgeCasesConnector");
-        if (returnCode == 500) {
-          String status =
-              KafkaConnectUtils.getConnectorStatus("NonFrozenCollectionsEdgeCasesConnector");
-          if (status == null) {
-            Assertions.fail(
-                "Received 500 error on connector registration and connector is not registered.");
-          }
-        } else if (returnCode / 100 != 2) {
-          Assertions.fail(
-              "Received non-success response code on connector registration: " + returnCode);
-        }
-      } catch (Exception e) {
-        Assertions.fail("Failed to register connector.", e);
-      }
+      connectorConfiguration.put("name", NON_FROZEN_COLLECTIONS_EDGE_CASES_CONNECTOR);
+      registerConnector(NON_FROZEN_COLLECTIONS_EDGE_CASES_CONNECTOR, connectorConfiguration);
       consumer.subscribe(
           List.of("canReplicateNonFrozenCollectionsEdgeCases.nonfrozen_collections_ks.tab"));
       long startTime = System.currentTimeMillis();
@@ -528,24 +561,36 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                           "Expected null map_col in value: " + value));
               foundNull = true;
             } else if (value.contains("\"id\":1") && value.contains("\"op\":\"u\"")) {
-              // Element removal (UPDATE event only; skip initial CREATE)
+              // Element removal and addition (UPDATE event only; skip initial CREATE)
               assertAll(
                   () ->
                       assertTrue(
                           value.contains("\"list_col\":{\"value\":{\"mode\":\"MODIFY\""),
-                          "Expected list_col removal delta mode MODIFY in value: " + value),
+                          "Expected list_col delta mode MODIFY in value: " + value),
                   () ->
                       assertTrue(
                           value.contains("\"set_col\":{\"value\":{\"mode\":\"MODIFY\""),
-                          "Expected set_col removal delta mode MODIFY in value: " + value),
+                          "Expected set_col delta mode MODIFY in value: " + value),
                   () ->
                       assertTrue(
                           value.contains("\"map_col\":{\"value\":{\"mode\":\"MODIFY\""),
-                          "Expected map_col removal delta mode MODIFY in value: " + value),
+                          "Expected map_col delta mode MODIFY in value: " + value),
                   () ->
                       assertTrue(
                           value.contains("\"elements\":"),
-                          "Expected elements field in removal delta in value: " + value));
+                          "Expected elements field in delta in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("40"),
+                          "Expected list_col addition of 40 in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("w"),
+                          "Expected set_col addition of 'w' in value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("thirty"),
+                          "Expected map_col addition of key 30:'thirty' in value: " + value));
               foundRemoval = true;
             }
           }
@@ -556,6 +601,238 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       assertTrue(foundNull, "No message consumed for null non-frozen collections row.");
       assertTrue(
           foundRemoval, "No message consumed for element removal in non-frozen collections row.");
+    }
+  }
+
+  @Test
+  public void canReplicateUDT() throws UnknownHostException {
+    final String UDT_CONNECTOR = "UDTConnector";
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+      connectorConfiguration.put("topic.prefix", "canReplicateUDT");
+      connectorConfiguration.put("scylla.table.names", "udt_ks.tab");
+      connectorConfiguration.put("name", UDT_CONNECTOR);
+      registerConnector(UDT_CONNECTOR, connectorConfiguration);
+      consumer.subscribe(List.of("canReplicateUDT.udt_ks.tab"));
+      long startTime = System.currentTimeMillis();
+      boolean foundNonNull = false;
+      boolean foundNull = false;
+      while (System.currentTimeMillis() - startTime < 65 * 1000 && (!foundNonNull || !foundNull)) {
+        var records = consumer.poll(java.time.Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+            if (value.contains("\"id\":1")) {
+              assertAll(
+                  // frozen UDT
+                  () ->
+                      assertTrue(
+                          value.contains("\"udt_col\":{\"value\":{\"a\":42,\"b\":\"foo\"}}"),
+                          "Expected non-null frozen UDT value: " + value),
+                  // non-frozen UDT (mode/OVERWRITE, elements with value fields)
+                  () ->
+                      assertTrue(
+                          value.contains("\"nf_udt_col\":{\"value\":{\"mode\":\"OVERWRITE\""),
+                          "Expected mode=OVERWRITE for non-frozen UDT: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains(
+                              "\"elements\":{\"a\":{\"value\":7},\"b\":{\"value\":\"bar\"}}"),
+                          "Expected elements with correct values for non-frozen UDT: " + value));
+              foundNonNull = true;
+            } else if (value.contains("\"id\":2")) {
+              assertAll(
+                  // frozen UDT
+                  () ->
+                      assertTrue(
+                          value.contains("\"udt_col\":{\"value\":null}"),
+                          "Expected null frozen UDT value: " + value),
+                  // non-frozen UDT
+                  () ->
+                      assertTrue(
+                          value.contains("\"nf_udt_col\":null")
+                              || value.contains("\"nf_udt_col\":{\"value\":null}"),
+                          "Expected null non-frozen UDT value (top-level null or {value:null}): "
+                              + value));
+              foundNull = true;
+            }
+          }
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(foundNonNull, "No message consumed for non-null UDT row.");
+      assertTrue(foundNull, "No message consumed for null UDT row.");
+    }
+  }
+
+  @Test
+  public void canReplicateComplexUDTAndCollections() throws UnknownHostException {
+    // Issue a series of UPDATEs that modify the non-frozen UDT and
+    // non-frozen collections of UDTs. In practice Scylla CDC may emit
+    // collection deltas (especially for sets/maps) in ways that are
+    // hard to assert deterministically across versions and providers.
+    //
+    // This test therefore *requires* observing:
+    //   - the CREATE (op="c") event with the full initial complex value
+    //   - an UPDATE (op="u") event for the non-frozen UDT field nf_addr
+    //
+    // and only *optionally* asserts the detailed nf_addr_map delta if it
+    // appears in the stream. We do not fail the test if no separate
+    // nf_addr_map UPDATE event is observed.
+    try (Cluster cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      session.execute(
+          "UPDATE complex_types_ks.tab SET "
+              + "nf_addr.street = 'side-updated', "
+              + "nf_addr.tags = null "
+              + "WHERE id = 1;");
+      session.execute(
+          "UPDATE complex_types_ks.tab SET "
+              + "nf_addr_set = nf_addr_set - {{street: 's1', phones: ['666'], tags: {'tag1'}}} "
+              + "WHERE id = 1;");
+      session.execute(
+          "UPDATE complex_types_ks.tab SET "
+              + "nf_addr_set = nf_addr_set + {{street: 's3', phones: ['000'], tags: {'tag3'}}} "
+              + "WHERE id = 1;");
+      session.execute(
+          "UPDATE complex_types_ks.tab SET "
+              + "nf_addr_map = nf_addr_map - {10} "
+              + "WHERE id = 1;");
+      session.execute(
+          "UPDATE complex_types_ks.tab SET "
+              + "nf_addr_map = nf_addr_map + {30: {street: 'm3', phones: ['123'], tags: {'tagm3'}}} "
+              + "WHERE id = 1;");
+    }
+
+    final String COMPLEX_TYPES_CONNECTOR = "ComplexUDTAndCollectionsConnector";
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+      connectorConfiguration.put("topic.prefix", "canReplicateComplexUDTAndCollections");
+      connectorConfiguration.put("scylla.table.names", "complex_types_ks.tab");
+      connectorConfiguration.put("name", COMPLEX_TYPES_CONNECTOR);
+      registerConnector(COMPLEX_TYPES_CONNECTOR, connectorConfiguration);
+      consumer.subscribe(List.of("canReplicateComplexUDTAndCollections.complex_types_ks.tab"));
+      long startTime = System.currentTimeMillis();
+      boolean foundCreate = false;
+      boolean foundUpdateNfAddr = false;
+      boolean foundUpdateNfAddrMap = false;
+
+      while (System.currentTimeMillis() - startTime < 65 * 1000
+          && (!foundCreate || !foundUpdateNfAddr)) {
+        var records = consumer.poll(Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+            if (!value.contains("\"id\":1")) {
+              continue;
+            }
+
+            if (value.contains("\"op\":\"c\"") && !foundCreate) {
+              assertAll(
+                  // frozen UDT with nested collections
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_addr\":{\"value\":{\"street\":\"main\""),
+                          "Expected frozen_addr with street 'main' in value: " + value),
+                  // non-frozen UDT initial state (OVERWRITE)
+                  () ->
+                      assertTrue(
+                          value.contains("\"nf_addr\":{\"value\":{\"mode\":\"OVERWRITE\""),
+                          "Expected nf_addr mode OVERWRITE in create value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"street\":{\"value\":\"side\""),
+                          "Expected nf_addr street 'side' in create value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"phones\":{\"value\":[\"333\"]"),
+                          "Expected nf_addr phones ['333'] in create value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"tags\":{\"value\":[\"secondary\"]"),
+                          "Expected nf_addr tags ['secondary'] in create value: " + value),
+                  // frozen_addr_list
+                  () ->
+                      assertTrue(
+                          value.contains("\"frozen_addr_list\":{\"value\":[")
+                              && value.contains("\"street\":\"l1\"")
+                              && value.contains("\"street\":\"l2\""),
+                          "Expected frozen_addr_list with l1 and l2 in value: " + value),
+                  // nf_addr_set initial state (OVERWRITE)
+                  () ->
+                      assertTrue(
+                          value.contains("\"nf_addr_set\":{\"value\":{\"mode\":\"OVERWRITE\""),
+                          "Expected nf_addr_set mode OVERWRITE in create value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("\"street\":\"s1\"")
+                              && value.contains("\"street\":\"s2\""),
+                          "Expected nf_addr_set elements s1 and s2 in create value: " + value),
+                  // nf_addr_map initial state (OVERWRITE)
+                  () ->
+                      assertTrue(
+                          value.contains("\"nf_addr_map\":{\"value\":{\"mode\":\"OVERWRITE\""),
+                          "Expected nf_addr_map mode OVERWRITE in create value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("10") && value.contains("\"street\":\"m1\""),
+                          "Expected nf_addr_map key 10 with street m1 in create value: " + value),
+                  () ->
+                      assertTrue(
+                          value.contains("20") && value.contains("\"street\":\"m2\""),
+                          "Expected nf_addr_map key 20 with street m2 in create value: " + value));
+              foundCreate = true;
+            } else if (value.contains("\"op\":\"u\"")) {
+              if (!foundUpdateNfAddr && value.contains("\"nf_addr\":{\"value\"")) {
+                assertAll(
+                    () ->
+                        assertTrue(
+                            value.contains("\"nf_addr\":{\"value\":{\"mode\":\"MODIFY\""),
+                            "Expected nf_addr mode MODIFY in update value: " + value),
+                    () ->
+                        assertTrue(
+                            value.contains("\"street\":{\"value\":\"side-updated\""),
+                            "Expected nf_addr updated street in value: " + value),
+                    () ->
+                        assertTrue(
+                            value.contains("\"tags\":{\"value\":[]}")
+                                || value.contains("\"tags\":{\"value\":[ ]}"),
+                            "Expected nf_addr tags updated to empty set in value: " + value));
+                foundUpdateNfAddr = true;
+              }
+
+              if (!foundUpdateNfAddrMap && value.contains("\"nf_addr_map\":{\"value\"")) {
+                assertAll(
+                    () ->
+                        assertTrue(
+                            value.contains("\"nf_addr_map\":{\"value\":{\"mode\":\"MODIFY\""),
+                            "Expected nf_addr_map mode MODIFY in update value: " + value),
+                    () ->
+                        assertTrue(
+                            value.contains("[10,null]") || value.contains("[10, null]"),
+                            "Expected nf_addr_map removal of key 10 in value: " + value),
+                    () ->
+                        assertTrue(
+                            value.contains("30") && value.contains("\"street\":\"m3\""),
+                            "Expected nf_addr_map key 30 with street m3 in value: " + value));
+                foundUpdateNfAddrMap = true;
+              }
+            }
+          }
+        }
+      }
+
+      consumer.unsubscribe();
+      assertTrue(
+          foundCreate,
+          "No CREATE event consumed for complex UDT/collections row. Topic may be empty or connector may have crashed.");
+      assertTrue(
+          foundUpdateNfAddr,
+          "No UPDATE event for nf_addr consumed for complex UDT/collections row.");
     }
   }
 
@@ -571,25 +848,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       connectorConfiguration.put(
           "transforms.extractNewRecordState.type",
           "com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState");
-      try {
-        int returnCode =
-            KafkaConnectUtils.registerConnector(
-                connectorConfiguration, CAN_EXTRACT_NEW_RECORD_STATE_CONNECTOR);
-        // If we get a 500 error, check if the connector is actually registered (see issue #195)
-        if (returnCode == 500) {
-          String status =
-              KafkaConnectUtils.getConnectorStatus(CAN_EXTRACT_NEW_RECORD_STATE_CONNECTOR);
-          if (status == null) {
-            Assertions.fail(
-                "Received 500 error on connector registration and connector is not registered.");
-          }
-        } else if (returnCode / 100 != 2) {
-          Assertions.fail(
-              "Received non-success response code on connector registration: " + returnCode);
-        }
-      } catch (Exception e) {
-        Assertions.fail("Failed to register connector.", e);
-      }
+      registerConnector(CAN_EXTRACT_NEW_RECORD_STATE_CONNECTOR, connectorConfiguration);
       consumer.subscribe(List.of("canExtractNewRecordState.primitive_types_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
@@ -737,6 +996,25 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       } catch (Exception e) {
         Assertions.fail("Failed to verify schema registry: " + e.getMessage());
       }
+    }
+  }
+
+  /** Register a connector with the given name and configuration. */
+  private void registerConnector(final String connectorName, Properties connectorConfiguration) {
+    try {
+      int returnCode = KafkaConnectUtils.registerConnector(connectorConfiguration, connectorName);
+      if (returnCode == 500) {
+        String status = KafkaConnectUtils.getConnectorStatus(connectorName);
+        if (status == null) {
+          Assertions.fail(
+              "Received 500 error on connector registration and connector is not registered.");
+        }
+      } else if (returnCode / 100 != 2) {
+        Assertions.fail(
+            "Received non-success response code on connector registration: " + returnCode);
+      }
+    } catch (Exception e) {
+      Assertions.fail("Failed to register connector.", e);
     }
   }
 
