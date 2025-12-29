@@ -50,25 +50,6 @@ if ! curl -s http://localhost:8083/connector-plugins | grep -q 'com.scylladb.cdc
 fi
 
 CONNECTOR_NAME="scylla-cdc-source-connector"
-CONNECTOR_CONFIG=$(cat <<'JSON'
-{
-  "name": "scylla-cdc-source-connector",
-  "config": {
-    "tasks.max": "3",
-    "connector.class": "com.scylladb.cdc.debezium.connector.ScyllaConnector",
-    "scylla.cluster.ip.addresses": "scylla:9042",
-    "topic.prefix": "scylla_cluster",
-    "scylla.table.names": "demo_keyspace.users",
-    "scylla.consistency.level": "ONE",
-    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "key.converter.schemas.enable": "false",
-    "value.converter.schemas.enable": "false",
-    "experimental.preimages.enabled": "false"
-  }
-}
-JSON
-)
 
 # For PUT /connectors/{name}/config, Kafka Connect expects only the flat config object,
 # not the wrapper with "name" and "config".
@@ -88,6 +69,8 @@ CONNECTOR_CONFIG_ONLY=$(cat <<'JSON'
 }
 JSON
 )
+
+CONNECTOR_CONFIG=$(jq -n --arg name "$CONNECTOR_NAME" --argjson config "$CONNECTOR_CONFIG_ONLY" '{name: $name, config: $config}')
 
 echo -e "${YELLOW}Registering (or updating) Scylla CDC Source Connector...${NC}"
 GET_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8083/connectors/${CONNECTOR_NAME}" || true)
