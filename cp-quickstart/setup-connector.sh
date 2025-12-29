@@ -70,16 +70,27 @@ CONNECTOR_CONFIG_ONLY=$(cat <<'JSON'
 JSON
 )
 
-CONNECTOR_CONFIG=$(jq -n --arg name "$CONNECTOR_NAME" --argjson config "$CONNECTOR_CONFIG_ONLY" '{name: $name, config: $config}')
+CONNECTOR_CONFIG=$(cat <<JSON
+{
+  "name": "${CONNECTOR_NAME}",
+  "config": ${CONNECTOR_CONFIG_ONLY}
+}
+JSON
+)
 
 echo -e "${YELLOW}Registering (or updating) Scylla CDC Source Connector...${NC}"
 GET_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8083/connectors/${CONNECTOR_NAME}" || true)
 if [ "$GET_STATUS" = "200" ]; then
-  curl -s -X PUT "http://localhost:8083/connectors/${CONNECTOR_NAME}/config" \
+  PUT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "http://localhost:8083/connectors/${CONNECTOR_NAME}/config" \
        -H "Content-Type: application/json" \
-       -d "${CONNECTOR_CONFIG_ONLY}"
-  echo -e "${YELLOW}Restarting existing connector to load latest classes...${NC}"
-  curl -X POST http://localhost:8083/connectors/${CONNECTOR_NAME}/restart
+       -d "${CONNECTOR_CONFIG_ONLY}" || true)
+  if [[ "$PUT_STATUS" =~ ^2 ]]; then
+    echo -e "${YELLOW}Restarting existing connector to load latest classes...${NC}"
+    curl -s -X POST "http://localhost:8083/connectors/${CONNECTOR_NAME}/restart"
+  else
+    echo -e "${YELLOW}Connector config update failed with HTTP status ${PUT_STATUS}. Skipping restart. Check Kafka Connect logs for details.${NC}"
+    exit 1
+  fi
 else
   curl -s -X POST "http://localhost:8083/connectors" \
        -H "Content-Type: application/json" \

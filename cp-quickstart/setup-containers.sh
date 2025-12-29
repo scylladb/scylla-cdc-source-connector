@@ -29,7 +29,7 @@ echo -e "${YELLOW}Starting containers with docker compose...${NC}"
 # Navigate back to cp-quickstart directory
 cd cp-quickstart
 compose down -v
-compose up -d --force-recreate
+compose up -d
 
 echo -e "${YELLOW}Waiting for Kafka Connect REST API to be ready...${NC}"
 READY_CODE=""
@@ -47,7 +47,7 @@ if [ "$READY_CODE" != "200" ]; then
 fi
 
 echo -e "${YELLOW}Verifying loaded Scylla connector JARs in Connect...${NC}"
-docker exec connect bash -lc 'echo "Loaded Scylla JARs:"; find /usr/share -type f -name "*scylla*jar" -printf "%TY-%Tm-%Td %TT %p\n" | sort || true' || true
+docker exec connect bash -lc 'echo "Loaded Scylla JARs:"; find /usr/share -type f -name "*scylla*jar" -exec ls -l {} \; | sort || true' || true
 
 echo -e "${YELLOW}Checking Kafka Connect plugin discovery logs...${NC}"
 docker logs connect 2>&1 | grep -i -E "Scanning plugin path|Added plugin|ScyllaConnector|scylla-cdc" || true
