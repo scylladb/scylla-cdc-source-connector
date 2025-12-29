@@ -667,16 +667,16 @@ public abstract class AbstractContainerBaseIT {
       return;
     }
 
+    var scyllaCommand = buildScyllaCommand();
     scyllaDBContainer =
         new ScyllaDBContainer("scylladb/scylla:" + SCYLLA_VERSION)
             .withNetwork(NETWORK)
             .withNetworkAliases("scylla")
             .withExposedPorts(SCYLLA_PORT)
-            .withCommand(
-                buildScyllaCommand()) // Configure Scylla logging verbosity via command flags
+            .withCommand(scyllaCommand) // Configure Scylla logging verbosity via command flags
             .withStartupTimeout(Duration.ofMinutes(5));
 
-    logger.atInfo().log("Using Scylla command: %s", buildScyllaCommand());
+    logger.atInfo().log("Using Scylla command: %s", scyllaCommand);
 
     scyllaDBContainer.start();
 
