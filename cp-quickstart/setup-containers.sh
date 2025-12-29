@@ -11,16 +11,51 @@ echo -e "${YELLOW}Building Scylla CDC Source Connector...${NC}"
 cd "$(dirname "$0")/.."
 mvn clean package -DskipTests
 
-echo -e "${YELLOW}Starting containers with docker-compose...${NC}"
+
+# Compose function for compatibility and clarity
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    echo "Neither 'docker compose' nor 'docker-compose' is available. Please install one of them."
+    exit 1
+  fi
+}
+
+
+echo -e "${YELLOW}Starting containers with docker compose...${NC}"
 # Navigate back to cp-quickstart directory
 cd cp-quickstart
-docker-compose down -v
-docker-compose up -d
+compose down -v
+compose up -d
+
+echo -e "${YELLOW}Waiting for Kafka Connect REST API to be ready...${NC}"
+READY_CODE=""
+for i in {1..60}; do
+  READY_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/ || true)
+  if [ "$READY_CODE" = "200" ]; then
+    echo -e "${GREEN}Kafka Connect REST API is ready.${NC}"
+    break
+  fi
+  echo "Waiting for Connect... ($i/60)"
+  sleep 2
+done
+if [ "$READY_CODE" != "200" ]; then
+  echo "Kafka Connect REST API not ready after waiting, continuing anyway."
+fi
+
+echo -e "${YELLOW}Verifying loaded Scylla connector JARs in Connect...${NC}"
+docker exec connect bash -lc 'echo "Loaded Scylla JARs:"; find /usr/share -type f -name "*scylla*jar" -exec ls -l {} \; | sort || true' || true
+
+echo -e "${YELLOW}Checking Kafka Connect plugin discovery logs...${NC}"
+docker logs connect 2>&1 | grep -i -E "Scanning plugin path|Added plugin|ScyllaConnector|scylla-cdc" || true
 
 echo -e "${YELLOW}Waiting for Scylla to be ready...${NC}"
 # Wait for Scylla to be ready
 for i in {1..30}; do
-  if docker exec -it scylla cqlsh -e "describe keyspaces" > /dev/null 2>&1; then
+  if docker exec scylla cqlsh -e "describe keyspaces" > /dev/null 2>&1; then
     echo -e "${GREEN}Scylla is ready!${NC}"
     break
   fi
@@ -34,7 +69,7 @@ done
 
 echo -e "${YELLOW}Creating keyspace and table with CDC enabled...${NC}"
 # Create keyspace and table with CDC
-docker exec -it scylla cqlsh -e "
+docker exec scylla cqlsh -e "
 CREATE KEYSPACE IF NOT EXISTS demo_keyspace
 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1};
 
