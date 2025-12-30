@@ -25,6 +25,8 @@ import org.junit.jupiter.api.condition.EnabledIf;
 
 public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
+  private static final int CONSUMER_TIMEOUT = 65 * 1000;
+
   @BeforeAll
   public static void setupTables() {
     try (Cluster cluster =
@@ -171,7 +173,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       consumer.subscribe(List.of("canReplicateAllPrimitiveTypes.primitive_types_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
           messageConsumed = true;
@@ -229,7 +231,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       consumer.subscribe(List.of("canReplicateFrozenCollections.frozen_collections_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
           for (var record : records) {
@@ -304,7 +306,8 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       long startTime = System.currentTimeMillis();
       boolean foundEmpty = false;
       boolean foundNull = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000 && (!foundEmpty || !foundNull)) {
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT
+          && (!foundEmpty || !foundNull)) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
           for (var record : records) {
@@ -373,64 +376,67 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       consumer.subscribe(List.of("canReplicateNonFrozenCollections.nonfrozen_collections_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
           for (var record : records) {
             String value = record.value();
             if (value.contains("\"id\":1")) {
-              // list_col: mode OVERWRITE, values {10,20,30} regardless of internal keys
-              var listValue = KafkaUtils.extractValueNodeFromAfterField(value, "list_col");
-              var listElements = listValue.path("elements");
-              var listValues = new HashSet<>();
-              listElements.fields().forEachRemaining(e -> listValues.add(e.getValue().asInt()));
-
+              // list_col: mode OVERWRITE, values {10,20,30} regardless of internal keys.
+              JsonNode listValue = KafkaUtils.extractValueNodeFromAfterField(value, "list_col");
+              JsonNode listElements = listValue.path("elements");
+              var listValues = new HashSet<Integer>();
               Assertions.assertEquals(
                   "OVERWRITE",
                   listValue.path("mode").asText(),
                   "Expected list_col delta mode OVERWRITE in value: " + value);
-
               Assertions.assertTrue(
-                  listElements.isObject(), "Expected list_col elements object in value: " + value);
+                  listElements.isArray(), "Expected list_col elements array in value: " + value);
+              listElements
+                  .elements()
+                  .forEachRemaining(entry -> listValues.add(entry.path("value").asInt()));
               Assertions.assertEquals(
                   Set.of(10, 20, 30),
                   listValues,
                   "Unexpected list_col elements in value: " + value);
 
-              // set_col: mode OVERWRITE, elements {x,y,z} as keys
+              // set_col: mode OVERWRITE, elements {x,y,z} as added elements.
               JsonNode setValue = KafkaUtils.extractValueNodeFromAfterField(value, "set_col");
               JsonNode setElements = setValue.path("elements");
               var setValues = new HashSet<String>();
-              setElements.fieldNames().forEachRemaining(setValues::add);
-
               Assertions.assertEquals(
                   "OVERWRITE",
                   setValue.path("mode").asText(),
                   "Expected set_col delta mode OVERWRITE in value: " + value);
-
               Assertions.assertTrue(
-                  setElements.isObject(), "Expected set_col elements object in value: " + value);
+                  setElements.isArray(), "Expected set_col elements array in value: " + value);
+              setElements
+                  .elements()
+                  .forEachRemaining(
+                      entry -> {
+                        if (entry.path("added").asBoolean()) {
+                          setValues.add(entry.path("element").asText());
+                        }
+                      });
               Assertions.assertEquals(
                   Set.of("x", "y", "z"),
                   setValues,
                   "Unexpected set_col elements in value: " + value);
 
-              // map_col: mode OVERWRITE, entries {10:"ten", 20:"twenty"}
+              // map_col: mode OVERWRITE, entries {10:"ten", 20:"twenty"}.
               JsonNode mapValue = KafkaUtils.extractValueNodeFromAfterField(value, "map_col");
               JsonNode mapElements = mapValue.path("elements");
-              var mapEntries =
-                  StreamSupport.stream(mapElements.spliterator(), false)
-                      .filter(entry -> entry.isArray() && entry.size() == 2)
-                      .collect(
-                          Collectors.toMap(
-                              entry -> entry.get(0).asInt(), entry -> entry.get(1).asText()));
-
               Assertions.assertEquals(
                   "OVERWRITE",
                   mapValue.path("mode").asText(),
                   "Expected map_col delta mode OVERWRITE in value: " + value);
               Assertions.assertTrue(
                   mapElements.isArray(), "Expected map_col elements array in value: " + value);
+              var mapEntries =
+                  StreamSupport.stream(mapElements.spliterator(), false)
+                      .collect(
+                          Collectors.toMap(
+                              e -> e.path("key").asInt(), e -> e.path("value").asText()));
               Assertions.assertEquals(
                   2, mapEntries.size(), "Expected exactly 2 entries in map_col elements: " + value);
               Assertions.assertEquals(
@@ -498,7 +504,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       boolean foundEmpty = false;
       boolean foundNull = false;
       boolean foundRemoval = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT
           && (!foundEmpty || !foundNull || !foundRemoval)) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
@@ -595,7 +601,8 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       long startTime = System.currentTimeMillis();
       boolean foundNonNull = false;
       boolean foundNull = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000 && (!foundNonNull || !foundNull)) {
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT
+          && (!foundNonNull || !foundNull)) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
           for (var record : records) {
@@ -699,7 +706,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       boolean foundUpdateNfAddr = false;
       boolean foundUpdateNfAddrMap = false;
 
-      while (System.currentTimeMillis() - startTime < 65 * 1000
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT
           && (!foundCreate || !foundUpdateNfAddr)) {
         var records = consumer.poll(Duration.ofSeconds(5));
         if (!records.isEmpty()) {
@@ -830,7 +837,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       consumer.subscribe(List.of("canExtractNewRecordState.primitive_types_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
           messageConsumed = true;
@@ -892,7 +899,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       consumer.subscribe(List.of("canReplicateAllPrimitiveTypesWithAvro.primitive_types_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
-      while (System.currentTimeMillis() - startTime < 65 * 1000) {
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT) {
         var records = consumer.poll(java.time.Duration.ofSeconds(5));
         if (!records.isEmpty()) {
           messageConsumed = true;
@@ -974,6 +981,100 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       } catch (Exception e) {
         Assertions.fail("Failed to verify schema registry: " + e.getMessage());
       }
+    }
+  }
+
+  @Test
+  @EnabledIf("isConfluentKafkaProvider")
+  public void canReplicateNonFrozenCollectionsWithAvro() throws UnknownHostException {
+    Assumptions.assumeTrue(
+        KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED,
+        "AvroConverter is not available in cp-kafka image.");
+
+    final String CONNECTOR_NAME = "NonFrozenCollectionsAvroConnector";
+    final String TOPIC_PREFIX = "canReplicateNonFrozenCollectionsWithAvro";
+    final String TABLE = "nonfrozen_collections_ks.tab";
+    final String TOPIC = TOPIC_PREFIX + "." + TABLE;
+
+    try (KafkaConsumer<GenericRecord, GenericRecord> consumer = KafkaUtils.createAvroConsumer()) {
+      Properties connectorConfiguration = KafkaConnectUtils.createAvroConnectorProperties();
+      connectorConfiguration.put("topic.prefix", TOPIC_PREFIX);
+      connectorConfiguration.put("scylla.table.names", TABLE);
+      connectorConfiguration.put("name", CONNECTOR_NAME);
+
+      registerConnector(CONNECTOR_NAME, connectorConfiguration);
+
+      consumer.subscribe(List.of(TOPIC));
+      long startTime = System.currentTimeMillis();
+      boolean messageConsumed = false;
+
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT) {
+        var records = consumer.poll(java.time.Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            GenericRecord value = record.value();
+            GenericRecord after = (GenericRecord) value.get("after");
+            if (after == null) {
+              continue;
+            }
+
+            // Focus on the initial INSERT for id=1
+            Object idObj = after.get("id");
+            if (idObj == null || !"1".equals(idObj.toString())) {
+              continue;
+            }
+
+            // list_col: has value struct, mode OVERWRITE, and non-empty elements array
+            GenericRecord listCell = (GenericRecord) after.get("list_col");
+            Assertions.assertNotNull(listCell, "list_col cell should not be null");
+            GenericRecord listValue = (GenericRecord) listCell.get("value");
+            Assertions.assertNotNull(listValue, "list_col value should not be null");
+            Assertions.assertEquals(
+                "OVERWRITE", listValue.get("mode").toString(), "Expected list_col mode OVERWRITE");
+            Object listElementsObj = listValue.get("elements");
+            Assertions.assertTrue(
+                listElementsObj instanceof Iterable,
+                "list_col elements should be iterable but was " + listElementsObj);
+            boolean hasListElement = ((Iterable<?>) listElementsObj).iterator().hasNext();
+            Assertions.assertTrue(hasListElement, "list_col elements should not be empty");
+
+            // set_col: has value struct, mode OVERWRITE, and iterable elements
+            GenericRecord setCell = (GenericRecord) after.get("set_col");
+            Assertions.assertNotNull(setCell, "set_col cell should not be null");
+            GenericRecord setValue = (GenericRecord) setCell.get("value");
+            Assertions.assertNotNull(setValue, "set_col value should not be null");
+            Assertions.assertEquals(
+                "OVERWRITE", setValue.get("mode").toString(), "Expected set_col mode OVERWRITE");
+            Object setElementsObj = setValue.get("elements");
+            Assertions.assertTrue(
+                setElementsObj instanceof Iterable,
+                "set_col elements should be iterable but was " + setElementsObj);
+
+            // map_col: has value struct, mode OVERWRITE, and iterable elements
+            GenericRecord mapCell = (GenericRecord) after.get("map_col");
+            Assertions.assertNotNull(mapCell, "map_col cell should not be null");
+            GenericRecord mapValue = (GenericRecord) mapCell.get("value");
+            Assertions.assertNotNull(mapValue, "map_col value should not be null");
+            Assertions.assertEquals(
+                "OVERWRITE", mapValue.get("mode").toString(), "Expected map_col mode OVERWRITE");
+            Object mapElementsObj = mapValue.get("elements");
+            Assertions.assertTrue(
+                mapElementsObj instanceof Iterable,
+                "map_col elements should be iterable but was " + mapElementsObj);
+
+            messageConsumed = true;
+            break;
+          }
+          if (messageConsumed) {
+            break;
+          }
+        }
+      }
+
+      consumer.unsubscribe();
+      assertTrue(
+          messageConsumed,
+          "No Avro message consumed for non-frozen collections table. Topic may be empty or connector may have crashed.");
     }
   }
 

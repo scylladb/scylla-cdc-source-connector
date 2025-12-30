@@ -13,15 +13,14 @@ import io.debezium.util.Clock;
 import java.time.Instant;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
-import org.apache.commons.lang3.ObjectUtils;
+import java.util.stream.Stream;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
@@ -266,19 +265,26 @@ public class ScyllaChangeRecordEmitter
     switch (elementsCell.getDataType().getCqlType()) {
       case SET:
         {
-          Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
-          Schema scyllaElementsSchema = SchemaBuilder.array(elementsSchema.keySchema()).build();
-          List<Object> addedElements =
+          Schema elementsArraySchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+          Schema entrySchema = elementsArraySchema.valueSchema();
+          Schema elementSchema = entrySchema.field("element").schema();
+          Schema scyllaElementsSchema = SchemaBuilder.array(elementSchema).optional().build();
+
+          @SuppressWarnings("unchecked")
+          var addedElements =
               (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
-          List<Object> deletedElements =
+          @SuppressWarnings("unchecked")
+          var deletedElements =
               (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema);
-          Map<Object, Boolean> delta = new HashMap<>();
-          if (addedElements != null) {
-            addedElements.forEach(element -> delta.put(element, true));
-          }
-          if (deletedElements != null) {
-            deletedElements.forEach(element -> delta.put(element, false));
-          }
+          var delta =
+              Stream.concat(
+                      Optional.ofNullable(addedElements).stream()
+                          .flatMap(List::stream)
+                          .map(e -> createSetElementStruct(entrySchema, e, true)),
+                      Optional.ofNullable(deletedElements).stream()
+                          .flatMap(List::stream)
+                          .map(e -> createSetElementStruct(entrySchema, e, false)))
+                  .collect(Collectors.toList());
 
           hasModified = !delta.isEmpty();
           elements = delta;
@@ -287,40 +293,45 @@ public class ScyllaChangeRecordEmitter
       case LIST:
       case MAP:
         {
-          Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
-          Schema deletedElementsScyllaSchema =
-              SchemaBuilder.array(elementsSchema.keySchema()).optional().build();
-          Map<Object, Object> addedElements =
-              (Map<Object, Object>)
-                  ObjectUtils.defaultIfNull(
-                      translateFieldToKafka(elementsCell, elementsSchema), new HashMap<>());
-          List<Object> deletedKeys =
+          Schema elementsArraySchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+          Schema entrySchema = elementsArraySchema.valueSchema();
+          Schema keySchema = entrySchema.field("key").schema();
+          Schema valueSchema = entrySchema.field("value").schema();
+          Schema scyllaElementsSchema =
+              SchemaBuilder.map(keySchema, valueSchema).optional().build();
+          Schema deletedElementsScyllaSchema = SchemaBuilder.array(keySchema).optional().build();
+
+          @SuppressWarnings("unchecked")
+          var addedElements =
+              (Map<Object, Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
+          @SuppressWarnings("unchecked")
+          var deletedKeys =
               (List<Object>)
                   translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema);
-          if (deletedKeys != null) {
-            deletedKeys.forEach(
-                (key) -> {
-                  addedElements.put(key, null);
-                });
-          }
-
-          hasModified = !addedElements.isEmpty();
-          elements = addedElements;
+          var delta =
+              Stream.concat(
+                      Optional.ofNullable(addedElements).stream()
+                          .flatMap(map -> map.entrySet().stream())
+                          .map(e -> createListElementStruct(entrySchema, e.getKey(), e.getValue())),
+                      Optional.ofNullable(deletedKeys).stream()
+                          .flatMap(List::stream)
+                          .map(k -> createListElementStruct(entrySchema, k, null)))
+                  .collect(Collectors.toList());
+          hasModified = !delta.isEmpty();
+          elements = delta;
           break;
         }
       case UDT:
         {
-          List<Short> deletedKeysList =
-              (List<Short>)
-                  translateFieldToKafka(
-                      deletedElementsCell,
-                      SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build());
-          Set<Short> deletedKeys;
-          if (deletedKeysList == null) {
-            deletedKeys = new HashSet<>();
-          } else {
-            deletedKeys = new HashSet<>(deletedKeysList);
-          }
+          @SuppressWarnings("unchecked")
+          var deletedKeys =
+              Optional.ofNullable(
+                      (List<Short>)
+                          translateFieldToKafka(
+                              deletedElementsCell,
+                              SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build()))
+                  .map(HashSet::new)
+                  .orElseGet(HashSet::new);
 
           Map<String, Field> elementsMap = elementsCell.getUDT();
           assert elementsMap instanceof LinkedHashMap;
@@ -403,6 +414,20 @@ public class ScyllaChangeRecordEmitter
 
     cell.put(ScyllaSchema.CELL_VALUE, value);
     return cell;
+  }
+
+  private Struct createListElementStruct(Schema entrySchema, Object key, Object value) {
+    Struct elementStruct = new Struct(entrySchema);
+    elementStruct.put("key", key);
+    elementStruct.put("value", value);
+    return elementStruct;
+  }
+
+  private Struct createSetElementStruct(Schema entrySchema, Object element, boolean added) {
+    Struct elementStruct = new Struct(entrySchema);
+    elementStruct.put("element", element);
+    elementStruct.put("added", added);
+    return elementStruct;
   }
 
   private Object translateFieldToKafka(Field field, Schema resultSchema) {
