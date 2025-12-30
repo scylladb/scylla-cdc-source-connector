@@ -202,17 +202,25 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
             switch (type.getCqlType()) {
               case SET:
                 {
-                  Schema valueSchema = SchemaBuilder.BOOLEAN_SCHEMA;
-                  Schema keySchema = computeColumnSchemaBasic(type.getTypeArguments().get(0));
-                  elementsSchema = SchemaBuilder.map(keySchema, valueSchema).required().build();
+                  Schema elementSchema = computeColumnSchemaBasic(type.getTypeArguments().get(0));
+                  Schema entrySchema =
+                      SchemaBuilder.struct()
+                          .field("element", elementSchema)
+                          .field("added", Schema.BOOLEAN_SCHEMA)
+                          .build();
+                  elementsSchema = SchemaBuilder.array(entrySchema).required().build();
                   break;
                 }
               case MAP:
                 {
                   Schema keySchema = computeColumnSchemaBasic(type.getTypeArguments().get(0));
                   Schema valueSchema = computeColumnSchemaBasic(type.getTypeArguments().get(1));
-                  elementsSchema = SchemaBuilder.map(keySchema, valueSchema).required().build();
-
+                  Schema entrySchema =
+                      SchemaBuilder.struct()
+                          .field("key", keySchema)
+                          .field("value", valueSchema)
+                          .build();
+                  elementsSchema = SchemaBuilder.array(entrySchema).required().build();
                   break;
                 }
               case UDT:
@@ -231,8 +239,12 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
               case LIST:
                 {
                   Schema valuesSchema = computeColumnSchemaBasic(type.getTypeArguments().get(0));
-                  elementsSchema =
-                      SchemaBuilder.map(Schema.STRING_SCHEMA, valuesSchema).required().build();
+                  Schema entrySchema =
+                      SchemaBuilder.struct()
+                          .field("key", Schema.STRING_SCHEMA)
+                          .field("value", valuesSchema)
+                          .build();
+                  elementsSchema = SchemaBuilder.array(entrySchema).required().build();
                   break;
                 }
               default:
