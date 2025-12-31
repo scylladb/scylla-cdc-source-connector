@@ -1,6 +1,7 @@
 package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.datastax.driver.core.Cluster;
@@ -180,6 +181,93 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
           records.forEach(
               record -> {
                 String value = record.value();
+                /*
+                  Example expected message structure (JSON is formatted for readability):
+                  {
+                    "source": {
+                        "version": "1.2.8-SNAPSHOT",
+                        "connector": "scylla",
+                        "name": "canReplicateAllPrimitiveTypes",
+                        "ts_ms": 1767179545285,
+                        "snapshot": "false",
+                        "db": "primitive_types_ks",
+                        "sequence": null,
+                        "ts_us": 1767179545285230,
+                        "ts_ns": 1767179545285000000,
+                        "keyspace_name": "primitive_types_ks",
+                        "table_name": "tab"
+                    },
+                    "before": null,
+                    "after": {
+                        "ascii_col": {
+                            "value": "ascii"
+                        },
+                        "bigint_col": {
+                            "value": 1234567890123
+                        },
+                        "blob_col": {
+                            "value": "yv66vg=="
+                        },
+                        "boolean_col": {
+                            "value": true
+                        },
+                        "date_col": {
+                            "value": 19884
+                        },
+                        "decimal_col": {
+                            "value": "12345.67"
+                        },
+                        "double_col": {
+                            "value": 3.14159
+                        },
+                        "duration_col": {
+                            "value": "1d12h30m"
+                        },
+                        "float_col": {
+                            "value": 2.71828
+                        },
+                        "id": 1,
+                        "inet_col": {
+                            "value": "127.0.0.1"
+                        },
+                        "int_col": {
+                            "value": 42
+                        },
+                        "smallint_col": {
+                            "value": 7
+                        },
+                        "text_col": {
+                            "value": "some text"
+                        },
+                        "time_col": {
+                            "value": 45296789000000
+                        },
+                        "timestamp_col": {
+                            "value": 1718022896789
+                        },
+                        "timeuuid_col": {
+                            "value": "81d4a030-4632-11f0-9484-409dd8f36eba"
+                        },
+                        "tinyint_col": {
+                            "value": 5
+                        },
+                        "uuid_col": {
+                            "value": "453662fa-db4b-4938-9033-d8523c0a371c"
+                        },
+                        "varchar_col": {
+                            "value": "varchar text"
+                        },
+                        "varint_col": {
+                            "value": "999999999"
+                        }
+                    },
+                    "op": "c",
+                    "ts_ms": 1767179559872,
+                    "transaction": null,
+                    "ts_us": 1767179559872024,
+                    "ts_ns": 1767179559872024000
+                }
+                */
                 assert value.contains("\"id\":1");
                 assert value.contains("\"ascii_col\":{" + "\"value\":\"ascii\"}");
                 assert value.contains("\"bigint_col\":{" + "\"value\":1234567890123}");
@@ -236,6 +324,45 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         if (!records.isEmpty()) {
           for (var record : records) {
             String value = record.value();
+            /*
+            Below is an example of expected message structure. Note that JSON is formatted for readability except for value fields.
+            {
+              "source": {
+                  "version": "1.2.8-SNAPSHOT",
+                  "connector": "scylla",
+                  "name": "canReplicateFrozenCollections",
+                  "ts_ms": 1767181875803,
+                  "snapshot": "false",
+                  "db": "frozen_collections_ks",
+                  "sequence": null,
+                  "ts_us": 1767181875803988,
+                  "ts_ns": 1767181875803000000,
+                  "keyspace_name": "frozen_collections_ks",
+                  "table_name": "tab"
+              },
+              "before": null,
+              "after": {
+                  "frozen_list_col": {
+                      "value": [1,2,3]
+                  },
+                  "frozen_map_col": {
+                      "value": [[1,"one"],[2,"two"]]
+                  },
+                  "frozen_set_col": {
+                      "value": ["a","b","c"]
+                  },
+                  "frozen_tuple_col": {
+                      "value": {"tuple_member_0":42,"tuple_member_1":"foo"}
+                  },
+                  "id": 1
+              },
+              "op": "c",
+              "ts_ms": 1767181890293,
+              "transaction": null,
+              "ts_us": 1767181890293794,
+              "ts_ns": 1767181890293794000
+            }
+            */
             if (value.contains("\"id\":1")) {
               assertAll(
                   () ->
@@ -273,7 +400,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
     var actualElements =
         new HashSet<>(
             KafkaUtils.extractListFromAfterField(value, "frozen_set_col", JsonNode::asText));
-    Assertions.assertEquals(
+    assertEquals(
         expectedElements, actualElements, "Unexpected frozen_set_col elements in value: " + value);
   }
 
@@ -313,7 +440,45 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
           for (var record : records) {
             String value = record.value();
             if (value.contains("\"id\":2")) {
-              // Empty collections
+              /*
+                Empty collections. Example message structure (formatted for readability):
+                {
+                  "source": {
+                      "version": "1.2.8-SNAPSHOT",
+                      "connector": "scylla",
+                      "name": "canReplicateFrozenCollectionsEdgeCases",
+                      "ts_ms": 1767182459845,
+                      "snapshot": "false",
+                      "db": "frozen_collections_ks",
+                      "sequence": null,
+                      "ts_us": 1767182459845249,
+                      "ts_ns": 1767182459845000000,
+                      "keyspace_name": "frozen_collections_ks",
+                      "table_name": "tab"
+                  },
+                  "before": null,
+                  "after": {
+                      "frozen_list_col": {
+                          "value": []
+                      },
+                      "frozen_map_col": {
+                          "value": []
+                      },
+                      "frozen_set_col": {
+                          "value": []
+                      },
+                      "frozen_tuple_col": {
+                          "value": {"tuple_member_0":null,"tuple_member_1":null}
+                      },
+                      "id": 2
+                  },
+                  "op": "c",
+                  "ts_ms": 1767182472112,
+                  "transaction": null,
+                  "ts_us": 1767182472112415,
+                  "ts_ns": 1767182472112415000
+              }
+              */
               assertAll(
                   () ->
                       assertTrue(
@@ -334,7 +499,45 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                           "Expected null tuple members in value: " + value));
               foundEmpty = true;
             } else if (value.contains("\"id\":3")) {
-              // Null collections (should be {"value":null})
+              /*
+                Null collections (should be {"value":null}). Example message structure (formatted for readability):
+                {
+                  "source": {
+                      "version": "1.2.8-SNAPSHOT",
+                      "connector": "scylla",
+                      "name": "canReplicateFrozenCollectionsEdgeCases",
+                      "ts_ms": 1767182459846,
+                      "snapshot": "false",
+                      "db": "frozen_collections_ks",
+                      "sequence": null,
+                      "ts_us": 1767182459846121,
+                      "ts_ns": 1767182459846000000,
+                      "keyspace_name": "frozen_collections_ks",
+                      "table_name": "tab"
+                  },
+                  "before": null,
+                  "after": {
+                      "frozen_list_col": {
+                          "value": null
+                      },
+                      "frozen_map_col": {
+                          "value": null
+                      },
+                      "frozen_set_col": {
+                          "value": null
+                      },
+                      "frozen_tuple_col": {
+                          "value": {"tuple_member_0":null,"tuple_member_1":null}
+                      },
+                      "id": 3
+                  },
+                  "op": "c",
+                  "ts_ms": 1767182472101,
+                  "transaction": null,
+                  "ts_us": 1767182472101381,
+                  "ts_ns": 1767182472101381000
+                }
+              */
               assertAll(
                   () ->
                       assertTrue(
@@ -381,21 +584,101 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         if (!records.isEmpty()) {
           for (var record : records) {
             String value = record.value();
+            /*
+              Below is an example of expected message structure. Note that JSON is formatted for readability except for value fields:
+              {
+                "source": {
+                    "version": "1.2.8-SNAPSHOT",
+                    "connector": "scylla",
+                    "name": "canReplicateNonFrozenCollections",
+                    "ts_ms": 1767182817995,
+                    "snapshot": "false",
+                    "db": "nonfrozen_collections_ks",
+                    "sequence": null,
+                    "ts_us": 1767182817995121,
+                    "ts_ns": 1767182817995000000,
+                    "keyspace_name": "nonfrozen_collections_ks",
+                    "table_name": "tab"
+                },
+                "before": null,
+                "after": {
+                    "id": 1,
+                    "list_col": {
+                        "value": {
+                            "mode": "OVERWRITE",
+                            "elements": [
+                                {
+                                    "key": "34b3de6a-e641-11f0-8080-d26e1c253f53",
+                                    "value": 10
+                                },
+                                {
+                                    "key": "34b3de6a-e641-11f0-8081-d26e1c253f53",
+                                    "value": 20
+                                },
+                                {
+                                    "key": "34b3de6a-e641-11f0-8082-d26e1c253f53",
+                                    "value": 30
+                                }
+                            ]
+                        }
+                    },
+                    "map_col": {
+                        "value": {
+                            "mode": "OVERWRITE",
+                            "elements": [
+                                {
+                                    "key": 10,
+                                    "value": "ten"
+                                },
+                                {
+                                    "key": 20,
+                                    "value": "twenty"
+                                }
+                            ]
+                        }
+                    },
+                    "set_col": {
+                        "value": {
+                            "mode": "OVERWRITE",
+                            "elements": [
+                                {
+                                    "element": "x",
+                                    "added": true
+                                },
+                                {
+                                    "element": "y",
+                                    "added": true
+                                },
+                                {
+                                    "element": "z",
+                                    "added": true
+                                }
+                            ]
+                        }
+                    }
+                },
+                "op": "c",
+                "ts_ms": 1767182832406,
+                "transaction": null,
+                "ts_us": 1767182832406881,
+                "ts_ns": 1767182832406881000
+            }
+               */
             if (value.contains("\"id\":1")) {
               // list_col: mode OVERWRITE, values {10,20,30} regardless of internal keys.
               JsonNode listValue = KafkaUtils.extractValueNodeFromAfterField(value, "list_col");
               JsonNode listElements = listValue.path("elements");
               var listValues = new HashSet<Integer>();
-              Assertions.assertEquals(
+              assertEquals(
                   "OVERWRITE",
                   listValue.path("mode").asText(),
                   "Expected list_col delta mode OVERWRITE in value: " + value);
-              Assertions.assertTrue(
+              assertTrue(
                   listElements.isArray(), "Expected list_col elements array in value: " + value);
               listElements
                   .elements()
                   .forEachRemaining(entry -> listValues.add(entry.path("value").asInt()));
-              Assertions.assertEquals(
+              assertEquals(
                   Set.of(10, 20, 30),
                   listValues,
                   "Unexpected list_col elements in value: " + value);
@@ -404,11 +687,11 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
               JsonNode setValue = KafkaUtils.extractValueNodeFromAfterField(value, "set_col");
               JsonNode setElements = setValue.path("elements");
               var setValues = new HashSet<String>();
-              Assertions.assertEquals(
+              assertEquals(
                   "OVERWRITE",
                   setValue.path("mode").asText(),
                   "Expected set_col delta mode OVERWRITE in value: " + value);
-              Assertions.assertTrue(
+              assertTrue(
                   setElements.isArray(), "Expected set_col elements array in value: " + value);
               setElements
                   .elements()
@@ -418,7 +701,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                           setValues.add(entry.path("element").asText());
                         }
                       });
-              Assertions.assertEquals(
+              assertEquals(
                   Set.of("x", "y", "z"),
                   setValues,
                   "Unexpected set_col elements in value: " + value);
@@ -426,22 +709,22 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
               // map_col: mode OVERWRITE, entries {10:"ten", 20:"twenty"}.
               JsonNode mapValue = KafkaUtils.extractValueNodeFromAfterField(value, "map_col");
               JsonNode mapElements = mapValue.path("elements");
-              Assertions.assertEquals(
+              assertEquals(
                   "OVERWRITE",
                   mapValue.path("mode").asText(),
                   "Expected map_col delta mode OVERWRITE in value: " + value);
-              Assertions.assertTrue(
+              assertTrue(
                   mapElements.isArray(), "Expected map_col elements array in value: " + value);
               var mapEntries =
                   StreamSupport.stream(mapElements.spliterator(), false)
                       .collect(
                           Collectors.toMap(
                               e -> e.path("key").asInt(), e -> e.path("value").asText()));
-              Assertions.assertEquals(
+              assertEquals(
                   2, mapEntries.size(), "Expected exactly 2 entries in map_col elements: " + value);
-              Assertions.assertEquals(
+              assertEquals(
                   "ten", mapEntries.get(10), "Expected map_col entry 10:'ten' in value: " + value);
-              Assertions.assertEquals(
+              assertEquals(
                   "twenty",
                   mapEntries.get(20),
                   "Expected map_col entry 20:'twenty' in value: " + value);
@@ -511,9 +794,40 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
           for (var record : records) {
             String value = record.value();
             if (value.contains("\"id\":2")) {
-              // Empty collections. Due to CDC limitations described above,
-              // these appear the same as explicit NULL collections on INSERT
-              // for non-frozen types, so we expect top-level nulls.
+              /*
+                Empty collections. Due to CDC limitations described above,
+                these appear the same as explicit NULL collections on INSERT
+                for non-frozen types, so we expect top-level nulls.
+
+                Example message structure (formatted for readability):
+                {
+                  "source": {
+                      "version": "1.2.8-SNAPSHOT",
+                      "connector": "scylla",
+                      "name": "canReplicateNonFrozenCollectionsEdgeCases",
+                      "ts_ms": 1767183798577,
+                      "snapshot": "false",
+                      "db": "nonfrozen_collections_ks",
+                      "sequence": null,
+                      "ts_us": 1767183798577692,
+                      "ts_ns": 1767183798577000000,
+                      "keyspace_name": "nonfrozen_collections_ks",
+                      "table_name": "tab"
+                  },
+                  "before": null,
+                  "after": {
+                      "id": 3,
+                      "list_col": null,
+                      "map_col": null,
+                      "set_col": null
+                  },
+                  "op": "c",
+                  "ts_ms": 1767183810809,
+                  "transaction": null,
+                  "ts_us": 1767183810809356,
+                  "ts_ns": 1767183810809356000
+                }
+              */
               assertAll(
                   () ->
                       assertTrue(
@@ -529,7 +843,38 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                           "Expected null map_col in value for empty collection row: " + value));
               foundEmpty = true;
             } else if (value.contains("\"id\":3")) {
-              // Null collections
+              /*
+                Null collections.
+
+                Example message structure (formatted for readability):
+                {
+                  "source": {
+                      "version": "1.2.8-SNAPSHOT",
+                      "connector": "scylla",
+                      "name": "canReplicateNonFrozenCollectionsEdgeCases",
+                      "ts_ms": 1767183798576,
+                      "snapshot": "false",
+                      "db": "nonfrozen_collections_ks",
+                      "sequence": null,
+                      "ts_us": 1767183798576619,
+                      "ts_ns": 1767183798576000000,
+                      "keyspace_name": "nonfrozen_collections_ks",
+                      "table_name": "tab"
+                  },
+                  "before": null,
+                  "after": {
+                      "id": 2,
+                      "list_col": null,
+                      "map_col": null,
+                      "set_col": null
+                  },
+                  "op": "c",
+                  "ts_ms": 1767183810813,
+                  "transaction": null,
+                  "ts_us": 1767183810813043,
+                  "ts_ns": 1767183810813043000
+                }
+              */
               assertAll(
                   () ->
                       assertTrue(
@@ -545,7 +890,53 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                           "Expected null map_col in value: " + value));
               foundNull = true;
             } else if (value.contains("\"id\":1") && value.contains("\"op\":\"u\"")) {
-              // Element removal and addition (UPDATE event only; skip initial CREATE)
+              /*
+                Element removal and addition (UPDATE event only; skip initial CREATE).
+
+                Example message structure (partially formatted for readability:
+                {
+                  "source": {
+                      "version": "1.2.8-SNAPSHOT",
+                      "connector": "scylla",
+                      "name": "canReplicateNonFrozenCollectionsEdgeCases",
+                      "ts_ms": 1767183798578,
+                      "snapshot": "false",
+                      "db": "nonfrozen_collections_ks",
+                      "sequence": null,
+                      "ts_us": 1767183798578421,
+                      "ts_ns": 1767183798578000000,
+                      "keyspace_name": "nonfrozen_collections_ks",
+                      "table_name": "tab"
+                  },
+                  "before": null,
+                  "after": {
+                      "id": 1,
+                      "list_col": {
+                          "value": {
+                              "mode": "MODIFY",
+                              "elements": [{"key":"7d2d0192-e643-11f0-8080-3b6a81222237","value":40},{"key":"7bd9642a-e643-11f0-8080-3b6a81222237","value":null}]
+                          }
+                      },
+                      "map_col": {
+                          "value": {
+                              "mode": "MODIFY",
+                              "elements": [{"key":30,"value":"thirty"},{"key":10,"value":null}]
+                          }
+                      },
+                      "set_col": {
+                          "value": {
+                              "mode": "MODIFY",
+                              "elements": [{"element":"w","added":true},{"element":"x","added":false}]
+                          }
+                      }
+                  },
+                  "op": "u",
+                  "ts_ms": 1767183810816,
+                  "transaction": null,
+                  "ts_us": 1767183810816186,
+                  "ts_ns": 1767183810816186000
+                }
+              */
               assertAll(
                   () ->
                       assertTrue(
@@ -608,6 +999,42 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
           for (var record : records) {
             String value = record.value();
             if (value.contains("\"id\":1")) {
+              /*
+               Example message structure (partially formatted for convenience):
+               {
+                 "source": {
+                     "version": "1.2.8-SNAPSHOT",
+                     "connector": "scylla",
+                     "name": "canReplicateUDT",
+                     "ts_ms": 1767184281099,
+                     "snapshot": "false",
+                     "db": "udt_ks",
+                     "sequence": null,
+                     "ts_us": 1767184281099870,
+                     "ts_ns": 1767184281099000000,
+                     "keyspace_name": "udt_ks",
+                     "table_name": "tab"
+                 },
+                 "before": null,
+                 "after": {
+                     "id": 1,
+                     "nf_udt_col": {
+                         "value": {
+                             "mode": "OVERWRITE",
+                             "elements": {"a":{"value":7},"b":{"value":"bar"}}
+                         }
+                     },
+                     "udt_col": {
+                         "value":{"a":42,"b":"foo"}}
+                     }
+                 },
+                 "op": "c",
+                 "ts_ms": 1767184295461,
+                 "transaction": null,
+                 "ts_us": 1767184295461558,
+                 "ts_ns": 1767184295461558000
+               }
+              */
               assertAll(
                   // frozen UDT
                   () ->
@@ -627,7 +1054,36 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
               foundNonNull = true;
             } else if (value.contains("\"id\":2")) {
               assertAll(
-                  // frozen UDT
+                  /* Frozen UDT
+                    {
+                      "source": {
+                          "version": "1.2.8-SNAPSHOT",
+                          "connector": "scylla",
+                          "name": "canReplicateUDT",
+                          "ts_ms": 1767184281100,
+                          "snapshot": "false",
+                          "db": "udt_ks",
+                          "sequence": null,
+                          "ts_us": 1767184281100749,
+                          "ts_ns": 1767184281100000000,
+                          "keyspace_name": "udt_ks",
+                          "table_name": "tab"
+                      },
+                      "before": null,
+                      "after": {
+                          "id": 2,
+                          "nf_udt_col": null,
+                          "udt_col": {
+                              "value": null
+                          }
+                      },
+                      "op": "c",
+                      "ts_ms": 1767184295471,
+                      "transaction": null,
+                      "ts_us": 1767184295471972,
+                      "ts_ns": 1767184295471972000
+                    }
+                  */
                   () ->
                       assertTrue(
                           value.contains("\"udt_col\":{\"value\":null}"),
@@ -717,6 +1173,108 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
             }
 
             if (value.contains("\"op\":\"c\"") && !foundCreate) {
+              /*
+                Example message structure (partially formatted for convenience):
+                {
+                  "source": {
+                      "version": "1.2.8-SNAPSHOT",
+                      "connector": "scylla",
+                      "name": "canReplicateComplexUDTAndCollections",
+                      "ts_ms": 1767184765436,
+                      "snapshot": "false",
+                      "db": "complex_types_ks",
+                      "sequence": null,
+                      "ts_us": 1767184765436445,
+                      "ts_ns": 1767184765436000000,
+                      "keyspace_name": "complex_types_ks",
+                      "table_name": "tab"
+                  },
+                  "before": null,
+                  "after": {
+                      "frozen_addr": {
+                          "value": {
+                              "street": "main",
+                              "phones": ["111","222"],
+                              "tags": ["home","primary"]
+                          }
+                      },
+                      "frozen_addr_list": {
+                          "value": [
+                              {"street":"l1","phones":["444"],"tags":["list1"]},
+                              {"street":"l2","phones":["555"],"tags":["list2"]}
+                          ]
+                      },
+                      "id": 1,
+                      "nf_addr": {
+                          "value": {
+                              "mode": "OVERWRITE",
+                              "elements": {
+                                  "street": {
+                                      "value": "side"
+                                  },
+                                  "phones": {
+                                      "value": ["333"]
+                                  },
+                                  "tags": {
+                                      "value": ["secondary"]
+                                  }
+                              }
+                          }
+                      },
+                      "nf_addr_map": {
+                          "value": {
+                              "mode": "OVERWRITE",
+                              "elements": [
+                                  {
+                                      "key": 10,
+                                      "value": {
+                                          "street": "m1",
+                                          "phones": ["888"],
+                                          "tags": ["tagm1"]
+                                      }
+                                  },
+                                  {
+                                      "key": 20,
+                                      "value": {
+                                          "street": "m2",
+                                          "phones": ["999"],
+                                          "tags": ["tagm2"]
+                                      }
+                                  }
+                              ]
+                          }
+                      },
+                      "nf_addr_set": {
+                          "value": {
+                              "mode": "OVERWRITE",
+                              "elements": [
+                                  {
+                                      "element": {
+                                          "street": "s1",
+                                          "phones": ["666"],
+                                          "tags": ["tag1"]
+                                      },
+                                      "added": true
+                                  },
+                                  {
+                                      "element": {
+                                          "street": "s2",
+                                          "phones": ["777"],
+                                          "tags": ["tag2"]
+                                      },
+                                      "added": true
+                                  }
+                              ]
+                          }
+                      }
+                  },
+                  "op": "c",
+                  "ts_ms": 1767184779770,
+                  "transaction": null,
+                  "ts_us": 1767184779770036,
+                  "ts_ns": 1767184779770036000
+                }
+              */
               assertAll(
                   // frozen UDT with nested collections
                   () ->
@@ -772,6 +1330,53 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                           "Expected nf_addr_map key 20 with street m2 in create value: " + value));
               foundCreate = true;
             } else if (value.contains("\"op\":\"u\"")) {
+              /*
+                Example message structure (formatted for convenience):
+                {
+                  "source": {
+                      "version": "1.2.8-SNAPSHOT",
+                      "connector": "scylla",
+                      "name": "canReplicateComplexUDTAndCollections",
+                      "ts_ms": 1767184767506,
+                      "snapshot": "false",
+                      "db": "complex_types_ks",
+                      "sequence": null,
+                      "ts_us": 1767184767506903,
+                      "ts_ns": 1767184767506000000,
+                      "keyspace_name": "complex_types_ks",
+                      "table_name": "tab"
+                  },
+                  "before": null,
+                  "after": {
+                      "frozen_addr": null,
+                      "frozen_addr_list": null,
+                      "id": 1,
+                      "nf_addr": {
+                          "value": {
+                              "mode": "MODIFY",
+                              "elements": {
+                                  "street": {
+                                      "value": "side-updated"
+                                  },
+                                  "phones": {
+                                      "value": []
+                                  },
+                                  "tags": {
+                                      "value": []
+                                  }
+                              }
+                          }
+                      },
+                      "nf_addr_map": null,
+                      "nf_addr_set": null
+                  },
+                  "op": "u",
+                  "ts_ms": 1767184779779,
+                  "transaction": null,
+                  "ts_us": 1767184779779062,
+                  "ts_ns": 1767184779779062000
+                }
+              */
               if (!foundUpdateNfAddr && value.contains("\"nf_addr\":{\"value\"")) {
                 assertAll(
                     () ->
@@ -844,6 +1449,32 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
           records.forEach(
               record -> {
                 String value = record.value();
+                /*
+                  Example message (formatted for convenience):
+                  {
+                    "ascii_col": "ascii",
+                    "bigint_col": 1234567890123,
+                    "blob_col": "yv66vg==",
+                    "boolean_col": true,
+                    "date_col": 19884,
+                    "decimal_col": "12345.67",
+                    "double_col": 3.14159,
+                    "duration_col": "1d12h30m",
+                    "float_col": 2.71828,
+                    "id": 1,
+                    "inet_col": "127.0.0.1",
+                    "int_col": 42,
+                    "smallint_col": 7,
+                    "text_col": "some text",
+                    "time_col": 45296789000000,
+                    "timestamp_col": 1718022896789,
+                    "timeuuid_col": "81d4a030-4632-11f0-9484-409dd8f36eba",
+                    "tinyint_col": 5,
+                    "uuid_col": "453662fa-db4b-4938-9033-d8523c0a371c",
+                    "varchar_col": "varchar text",
+                    "varint_col": "999999999"
+                 }
+                */
                 assert value.contains("{\"ascii_col\":\"ascii\"");
                 assert value.contains("\"bigint_col\":1234567890123");
                 assert value.contains("\"blob_col\":\"yv66vg==\"");
@@ -895,7 +1526,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
       } catch (Exception e) {
         throw new RuntimeException("Failed to register connector.", e);
       }
-      Assertions.assertEquals(201, returnCode, "Connector registration failed");
+      assertEquals(201, returnCode, "Connector registration failed");
       consumer.subscribe(List.of("canReplicateAllPrimitiveTypesWithAvro.primitive_types_ks.tab"));
       long startTime = System.currentTimeMillis();
       boolean messageConsumed = false;
@@ -905,50 +1536,128 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
           messageConsumed = true;
           records.forEach(
               record -> {
+
+                /*
+                  Example message structure (formatted for convenience):
+                  {
+                    "source": {
+                        "version": "1.2.8-SNAPSHOT",
+                        "connector": "scylla",
+                        "name": "canReplicateAllPrimitiveTypesWithAvro",
+                        "ts_ms": 1767185677938,
+                        "snapshot": "false",
+                        "db": "primitive_types_ks",
+                        "sequence": null,
+                        "ts_us": 1767185677938417,
+                        "ts_ns": 1767185677938000000,
+                        "keyspace_name": "primitive_types_ks",
+                        "table_name": "tab"
+                    },
+                    "before": null,
+                    "after": {
+                        "ascii_col": {
+                            "value": "ascii"
+                        },
+                        "bigint_col": {
+                            "value": 1234567890123
+                        },
+                        "blob_col": {
+                            "value": "Êþº¾"
+                        },
+                        "boolean_col": {
+                            "value": true
+                        },
+                        "date_col": {
+                            "value": 19884
+                        },
+                        "decimal_col": {
+                            "value": "12345.67"
+                        },
+                        "double_col": {
+                            "value": 3.14159
+                        },
+                        "duration_col": {
+                            "value": "1d12h30m"
+                        },
+                        "float_col": {
+                            "value": 2.71828
+                        },
+                        "id": 1,
+                        "inet_col": {
+                            "value": "127.0.0.1"
+                        },
+                        "int_col": {
+                            "value": 42
+                        },
+                        "smallint_col": {
+                            "value": 7
+                        },
+                        "text_col": {
+                            "value": "some text"
+                        },
+                        "time_col": {
+                            "value": 45296789000000
+                        },
+                        "timestamp_col": {
+                            "value": 1718022896789
+                        },
+                        "timeuuid_col": {
+                            "value": "81d4a030-4632-11f0-9484-409dd8f36eba"
+                        },
+                        "tinyint_col": {
+                            "value": 5
+                        },
+                        "uuid_col": {
+                            "value": "453662fa-db4b-4938-9033-d8523c0a371c"
+                        },
+                        "varchar_col": {
+                            "value": "varchar text"
+                        },
+                        "varint_col": {
+                            "value": "999999999"
+                        }
+                    },
+                    "op": "c",
+                    "ts_ms": 1767185692516,
+                    "transaction": null,
+                    "ts_us": 1767185692516477,
+                    "ts_ns": 1767185692516477000
+                  }
+                */
                 GenericRecord value = record.value();
                 GenericRecord after = (GenericRecord) value.get("after");
 
                 // Verify all primitive type fields are present and have expected values
-                Assertions.assertEquals("1", extractValue(after.get("id")).toString());
-                Assertions.assertEquals("ascii", extractValue(after.get("ascii_col")).toString());
-                Assertions.assertEquals(
-                    "1234567890123", extractValue(after.get("bigint_col")).toString());
+                assertEquals("1", extractValue(after.get("id")).toString());
+                assertEquals("ascii", extractValue(after.get("ascii_col")).toString());
+                assertEquals("1234567890123", extractValue(after.get("bigint_col")).toString());
                 Assertions.assertNotNull(extractValue(after.get("blob_col"))); // blob as bytes
-                Assertions.assertEquals("true", extractValue(after.get("boolean_col")).toString());
+                assertEquals("true", extractValue(after.get("boolean_col")).toString());
                 // This is number of days since unix epoch that should correspond to '2024-06-10'
-                Assertions.assertEquals("19884", extractValue(after.get("date_col")).toString());
-                Assertions.assertEquals(
-                    "12345.67", extractValue(after.get("decimal_col")).toString());
-                Assertions.assertEquals(
-                    "3.14159", extractValue(after.get("double_col")).toString());
-                Assertions.assertEquals(
-                    "1d12h30m", extractValue(after.get("duration_col")).toString());
-                Assertions.assertEquals("2.71828", extractValue(after.get("float_col")).toString());
-                Assertions.assertEquals(
-                    "127.0.0.1", extractValue(after.get("inet_col")).toString());
-                Assertions.assertEquals("42", extractValue(after.get("int_col")).toString());
-                Assertions.assertEquals("7", extractValue(after.get("smallint_col")).toString());
-                Assertions.assertEquals(
-                    "some text", extractValue(after.get("text_col")).toString());
+                assertEquals("19884", extractValue(after.get("date_col")).toString());
+                assertEquals("12345.67", extractValue(after.get("decimal_col")).toString());
+                assertEquals("3.14159", extractValue(after.get("double_col")).toString());
+                assertEquals("1d12h30m", extractValue(after.get("duration_col")).toString());
+                assertEquals("2.71828", extractValue(after.get("float_col")).toString());
+                assertEquals("127.0.0.1", extractValue(after.get("inet_col")).toString());
+                assertEquals("42", extractValue(after.get("int_col")).toString());
+                assertEquals("7", extractValue(after.get("smallint_col")).toString());
+                assertEquals("some text", extractValue(after.get("text_col")).toString());
                 // Shows up as 45296789000000.
                 // 45296789 part of the value is the number of milliseconds since midnight that
                 // corresponds to '12:34:56.789'
-                Assertions.assertEquals(
-                    "45296789000000", extractValue(after.get("time_col")).toString());
+                assertEquals("45296789000000", extractValue(after.get("time_col")).toString());
                 // 1718022896789 is unix timestamp in milliseconds for '2024-06-10T12:34:56.789Z'
-                Assertions.assertEquals(
-                    "1718022896789", extractValue(after.get("timestamp_col")).toString());
-                Assertions.assertEquals(
+                assertEquals("1718022896789", extractValue(after.get("timestamp_col")).toString());
+                assertEquals(
                     "81d4a030-4632-11f0-9484-409dd8f36eba",
                     extractValue(after.get("timeuuid_col")).toString());
-                Assertions.assertEquals("5", extractValue(after.get("tinyint_col")).toString());
-                Assertions.assertEquals(
+                assertEquals("5", extractValue(after.get("tinyint_col")).toString());
+                assertEquals(
                     "453662fa-db4b-4938-9033-d8523c0a371c",
                     extractValue(after.get("uuid_col")).toString());
-                Assertions.assertEquals(
-                    "varchar text", extractValue(after.get("varchar_col")).toString());
-                Assertions.assertEquals(
-                    "999999999", extractValue(after.get("varint_col")).toString());
+                assertEquals("varchar text", extractValue(after.get("varchar_col")).toString());
+                assertEquals("999999999", extractValue(after.get("varint_col")).toString());
               });
           break;
         }
@@ -973,10 +1682,8 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         Assertions.assertNotNull(keyVersions, "Key subject should exist in schema registry");
         Assertions.assertNotNull(valueVersions, "Value subject should exist in schema registry");
 
-        Assertions.assertEquals(
-            "[1]", keyVersions, "Key subject should have exactly 1 schema version");
-        Assertions.assertEquals(
-            "[1]", valueVersions, "Key subject should have exactly 1 schema version");
+        assertEquals("[1]", keyVersions, "Key subject should have exactly 1 schema version");
+        assertEquals("[1]", valueVersions, "Key subject should have exactly 1 schema version");
 
       } catch (Exception e) {
         Assertions.fail("Failed to verify schema registry: " + e.getMessage());
@@ -1024,29 +1731,79 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
               continue;
             }
 
+            /*
+              Example message structure (partially formatted for convenience):
+              {
+                "source": {
+                    "version": "1.2.8-SNAPSHOT",
+                    "connector": "scylla",
+                    "name": "canReplicateNonFrozenCollectionsWithAvro",
+                    "ts_ms": 1767185844230,
+                    "snapshot": "false",
+                    "db": "nonfrozen_collections_ks",
+                    "sequence": null,
+                    "ts_us": 1767185844230483,
+                    "ts_ns": 1767185844230000000,
+                    "keyspace_name": "nonfrozen_collections_ks",
+                    "table_name": "tab"
+                },
+                "before": null,
+                "after": {
+                    "id": 1,
+                    "list_col": {
+                        "value": {
+                            "mode": "OVERWRITE",
+                            "elements": [
+                                {"key": "407abd3e-e648-11f0-8080-825316c1e7f1", "value": 10},
+                                {"key": "407abd3e-e648-11f0-8081-825316c1e7f1", "value": 20},
+                                {"key": "407abd3e-e648-11f0-8082-825316c1e7f1", "value": 30}
+                            ]
+                        }
+                    },
+                    "map_col": {
+                        "value": {
+                            "mode": "OVERWRITE",
+                            "elements": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]
+                        }
+                    },
+                    "set_col": {
+                        "value": {
+                            "mode": "OVERWRITE",
+                            "elements": [{"element": "x", "added": true}, {"element": "y", "added": true}, {"element": "z", "added": true}]
+                        }
+                    }
+                },
+                "op": "c",
+                "ts_ms": 1767185858565,
+                "transaction": null,
+                "ts_us": 1767185858565826,
+                "ts_ns": 1767185858565826000
+              }
+            */
+
             // list_col: has value struct, mode OVERWRITE, and non-empty elements array
             GenericRecord listCell = (GenericRecord) after.get("list_col");
             Assertions.assertNotNull(listCell, "list_col cell should not be null");
             GenericRecord listValue = (GenericRecord) listCell.get("value");
             Assertions.assertNotNull(listValue, "list_col value should not be null");
-            Assertions.assertEquals(
+            assertEquals(
                 "OVERWRITE", listValue.get("mode").toString(), "Expected list_col mode OVERWRITE");
             Object listElementsObj = listValue.get("elements");
-            Assertions.assertTrue(
+            assertTrue(
                 listElementsObj instanceof Iterable,
                 "list_col elements should be iterable but was " + listElementsObj);
             boolean hasListElement = ((Iterable<?>) listElementsObj).iterator().hasNext();
-            Assertions.assertTrue(hasListElement, "list_col elements should not be empty");
+            assertTrue(hasListElement, "list_col elements should not be empty");
 
             // set_col: has value struct, mode OVERWRITE, and iterable elements
             GenericRecord setCell = (GenericRecord) after.get("set_col");
             Assertions.assertNotNull(setCell, "set_col cell should not be null");
             GenericRecord setValue = (GenericRecord) setCell.get("value");
             Assertions.assertNotNull(setValue, "set_col value should not be null");
-            Assertions.assertEquals(
+            assertEquals(
                 "OVERWRITE", setValue.get("mode").toString(), "Expected set_col mode OVERWRITE");
             Object setElementsObj = setValue.get("elements");
-            Assertions.assertTrue(
+            assertTrue(
                 setElementsObj instanceof Iterable,
                 "set_col elements should be iterable but was " + setElementsObj);
 
@@ -1055,10 +1812,10 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
             Assertions.assertNotNull(mapCell, "map_col cell should not be null");
             GenericRecord mapValue = (GenericRecord) mapCell.get("value");
             Assertions.assertNotNull(mapValue, "map_col value should not be null");
-            Assertions.assertEquals(
+            assertEquals(
                 "OVERWRITE", mapValue.get("mode").toString(), "Expected map_col mode OVERWRITE");
             Object mapElementsObj = mapValue.get("elements");
-            Assertions.assertTrue(
+            assertTrue(
                 mapElementsObj instanceof Iterable,
                 "map_col elements should be iterable but was " + mapElementsObj);
 
