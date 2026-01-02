@@ -1,6 +1,7 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.worker.ChangeSchema;
+import com.scylladb.cdc.model.worker.ChangeSchema.ColumnKind;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.txmetadata.TransactionMonitor;
 import io.debezium.schema.DataCollectionSchema;
@@ -85,9 +86,9 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
       ChangeSchema changeSchema, CollectionId collectionId) {
     Map<String, Schema> cellSchemas = new HashMap<>();
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY
-          || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
-      if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
+      if (cdef.getBaseTableColumnKind() == ColumnKind.PARTITION_KEY
+          || cdef.getBaseTableColumnKind() == ColumnKind.CLUSTERING_KEY) continue;
+      if (!isSupportedColumnSchema(cdef)) continue;
 
       Schema columnSchema =
           computeColumnSchema(changeSchema, cdef, configuration.getCollectionsMode());
@@ -123,9 +124,9 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                         + collectionId.getTableName().name
                         + ".Key"));
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
-          && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
-      if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
+      if (cdef.getBaseTableColumnKind() != ColumnKind.PARTITION_KEY
+          && cdef.getBaseTableColumnKind() != ColumnKind.CLUSTERING_KEY) continue;
+      if (!isSupportedColumnSchema(cdef)) continue;
       Schema columnSchema =
           computeColumnSchema(changeSchema, cdef, configuration.getCollectionsMode());
       keySchemaBuilder = keySchemaBuilder.field(cdef.getColumnName(), columnSchema);
@@ -147,9 +148,9 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                         + collectionId.getTableName().name
                         + ".After"));
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
-      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
-          && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
+      if (!isSupportedColumnSchema(cdef)) continue;
+      if (cdef.getBaseTableColumnKind() != ColumnKind.PARTITION_KEY
+          && cdef.getBaseTableColumnKind() != ColumnKind.CLUSTERING_KEY) {
         afterSchemaBuilder =
             afterSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
       } else {
@@ -174,9 +175,9 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                         + collectionId.getTableName().name
                         + ".Before"));
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
-      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
-          && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
+      if (!isSupportedColumnSchema(cdef)) continue;
+      if (cdef.getBaseTableColumnKind() != ColumnKind.PARTITION_KEY
+          && cdef.getBaseTableColumnKind() != ColumnKind.CLUSTERING_KEY) {
         beforeSchemaBuilder =
             beforeSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
       } else {
@@ -352,8 +353,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
     }
   }
 
-  protected static boolean isSupportedColumnSchema(
-      ChangeSchema changeSchema, ChangeSchema.ColumnDefinition cdef) {
+  protected static boolean isSupportedColumnSchema(ChangeSchema.ColumnDefinition cdef) {
     ChangeSchema.DataType type = cdef.getCdcLogDataType();
     switch (type.getCqlType()) {
       case ASCII:

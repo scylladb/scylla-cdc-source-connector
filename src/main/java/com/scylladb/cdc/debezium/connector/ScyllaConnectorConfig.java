@@ -124,14 +124,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withWidth(ConfigDef.Width.SHORT)
           .withImportance(ConfigDef.Importance.MEDIUM)
           .withDescription(
-              "How to represent non-frozen collections. Currently, only 'delta' mode is supported - in the future support for more modes may be added. 'Delta' mode: change in collection is represented as a struct with 2 fields, 'mode' and 'elements'. 'mode' describes what type of change happened (modifying collection, overwriting collection), 'elements' contains added/removed elements.");
+              "Specifies how non-frozen collections are represented. Currently, only 'delta' mode is supported. "
+                  + "In delta mode, collection changes are represented as a struct with 'mode' and 'elements' fields, "
+                  + "where 'mode' indicates the type of change (modify or overwrite) and 'elements' contains the added or removed elements.");
 
-  /*
-   * Scylla CDC Source Connector relies on heartbeats to move the offset,
-   * because the offset determines if the generation ended, therefore HEARTBEAT_INTERVAL
-   * should be positive (0 would disable heartbeats) and a default value is changed
-   * (previously 0).
-   */
 
   public static final Field USER =
       Field.create("scylla.user")
