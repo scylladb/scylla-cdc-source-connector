@@ -64,8 +64,9 @@ public final class KafkaUtils {
   }
 
   /**
-   * Parses a Debezium-style JSON envelope and extracts a collection of strings from the given field
-   * under the {@code after} section. Expects the structure:
+   * Parses a Debezium-style JSON envelope and extracts a list of elements from the given field
+   * under the {@code after} section, applying the provided mapper function to each element.
+   * Expects the structure:
    *
    * <pre><code>{ "after": { fieldName: { "value": [ ... ]}}}</code></pre>
    */

@@ -24,9 +24,14 @@ import java.util.stream.Stream;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ScyllaChangeRecordEmitter
     extends AbstractChangeRecordEmitter<ScyllaPartition, ScyllaCollectionSchema> {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(ScyllaChangeRecordEmitter.class);
+
   private final RawChange change;
   private final ScyllaSchema schema;
   private final RawChange preImage;
@@ -193,7 +198,7 @@ public class ScyllaChangeRecordEmitter
   private void fillStructWithChange(
       ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {
     for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
-      if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
+      if (!ScyllaSchema.isSupportedColumnSchema(cdef)) continue;
 
       if (cdef.getBaseTableColumnKind() == ColumnKind.PARTITION_KEY
           || cdef.getBaseTableColumnKind() == ColumnKind.CLUSTERING_KEY) {
@@ -202,9 +207,17 @@ public class ScyllaChangeRecordEmitter
                 change.getCell(cdef.getColumnName()),
                 schema.keySchema().field(cdef.getColumnName()).schema());
         valueStruct.put(cdef.getColumnName(), value);
-        keyStruct.put(cdef.getColumnName(), value);
+        if (keyStruct != null) {
+          keyStruct.put(cdef.getColumnName(), value);
+        }
       } else {
         Schema cellSchema = schema.cellSchema(cdef.getColumnName());
+        if (cellSchema == null) {
+          LOGGER.warn(
+              "No schema found for column '{}'. Skipping this column to avoid NullPointerException.",
+              cdef.getColumnName());
+          continue;
+        }
 
         if (ScyllaSchema.isNonFrozenCollection(change.getSchema(), cdef)) {
           Struct value = translateNonFrozenCollectionToKafka(valueStruct, change, cellSchema, cdef);
@@ -338,9 +351,8 @@ public class ScyllaChangeRecordEmitter
 
           Schema udtSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
           Struct udtStruct = new Struct(udtSchema);
-          Short index = -1;
+          Short index = 0;
           for (Map.Entry<String, Field> element : elementsMap.entrySet()) {
-            index++;
             if ((!element.getValue().isNull()) || deletedKeys.contains(index)) {
               hasModified = true;
               Schema fieldCellSchema = udtSchema.field(element.getKey()).schema();
@@ -356,6 +368,7 @@ public class ScyllaChangeRecordEmitter
               }
               udtStruct.put(element.getKey(), fieldCell);
             }
+            index++;
           }
 
           elements = udtStruct;
