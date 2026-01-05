@@ -65,8 +65,8 @@ public final class KafkaUtils {
 
   /**
    * Parses a Debezium-style JSON envelope and extracts a list of elements from the given field
-   * under the {@code after} section, applying the provided mapper function to each element.
-   * Expects the structure:
+   * under the {@code after} section, applying the provided mapper function to each element. Expects
+   * the structure:
    *
    * <pre><code>{ "after": { fieldName: { "value": [ ... ]}}}</code></pre>
    */
@@ -96,17 +96,32 @@ public final class KafkaUtils {
    * <pre><code>{ "after": { fieldName: { "value": ... }}}</code></pre>
    */
   public static JsonNode extractValueNodeFromAfterField(String json, String fieldName) {
-    try {
-      JsonNode root = OBJECT_MAPPER.readTree(json);
-      JsonNode after = root.get("after");
-      if (after == null || after.isNull()) {
-        throw new IllegalStateException("Expected non-null 'after' field in JSON: " + json);
-      }
+    JsonNode root = parseJson(json);
+    JsonNode after = root.get("after");
+    if (after == null || after.isNull()) {
+      throw new IllegalStateException("Expected non-null 'after' field in JSON: " + json);
+    }
 
-      return after.path(fieldName).path("value");
-    } catch (Exception e) {
+    JsonNode fieldNode = after.get(fieldName);
+    if (fieldNode == null || fieldNode.isNull()) {
       throw new IllegalStateException(
-          "Failed to parse JSON value node for field '" + fieldName + "'", e);
+          "Expected field '" + fieldName + "' under 'after' in JSON: " + json);
+    }
+
+    JsonNode valueNode = fieldNode.get("value");
+    if (valueNode == null || valueNode.isNull()) {
+      throw new IllegalStateException(
+          "Expected 'value' field under 'after." + fieldName + "' in JSON: " + json);
+    }
+
+    return valueNode;
+  }
+
+  public static JsonNode parseJson(String value) {
+    try {
+      return OBJECT_MAPPER.readTree(value);
+    } catch (Exception e) {
+      throw new IllegalStateException("Failed to parse JSON: " + value, e);
     }
   }
 }

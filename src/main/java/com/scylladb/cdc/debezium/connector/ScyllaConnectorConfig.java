@@ -128,7 +128,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "In delta mode, collection changes are represented as a struct with 'mode' and 'elements' fields, "
                   + "where 'mode' indicates the type of change (modify or overwrite) and 'elements' contains the added or removed elements.");
 
-
   public static final Field USER =
       Field.create("scylla.user")
           .withDisplayName("User")
