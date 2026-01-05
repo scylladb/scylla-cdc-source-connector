@@ -2,7 +2,7 @@
 services:
 
   broker:
-    image: confluentinc/cp-kafka:8.1.1
+    image: confluentinc/cp-kafka:${KAFKA_VERSION}
     hostname: broker
     container_name: broker
     ports:
@@ -29,7 +29,7 @@ services:
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:8.1.1
+    image: confluentinc/cp-schema-registry:${KAFKA_VERSION}
     hostname: schema-registry
     container_name: schema-registry
     depends_on:
@@ -42,9 +42,7 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
   connect:
-    build:
-      context: ../
-      dockerfile: cp-quickstart/Dockerfile.connect
+    image: confluentinc/cp-kafka-connect:${KAFKA_VERSION}
     hostname: connect
     container_name: connect
     depends_on:
@@ -66,10 +64,12 @@ services:
       CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
       CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
       CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+      CONNECT_PLUGIN_PATH: "/usr/share/confluent-hub-components"
+    volumes:
+      - ../target/components/packages:/usr/share/confluent-hub-components
 
   ksqldb-server:
-    image: confluentinc/cp-ksqldb-server:8.1.1
+    image: confluentinc/cp-ksqldb-server:${KAFKA_VERSION}
     hostname: ksqldb-server
     container_name: ksqldb-server
     depends_on:
@@ -122,7 +122,7 @@ services:
       STREAMS_SCHEMA_REGISTRY_PORT: 8081
 
   rest-proxy:
-    image: confluentinc/cp-kafka-rest:8.1.1
+    image: confluentinc/cp-kafka-rest:${KAFKA_VERSION}
     depends_on:
       - broker
       - schema-registry
@@ -180,7 +180,7 @@ services:
       - "9042:9042"   # CQL
       - "10000:10000" # REST API (optional)
     environment:
-      SCYLLA_CLUSTER_NAME: "scylla-cluster"
+      SCYLLA_CLUSTER_NAME: "scylla_cluster"
       SCYLLA_DEVELOPER_MODE: "1"
     healthcheck:
       test: ["CMD", "cqlsh", "localhost", "9042", "-e", "describe keyspaces"]

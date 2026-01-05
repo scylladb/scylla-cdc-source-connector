@@ -72,14 +72,14 @@ DELETE FROM demo_keyspace.users WHERE user_id = dba11045-4dc3-48c2-b607-04a123d1
 Wait a bit and view the messages in the Kafka topic:
 
 ```bash
-docker exec -it broker kafka-console-consumer --bootstrap-server broker:29092 --topic scylla-cluster.demo_keyspace.users --from-beginning
+docker exec -it broker kafka-console-consumer --bootstrap-server broker:29092 --topic scylla_cluster.demo_keyspace.users --from-beginning
 ```
 
 You should see JSON messages representing the rows from `users_scylla_cdc_log` table.
 First ones should look similar to this:
 ```json
-{"source":{"version":"1.2.6-SNAPSHOT","connector":"scylla","name":"scylla-cluster","ts_ms":1755710756661,"snapshot":"false","db":"demo_keyspace","sequence":null,"ts_us":1755710756661369,"ts_ns":1755710756661000000,"keyspace_name":"demo_keyspace","table_name":"users"},"before":null,"after":{"age":{"value":24},"email":{"value":"alice@example.com"},"registration_date":{"value":1755710756661},"user_id":"89e95901-443a-4c92-a4d5-248aab1223c1","username":{"value":"alice_williams"}},"op":"c","ts_ms":1755710810004,"transaction":null,"ts_us":1755710810004787,"ts_ns":1755710810004787000}
-{"source":{"version":"1.2.6-SNAPSHOT","connector":"scylla","name":"scylla-cluster","ts_ms":1755710756656,"snapshot":"false","db":"demo_keyspace","sequence":null,"ts_us":1755710756656914,"ts_ns":1755710756656000000,"keyspace_name":"demo_keyspace","table_name":"users"},"before":null,"after":{"age":{"value":28},"email":{"value":"john@example.com"},"registration_date":{"value":1755710756657},"user_id":"dba11045-4dc3-48c2-b607-04a123d100e0","username":{"value":"john_doe"}},"op":"c","ts_ms":1755710900858,"transaction":null,"ts_us":1755710900858696,"ts_ns":1755710900858696000}
+{"source":{"version":"1.2.6-SNAPSHOT","connector":"scylla","name":"scylla_cluster","ts_ms":1755710756661,"snapshot":"false","db":"demo_keyspace","sequence":null,"ts_us":1755710756661369,"ts_ns":1755710756661000000,"keyspace_name":"demo_keyspace","table_name":"users"},"before":null,"after":{"age":{"value":24},"email":{"value":"alice@example.com"},"registration_date":{"value":1755710756661},"user_id":"89e95901-443a-4c92-a4d5-248aab1223c1","username":{"value":"alice_williams"}},"op":"c","ts_ms":1755710810004,"transaction":null,"ts_us":1755710810004787,"ts_ns":1755710810004787000}
+{"source":{"version":"1.2.6-SNAPSHOT","connector":"scylla","name":"scylla_cluster","ts_ms":1755710756656,"snapshot":"false","db":"demo_keyspace","sequence":null,"ts_us":1755710756656914,"ts_ns":1755710756656000000,"keyspace_name":"demo_keyspace","table_name":"users"},"before":null,"after":{"age":{"value":28},"email":{"value":"john@example.com"},"registration_date":{"value":1755710756657},"user_id":"dba11045-4dc3-48c2-b607-04a123d100e0","username":{"value":"john_doe"}},"op":"c","ts_ms":1755710900858,"transaction":null,"ts_us":1755710900858696,"ts_ns":1755710900858696000}
 ```
 
 ### 5. Cleanup
