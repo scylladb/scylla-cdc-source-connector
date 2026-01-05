@@ -2,6 +2,7 @@ package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.datastax.driver.core.Cluster;
@@ -13,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.apache.avro.generic.GenericRecord;
@@ -1507,6 +1509,559 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
     }
   }
 
+  /**
+   * Integration test for pre-image with non-frozen list collections. Scenario: - CREATE KEYSPACE IF
+   * NOT EXISTS ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}; - CREATE
+   * TABLE IF NOT EXISTS ks.t (pk int, ck int, v list<int>, PRIMARY KEY (pk, ck)) WITH cdc =
+   * {'enabled': true, 'preimage': true}; - UPDATE ks.t SET v = [1, 2] WHERE pk = 0 AND ck = 0; -
+   * UPDATE ks.t SET v = v + [3] WHERE pk = 0 AND ck = 0;
+   *
+   * <p>Verifies that the pre-image for the second update is [1, 2], after-image is [1, 2, 3], and
+   * delta is correct.
+   */
+  @Test
+  public void canReplicatePreimageWithNonFrozenList() throws UnknownHostException {
+    String CONNECTOR_NAME = "scylla-cdc-collections-test";
+    // Set up the table with CDC and preimage enabled
+    try (Cluster cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      session.execute(
+          "CREATE KEYSPACE IF NOT EXISTS ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+      session.execute(
+          "CREATE TABLE IF NOT EXISTS ks.t (pk int, ck int, v list<int>, PRIMARY KEY (pk, ck)) WITH cdc = {'enabled': true, 'preimage': true};");
+      session.execute("UPDATE ks.t SET v = [1, 2] WHERE pk = 0 AND ck = 0;");
+      session.execute("UPDATE ks.t SET v = v + [3] WHERE pk = 0 AND ck = 0;");
+    }
+
+    // Configure and launch the connector
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    connectorConfiguration.put("name", CONNECTOR_NAME);
+    connectorConfiguration.put("topic.prefix", "scylla_cluster");
+    connectorConfiguration.put("scylla.table.names", "ks.t");
+    connectorConfiguration.put("scylla.collections.mode", "DELTA");
+    connectorConfiguration.put("experimental.preimages.enabled", "true");
+
+    registerConnector(CONNECTOR_NAME, connectorConfiguration);
+
+    final String TOPIC = "scylla_cluster.ks.t";
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      consumer.subscribe(List.of(TOPIC));
+      long startTime = System.currentTimeMillis();
+      boolean foundPreimageUpdate = false;
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT && !foundPreimageUpdate) {
+        var records = consumer.poll(Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+            // Look for the UPDATE event (op = "u")
+            if (value.contains("\"op\":\"u\"")
+                && value.contains("\"pk\":0")
+                && value.contains("\"ck\":0")) {
+              JsonNode root = KafkaUtils.parseJson(value);
+              JsonNode before = root.path("before").path("v").path("value");
+              if (before != null && !before.isNull() && !before.isMissingNode()) {
+                /*
+                   Example message structure (formatted for convenience):
+                   {
+                       "source": {
+                           "version": "1.2.8-SNAPSHOT",
+                           "connector": "scylla",
+                           "name": "scylla_cluster",
+                           "ts_ms": 1767628577930,
+                           "snapshot": "false",
+                           "db": "ks",
+                           "sequence": null,
+                           "ts_us": 1767628577930827,
+                           "ts_ns": 1767628577930000000,
+                           "keyspace_name": "ks",
+                           "table_name": "t"
+                       },
+                       "before": {
+                           "ck": 0,
+                           "pk": 0,
+                           "v": {
+                               "value": {
+                                   "mode": "MODIFY",
+                                   "elements": [{"key":"12540a7c-ea4f-11f0-8080-f80aa1317f73","value":1},{"key":"12540a7c-ea4f-11f0-8081-f80aa1317f73","value":2}]
+                               }
+                           }
+                       },
+                       "after": {
+                           "ck": 0,
+                           "pk": 0,
+                           "v": {
+                               "value": {
+                                   "mode": "MODIFY",
+                                   "elements": [{"key":"12542eee-ea4f-11f0-8080-f80aa1317f73","value":3}]
+                               }
+                           }
+                       },
+                       "op": "u",
+                       "ts_ms": 1767628590075,
+                       "transaction": null,
+                       "ts_us": null,
+                       "ts_ns": null
+                   }
+                */
+                JsonNode after = root.path("after").path("v").path("value");
+                // Pre-image should be a list [1,2]
+                assertTrue(
+                    before.isObject() && before.has("mode") && before.has("elements"),
+                    "Pre-image should be a delta object");
+                assertEquals(
+                    "MODIFY", before.path("mode").asText(), "Pre-image mode should be MODIFY");
+                var beforeElements = before.path("elements");
+                assertEquals(2, beforeElements.size(), "Pre-image should have 2 elements");
+                assertTrue(
+                    StreamSupport.stream(beforeElements.spliterator(), false)
+                        .anyMatch(e -> e.path("value").asInt() == 1));
+                assertTrue(
+                    StreamSupport.stream(beforeElements.spliterator(), false)
+                        .anyMatch(e -> e.path("value").asInt() == 2));
+                // After-image should be a list [1,2,3]
+                assertNotNull(after, "After-image (after) should not be null");
+                assertTrue(
+                    after.isObject() && after.has("mode") && after.has("elements"),
+                    "After-image should be a delta object");
+                assertEquals(
+                    "MODIFY", after.path("mode").asText(), "After-image mode should be MODIFY");
+                var afterElements = after.path("elements");
+                assertEquals(1, afterElements.size(), "After-image should have 1 element delta");
+                assertTrue(
+                    StreamSupport.stream(afterElements.spliterator(), false)
+                        .anyMatch(e -> e.path("value").asInt() == 3));
+                foundPreimageUpdate = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(foundPreimageUpdate, "No UPDATE event with pre-image found for non-frozen list");
+    }
+  }
+
+  /**
+   * Integration test for pre-image with non-frozen set collections. Scenario: - CREATE KEYSPACE IF
+   * NOT EXISTS ks2 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}; -
+   * CREATE TABLE IF NOT EXISTS ks2.t (pk int, ck int, v set<int>, PRIMARY KEY (pk, ck)) WITH cdc =
+   * {'enabled': true, 'preimage': true}; - UPDATE ks2.t SET v = {1, 2} WHERE pk = 0 AND ck = 0; -
+   * UPDATE ks2.t SET v = v + {3} WHERE pk = 0 AND ck = 0;
+   *
+   * <p>Verifies that the pre-image for the second update is {1, 2}, after-image is {1, 2, 3}, and
+   * delta is correct.
+   */
+  @Test
+  public void canReplicatePreimageWithNonFrozenSet() throws UnknownHostException {
+    String CONNECTOR_NAME = "scylla-cdc-collections-set-test";
+    // Set up the table with CDC and preimage enabled
+    try (Cluster cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      session.execute(
+          "CREATE KEYSPACE IF NOT EXISTS ks2 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+      session.execute(
+          "CREATE TABLE IF NOT EXISTS ks2.t (pk int, ck int, v set<int>, PRIMARY KEY (pk, ck)) WITH cdc = {'enabled': true, 'preimage': true};");
+      session.execute("UPDATE ks2.t SET v = {1, 2} WHERE pk = 0 AND ck = 0;");
+      session.execute("UPDATE ks2.t SET v = v + {3} WHERE pk = 0 AND ck = 0;");
+    }
+
+    // Configure and launch the connector
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    connectorConfiguration.put("name", CONNECTOR_NAME);
+    connectorConfiguration.put("topic.prefix", "scylla_cluster_set");
+    connectorConfiguration.put("scylla.table.names", "ks2.t");
+    connectorConfiguration.put("scylla.collections.mode", "DELTA");
+    connectorConfiguration.put("experimental.preimages.enabled", "true");
+
+    registerConnector(CONNECTOR_NAME, connectorConfiguration);
+
+    final String TOPIC = "scylla_cluster_set.ks2.t";
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      consumer.subscribe(List.of(TOPIC));
+      long startTime = System.currentTimeMillis();
+      boolean foundPreimageUpdate = false;
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT && !foundPreimageUpdate) {
+        var records = consumer.poll(Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+
+            // Look for the UPDATE event (op = "u")
+            if (value.contains("\"op\":\"u\"")
+                && value.contains("\"pk\":0")
+                && value.contains("\"ck\":0")) {
+              JsonNode root = KafkaUtils.parseJson(value);
+              JsonNode before = root.path("before").path("v").path("value");
+              if (before != null && !before.isNull() && !before.isMissingNode()) {
+                JsonNode after = root.path("after").path("v").path("value");
+                // Pre-image should be a set {1,2}
+                assertTrue(
+                    before.isObject() && before.has("mode") && before.has("elements"),
+                    "Pre-image should be a delta object");
+                String mode = before.path("mode").asText();
+                assertTrue(
+                    mode.equals("OVERWRITE") || mode.equals("MODIFY"),
+                    "Pre-image mode should be OVERWRITE or MODIFY, but was: " + mode);
+                var beforeElements = before.path("elements");
+                assertEquals(2, beforeElements.size(), "Pre-image should have 2 elements");
+                assertTrue(
+                    StreamSupport.stream(beforeElements.spliterator(), false)
+                        .anyMatch(e -> e.path("element").asInt() == 1),
+                    "Pre-image should contain 1 as added");
+                assertTrue(
+                    StreamSupport.stream(beforeElements.spliterator(), false)
+                        .anyMatch(e -> e.path("element").asInt() == 2),
+                    "Pre-image should contain 2 as added");
+
+                // After-image should be a set {1,2,3}
+                assertNotNull(after, "After-image (after) should not be null");
+                assertTrue(
+                    after.isObject() && after.has("mode") && after.has("elements"),
+                    "After-image should be a delta object");
+                String afterMode = after.path("mode").asText();
+                assertTrue(
+                    afterMode.equals("OVERWRITE") || afterMode.equals("MODIFY"),
+                    "After-image mode should be OVERWRITE or MODIFY, but was: " + afterMode);
+                var afterElements = after.path("elements");
+                assertEquals(1, afterElements.size(), "After-image should have 1 element");
+                assertTrue(
+                    StreamSupport.stream(afterElements.spliterator(), false)
+                        .anyMatch(e -> e.path("element").asInt() == 3),
+                    "After-image should contain 3 as added");
+                foundPreimageUpdate = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(foundPreimageUpdate, "No UPDATE event with pre-image found for non-frozen set");
+    }
+  }
+
+  /**
+   * Integration test for pre-image with non-frozen map collections. Scenario: - CREATE KEYSPACE IF
+   * NOT EXISTS ks3 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}; -
+   * CREATE TABLE IF NOT EXISTS ks3.t (pk int, ck int, v map<int, text>, PRIMARY KEY (pk, ck)) WITH
+   * cdc = {'enabled': true, 'preimage': true}; - UPDATE ks3.t SET v = {1: 'a', 2: 'b'} WHERE pk = 0
+   * AND ck = 0; - UPDATE ks3.t SET v = v + {3: 'c'} WHERE pk = 0 AND ck = 0;
+   *
+   * <p>Verifies that the pre-image for the second update is {1: 'a', 2: 'b'}, after-image is {1:
+   * 'a', 2: 'b', 3: 'c'}, and delta is correct.
+   */
+  @Test
+  public void canReplicatePreimageWithNonFrozenMap() throws UnknownHostException {
+    String CONNECTOR_NAME = "scylla-cdc-collections-map-test";
+    // Set up the table with CDC and preimage enabled
+    try (Cluster cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      session.execute(
+          "CREATE KEYSPACE IF NOT EXISTS ks3 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+      session.execute(
+          "CREATE TABLE IF NOT EXISTS ks3.t (pk int, ck int, v map<int, text>, PRIMARY KEY (pk, ck)) WITH cdc = {'enabled': true, 'preimage': true};");
+      session.execute("UPDATE ks3.t SET v = {1: 'a', 2: 'b'} WHERE pk = 0 AND ck = 0;");
+      session.execute("UPDATE ks3.t SET v = v + {3: 'c'} WHERE pk = 0 AND ck = 0;");
+    }
+
+    // Configure and launch the connector
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    connectorConfiguration.put("name", CONNECTOR_NAME);
+    connectorConfiguration.put("topic.prefix", "scylla_cluster_map");
+    connectorConfiguration.put("scylla.table.names", "ks3.t");
+    connectorConfiguration.put("scylla.collections.mode", "DELTA");
+    connectorConfiguration.put("experimental.preimages.enabled", "true");
+
+    registerConnector(CONNECTOR_NAME, connectorConfiguration);
+
+    final String TOPIC = "scylla_cluster_map.ks3.t";
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      consumer.subscribe(List.of(TOPIC));
+      long startTime = System.currentTimeMillis();
+      boolean foundPreimageUpdate = false;
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT && !foundPreimageUpdate) {
+        var records = consumer.poll(Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+
+            // Look for the UPDATE event (op = "u")
+            if (value.contains("\"op\":\"u\"")
+                && value.contains("\"pk\":0")
+                && value.contains("\"ck\":0")) {
+              JsonNode root = KafkaUtils.parseJson(value);
+              JsonNode before = root.path("before").path("v").path("value");
+              if (before != null && !before.isNull() && !before.isMissingNode()) {
+                /*
+                    Example message structure (formatted for convenience):
+                    {
+                        "source": {
+                            "version": "1.2.8-SNAPSHOT",
+                            "connector": "scylla",
+                            "name": "scylla_cluster_map",
+                            "ts_ms": 1767632328018,
+                            "snapshot": "false",
+                            "db": "ks3",
+                            "sequence": null,
+                            "ts_us": 1767632328018473,
+                            "ts_ns": 1767632328018000000,
+                            "keyspace_name": "ks3",
+                            "table_name": "t"
+                        },
+                        "before": {
+                            "ck": 0,
+                            "pk": 0,
+                            "v": {
+                                "value": {
+                                    "mode": "MODIFY",
+                                    "elements": [{"key":1,"value":"a"},{"key":2,"value":"b"}]
+                                }
+                            }
+                        },
+                        "after": {
+                            "ck": 0,
+                            "pk": 0,
+                            "v": {
+                                "value": {
+                                    "mode": "MODIFY",
+                                    "elements": [{"key":3,"value":"c"}]
+                                }
+                            }
+                        },
+                        "op": "u",
+                        "ts_ms": 1767632340001,
+                        "transaction": null,
+                        "ts_us": null,
+                        "ts_ns": null
+                    }
+                */
+                JsonNode after = root.path("after").path("v").path("value");
+                // Pre-image should be a map {1:'a',2:'b'}
+                assertTrue(
+                    before.isObject() && before.has("mode") && before.has("elements"),
+                    "Pre-image should be a delta object");
+                String mode = before.path("mode").asText();
+                assertTrue(
+                    mode.equals("OVERWRITE") || mode.equals("MODIFY"),
+                    "Pre-image mode should be OVERWRITE or MODIFY, but was: " + mode);
+                var beforeElements = before.path("elements");
+                assertEquals(2, beforeElements.size(), "Pre-image should have 2 elements");
+                assertTrue(
+                    StreamSupport.stream(beforeElements.spliterator(), false)
+                        .anyMatch(
+                            e ->
+                                e.path("key").asInt() == 1 && e.path("value").asText().equals("a")),
+                    "Pre-image should contain 1:'a'");
+                assertTrue(
+                    StreamSupport.stream(beforeElements.spliterator(), false)
+                        .anyMatch(
+                            e ->
+                                e.path("key").asInt() == 2 && e.path("value").asText().equals("b")),
+                    "Pre-image should contain 2:'b'");
+
+                // After-image should be a map {1:'a',2:'b',3:'c'}
+                assertNotNull(after, "After-image (after) should not be null");
+                assertTrue(
+                    after.isObject() && after.has("mode") && after.has("elements"),
+                    "After-image should be a delta object");
+                String afterMode = after.path("mode").asText();
+                assertTrue(
+                    afterMode.equals("OVERWRITE") || afterMode.equals("MODIFY"),
+                    "After-image mode should be OVERWRITE or MODIFY, but was: " + afterMode);
+                var afterElements = after.path("elements");
+                assertEquals(
+                    1, afterElements.size(), "After-image should have 1 elements in DELTA mode");
+                assertTrue(
+                    StreamSupport.stream(afterElements.spliterator(), false)
+                        .anyMatch(
+                            e ->
+                                e.path("key").asInt() == 3 && e.path("value").asText().equals("c")),
+                    "After-image should contain 3:'c'");
+                foundPreimageUpdate = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(foundPreimageUpdate, "No UPDATE event with pre-image found for non-frozen map");
+    }
+  }
+
+  /**
+   * Integration test for pre-image with non-frozen UDT column. Scenario: - CREATE KEYSPACE IF NOT
+   * EXISTS ks4 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}; - CREATE
+   * TYPE IF NOT EXISTS ks4.t_udt (a int, b text); - CREATE TABLE IF NOT EXISTS ks4.t (pk int, ck
+   * int, v t_udt, PRIMARY KEY (pk, ck)) WITH cdc = {'enabled': true, 'preimage': true}; - UPDATE
+   * ks4.t SET v = {a: 1, b: 'foo'} WHERE pk = 0 AND ck = 0; - UPDATE ks4.t SET v = {a: 2, b: 'bar'}
+   * WHERE pk = 0 AND ck = 0;
+   *
+   * <p>Verifies that the pre-image for the second update is {a: 1, b: 'foo'}, after-image is {a: 2,
+   * b: 'bar'}, and delta is correct.
+   */
+  @Test
+  public void canReplicatePreimageWithNonFrozenUDT() throws UnknownHostException {
+    String CONNECTOR_NAME = "scylla-cdc-udt-preimage-test";
+    // Set up the table with CDC and preimage enabled
+    try (Cluster cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        Session session = cluster.connect()) {
+      session.execute(
+          "CREATE KEYSPACE IF NOT EXISTS ks4 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+      session.execute("CREATE TYPE IF NOT EXISTS ks4.t_udt (a int, b text);");
+      session.execute(
+          "CREATE TABLE IF NOT EXISTS ks4.t (pk int, ck int, v ks4.t_udt, PRIMARY KEY (pk, ck)) WITH cdc = {'enabled': true, 'preimage': true};");
+      session.execute("UPDATE ks4.t SET v = {a: 1, b: 'foo'} WHERE pk = 0 AND ck = 0;");
+      session.execute("UPDATE ks4.t SET v = {a: 2, b: 'bar'} WHERE pk = 0 AND ck = 0;");
+    }
+
+    // Configure and launch the connector
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    connectorConfiguration.put("name", CONNECTOR_NAME);
+    connectorConfiguration.put("topic.prefix", "scylla_cluster_udt");
+    connectorConfiguration.put("scylla.table.names", "ks4.t");
+    connectorConfiguration.put("scylla.collections.mode", "DELTA");
+    connectorConfiguration.put("experimental.preimages.enabled", "true");
+
+    registerConnector(CONNECTOR_NAME, connectorConfiguration);
+
+    final String TOPIC = "scylla_cluster_udt.ks4.t";
+    try (KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
+      consumer.subscribe(List.of(TOPIC));
+      long startTime = System.currentTimeMillis();
+      boolean foundPreimageUpdate = false;
+      while (System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT && !foundPreimageUpdate) {
+        var records = consumer.poll(Duration.ofSeconds(5));
+        if (!records.isEmpty()) {
+          for (var record : records) {
+            String value = record.value();
+
+            // Look for the UPDATE event (op = "u")
+            if (value.contains("\"op\":\"u\"")
+                && value.contains("\"pk\":0")
+                && value.contains("\"ck\":0")) {
+              JsonNode root = KafkaUtils.parseJson(value);
+              JsonNode before = root.path("before").path("v").path("value");
+              if (before != null && !before.isNull() && !before.isMissingNode()) {
+                /*
+                Example message structure (formatted for convenience):
+                {
+                    "source": {
+                        "version": "1.2.8-SNAPSHOT",
+                        "connector": "scylla",
+                        "name": "scylla_cluster_udt",
+                        "ts_ms": 1767633780459,
+                        "snapshot": "false",
+                        "db": "ks4",
+                        "sequence": null,
+                        "ts_us": 1767633780459258,
+                        "ts_ns": 1767633780459000000,
+                        "keyspace_name": "ks4",
+                        "table_name": "t"
+                    },
+                    "before": {
+                        "ck": 0,
+                        "pk": 0,
+                        "v": {
+                            "value": {
+                                "mode": "MODIFY",
+                                "elements": {"a":{"value":1},"b":{"value":"foo"}}
+                            }
+                        }
+                    },
+                    "after": {
+                        "ck": 0,
+                        "pk": 0,
+                        "v": {
+                            "value": {
+                                "mode": "MODIFY",
+                                "elements": {"a":{"value":2},"b":{"value":"bar"}}
+                            }
+                        }
+                    },
+                    "op": "u",
+                    "ts_ms": 1767633792534,
+                    "transaction": null,
+                    "ts_us": null,
+                    "ts_ns": null
+                }
+                 */
+                JsonNode after = root.path("after").path("v").path("value");
+                // Pre-image should be a UDT {a:1, b:'foo'}
+                assertTrue(
+                    before.isObject() && before.has("mode") && before.has("elements"),
+                    "Pre-image should be a delta object");
+                String mode = before.path("mode").asText();
+                assertTrue(mode.equals("MODIFY"), "Pre-image mode should be MODIFY");
+                var beforeElements = before.path("elements");
+                assertEquals(2, beforeElements.size(), "Pre-image should have 2 fields");
+                assertTrue(
+                    StreamSupport.stream(
+                            Spliterators.spliteratorUnknownSize(beforeElements.fields(), 0), false)
+                        .anyMatch(
+                            e -> e.getKey().equals("a") && e.getValue().path("value").asInt() == 1),
+                    "Pre-image should contain a:1");
+                assertTrue(
+                    StreamSupport.stream(
+                            Spliterators.spliteratorUnknownSize(beforeElements.fields(), 0), false)
+                        .anyMatch(
+                            e ->
+                                e.getKey().equals("b")
+                                    && e.getValue().path("value").asText().equals("foo")),
+                    "Pre-image should contain b:'foo'");
+
+                // After-image should be a UDT {a:2, b:'bar'}
+                assertNotNull(after, "After-image (after) should not be null");
+                assertTrue(
+                    after.isObject() && after.has("mode") && after.has("elements"),
+                    "After-image should be a delta object");
+                String afterMode = after.path("mode").asText();
+                assertTrue(afterMode.equals("MODIFY"), "After-image mode should be MODIFY");
+                var afterElements = after.path("elements");
+                assertEquals(2, afterElements.size(), "After-image should have 2 fields");
+                assertTrue(
+                    StreamSupport.stream(
+                            Spliterators.spliteratorUnknownSize(afterElements.fields(), 0), false)
+                        .anyMatch(
+                            e -> e.getKey().equals("a") && e.getValue().path("value").asInt() == 2),
+                    "After-image should contain a:2");
+                assertTrue(
+                    StreamSupport.stream(
+                            Spliterators.spliteratorUnknownSize(afterElements.fields(), 0), false)
+                        .anyMatch(
+                            e ->
+                                e.getKey().equals("b")
+                                    && e.getValue().path("value").asText().equals("bar")),
+                    "After-image should contain b:'bar'");
+                foundPreimageUpdate = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      consumer.unsubscribe();
+      assertTrue(foundPreimageUpdate, "No UPDATE event with pre-image found for non-frozen UDT");
+    }
+  }
+
   @Test
   @EnabledIf("isConfluentKafkaProvider")
   public void canReplicateAllPrimitiveTypesWithAvro() {
@@ -1631,7 +2186,7 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
                 assertEquals("1", extractValue(after.get("id")).toString());
                 assertEquals("ascii", extractValue(after.get("ascii_col")).toString());
                 assertEquals("1234567890123", extractValue(after.get("bigint_col")).toString());
-                Assertions.assertNotNull(extractValue(after.get("blob_col"))); // blob as bytes
+                assertNotNull(extractValue(after.get("blob_col"))); // blob as bytes
                 assertEquals("true", extractValue(after.get("boolean_col")).toString());
                 // This is number of days since unix epoch that should correspond to '2024-06-10'
                 assertEquals("19884", extractValue(after.get("date_col")).toString());
@@ -1679,8 +2234,8 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
         String keyVersions = SchemaRegistryUtils.getSchemaVersions(keySubject);
         String valueVersions = SchemaRegistryUtils.getSchemaVersions(valueSubject);
 
-        Assertions.assertNotNull(keyVersions, "Key subject should exist in schema registry");
-        Assertions.assertNotNull(valueVersions, "Value subject should exist in schema registry");
+        assertNotNull(keyVersions, "Key subject should exist in schema registry");
+        assertNotNull(valueVersions, "Value subject should exist in schema registry");
 
         assertEquals("[1]", keyVersions, "Key subject should have exactly 1 schema version");
         assertEquals("[1]", valueVersions, "Key subject should have exactly 1 schema version");
@@ -1783,9 +2338,9 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
             // list_col: has value struct, mode OVERWRITE, and non-empty elements array
             GenericRecord listCell = (GenericRecord) after.get("list_col");
-            Assertions.assertNotNull(listCell, "list_col cell should not be null");
+            assertNotNull(listCell, "list_col cell should not be null");
             GenericRecord listValue = (GenericRecord) listCell.get("value");
-            Assertions.assertNotNull(listValue, "list_col value should not be null");
+            assertNotNull(listValue, "list_col value should not be null");
             assertEquals(
                 "OVERWRITE", listValue.get("mode").toString(), "Expected list_col mode OVERWRITE");
             Object listElementsObj = listValue.get("elements");
@@ -1797,9 +2352,9 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
             // set_col: has value struct, mode OVERWRITE, and iterable elements
             GenericRecord setCell = (GenericRecord) after.get("set_col");
-            Assertions.assertNotNull(setCell, "set_col cell should not be null");
+            assertNotNull(setCell, "set_col cell should not be null");
             GenericRecord setValue = (GenericRecord) setCell.get("value");
-            Assertions.assertNotNull(setValue, "set_col value should not be null");
+            assertNotNull(setValue, "set_col value should not be null");
             assertEquals(
                 "OVERWRITE", setValue.get("mode").toString(), "Expected set_col mode OVERWRITE");
             Object setElementsObj = setValue.get("elements");
@@ -1809,9 +2364,9 @@ public class ScyllaTypesIT extends AbstractContainerBaseIT {
 
             // map_col: has value struct, mode OVERWRITE, and iterable elements
             GenericRecord mapCell = (GenericRecord) after.get("map_col");
-            Assertions.assertNotNull(mapCell, "map_col cell should not be null");
+            assertNotNull(mapCell, "map_col cell should not be null");
             GenericRecord mapValue = (GenericRecord) mapCell.get("value");
-            Assertions.assertNotNull(mapValue, "map_col value should not be null");
+            assertNotNull(mapValue, "map_col value should not be null");
             assertEquals(
                 "OVERWRITE", mapValue.get("mode").toString(), "Expected map_col mode OVERWRITE");
             Object mapElementsObj = mapValue.get("elements");

@@ -288,7 +288,9 @@ public class ScyllaChangeRecordEmitter
               (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
           @SuppressWarnings("unchecked")
           var deletedElements =
-              (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema);
+              deletedElementsCell != null
+                  ? (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema)
+                  : null;
           var delta =
               Stream.concat(
                       Optional.ofNullable(addedElements).stream()
@@ -319,8 +321,10 @@ public class ScyllaChangeRecordEmitter
               (Map<Object, Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
           @SuppressWarnings("unchecked")
           var deletedKeys =
-              (List<Object>)
-                  translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema);
+              deletedElementsCell != null
+                  ? (List<Object>)
+                      translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema)
+                  : null;
           var delta =
               Stream.concat(
                       Optional.ofNullable(addedElements).stream()
@@ -339,10 +343,12 @@ public class ScyllaChangeRecordEmitter
           @SuppressWarnings("unchecked")
           var deletedKeys =
               Optional.ofNullable(
-                      (List<Short>)
-                          translateFieldToKafka(
-                              deletedElementsCell,
-                              SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build()))
+                      deletedElementsCell != null
+                          ? (List<Short>)
+                              translateFieldToKafka(
+                                  deletedElementsCell,
+                                  SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build())
+                          : null)
                   .map(HashSet::new)
                   .orElseGet(HashSet::new);
 
