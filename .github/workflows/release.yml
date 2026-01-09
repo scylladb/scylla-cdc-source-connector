@@ -18,6 +18,11 @@ on:
         description: 'target-tag: tag or branch name to release. Use to to re-release failed releases'
         default: master
 
+      release-version:
+        required: false
+        type: string
+        description: 'release-version: override next version, example: (1.8.0)'
+
 jobs:
   release:
     name: Release
@@ -73,8 +78,12 @@ jobs:
           if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
             MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
           fi
+          NEXT_RELEASE=""
+          if [[ "${{ inputs.release-version }}" != "" ]]; then
+            NEXT_RELEASE="-DreleaseVersion=${{ inputs.release-version }}"
+          fi
           export MAVEN_OPTS
-          $MVNCMD release:prepare -DpushChanges=false -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
+          $MVNCMD release:prepare -DpushChanges=false ${NEXT_RELEASE} -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
 
       - name: Perform release
         env:
