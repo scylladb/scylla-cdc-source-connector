@@ -116,6 +116,18 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "List of CDC-enabled table names for connector to read. "
                   + "Provided as a comma-separated list of pairs <keyspace name>.<table name>");
 
+  public static final CollectionsMode DEFAULT_COLLECTIONS_MODE = CollectionsMode.DELTA;
+  public static final Field COLLECTIONS_MODE =
+      Field.create("scylla.collections.mode")
+          .withDisplayName("Collections format")
+          .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
+          .withWidth(ConfigDef.Width.SHORT)
+          .withImportance(ConfigDef.Importance.MEDIUM)
+          .withDescription(
+              "Specifies how non-frozen collections are represented. Currently, only 'delta' mode is supported. "
+                  + "In delta mode, collection changes are represented as a struct with 'mode' and 'elements' fields, "
+                  + "where 'mode' indicates the type of change (modify or overwrite) and 'elements' contains the added or removed elements.");
+
   public static final Field USER =
       Field.create("scylla.user")
           .withDisplayName("User")
@@ -252,7 +264,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "The initial backoff in milliseconds that will be used for queries to Scylla. "
                   + "Each consecutive retry will increase exponentially by a factor of 2 up to configured max backoff.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(50);
 
   public static final Field RETRY_MAX_BACKOFF_MS =
@@ -264,7 +275,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription(
               "Maximum backoff in milliseconds that will be used for queries to Scylla.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(30000);
 
   public static final Field RETRY_BACKOFF_JITTER_PERCENTAGE =
@@ -279,7 +289,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "subtracted before application. The jitter does not modify base backoff and has no impact on exponential rise. "
                   + "Minimal allowed value is 1. Max is 100.")
           .withValidation(Field::isPositiveInteger)
-          .optional()
           .withDefault(20);
 
   public static final Field POOLING_CORE_POOL_LOCAL =
@@ -293,7 +302,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Local nodes are the nodes of local datacenter. "
                   + "Driver session used by worker will aim to maintain this number of connections per local node.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1);
 
   public static final Field POOLING_MAX_POOL_LOCAL =
@@ -307,7 +315,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Worker will open additional connections up to this maximum whenever existing ones go above certain threshold"
                   + " of concurrent requests.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1);
 
   public static final Field POOLING_MAX_QUEUE_SIZE =
@@ -322,7 +329,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "be necessary to increase this to avoid BusyPoolException. Additional requests above this limit will be "
                   + "rejected. Requests that wait for longer than pool timeout value also will be rejected.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(512);
 
   public static final Field POOLING_MAX_REQUESTS_PER_CONNECTION =
@@ -335,7 +341,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "Worker's maximum requests per connection to a Scylla node within distance 'LOCAL'. Requests above "
                   + "this quantity will be enqueued.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1024);
 
   public static final Field POOLING_POOL_TIMEOUT_MS =
@@ -550,6 +555,15 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
       }
     }
     return 9042;
+  }
+
+  public CollectionsMode getCollectionsMode() {
+    String collectionsModeValue = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
+    try {
+      return CollectionsMode.valueOf(collectionsModeValue.toUpperCase());
+    } catch (IllegalArgumentException ex) {
+      return DEFAULT_COLLECTIONS_MODE;
+    }
   }
 
   @Override
