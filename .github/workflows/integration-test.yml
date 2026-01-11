@@ -1,0 +1,76 @@
+name: integration-test
+
+on:
+  workflow_call:
+    inputs:
+      kafka_provider:
+        required: true
+        type: string
+      provider_version:
+        required: true
+        type: string
+      kafka_connect_mode:
+        required: true
+        type: string
+      scylla_version:
+        required: true
+        type: string
+      repo_version_tag:
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      kafka_provider:
+        description: 'Kafka provider'
+        required: true
+        type: string
+      provider_version:
+        description: 'Kafka provider version'
+        required: true
+        type: string
+      kafka_connect_mode:
+        description: 'Kafka Connect mode'
+        required: true
+        type: string
+      scylla_version:
+        description: 'Scylla version'
+        required: true
+        type: string
+        default: 'latest'
+      repo_version_tag:
+        description: 'Repository version tag'
+        required: false
+        type: string
+
+jobs:
+  build:
+    name: ${{ format('{0}, {1}, {2}, scylla:{3}', inputs.kafka_provider, inputs.provider_version, inputs.kafka_connect_mode, inputs.scylla_version) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code at repo_version_tag
+        if: ${{ inputs.repo_version_tag }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.repo_version_tag }}
+
+      - name: Checkout code (default branch)
+        if: ${{ !inputs.repo_version_tag }}
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Increase fs.aio-max-nr limit
+        run: |
+          echo "Current fs.aio-max-nr value:"
+          cat /proc/sys/fs/aio-max-nr
+          sudo sysctl -w fs.aio-max-nr=1048576
+          echo "New fs.aio-max-nr value:"
+          cat /proc/sys/fs/aio-max-nr
+
+      - name: Maven verify
+        run: mvn -B verify -Dit.kafka.provider=${{ inputs.kafka_provider }} -Dit.provider.image.version=${{ inputs.provider_version }} -Dit.kafka.connect.mode=${{ inputs.kafka_connect_mode }} -Dit.scylla.version=${{ inputs.scylla_version }}

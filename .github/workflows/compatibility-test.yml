@@ -1,0 +1,375 @@
+# Compatibility test against different Scylla and Kafka versions
+#
+# This workflow can be triggered in two ways:
+#
+# 1. Manual trigger (workflow_dispatch):
+#    Run manually from GitHub Actions UI with customizable inputs
+#
+# 2. Called from another workflow (workflow_call):
+#    Example:
+#      jobs:
+#        test:
+#          uses: ./.github/workflows/compatibility-test.yml
+#          with:
+#            apache_versions: 'latest, previous'
+#            confluent_versions: 'latest, legacy'
+#            kafka_connect_modes: 'distributed, standalone'
+#            scylla_versions: 'latest, prior'
+#
+# Input format:
+#   - All inputs accept comma-separated values
+#   - Apache Kafka versions support get-version patterns (e.g., "3.LAST", "4.LAST") and keywords:
+#     * "latest" (4.1.x) - Current top version
+#     * "previous" (4.0.x) - Previous major version
+#     * "legacy" (3.9.x) - Legacy version
+#     * "sunset" (3.8.x) - End-of-life version
+#   - Confluent Kafka versions support get-version patterns (e.g., "7.LAST", "8.LAST") and keywords:
+#     * "latest" (8.1.x) - Current top version
+#     * "previous" (8.0.x) - Previous major version
+#     * "legacy" (7.9.x) - Legacy version
+#     * "sunset" (7.8.x) - End-of-life version
+#   - Scylla versions support special keywords: "latest", "prior", "lts-latest", "lts-prior"
+#
+name: compatibility-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      apache_versions:
+        description: |
+          List of Apache Kafka versions to test (comma-separated). Supports get-version patterns and keywords: "latest" (4.1.x), "previous" (4.0.x), "legacy" (3.9.x), "sunset" (3.8.x).
+          Example: 'latest, previous' or '3.7.2, 3.8.0' or '3.LAST, 4.LAST'
+        required: false
+        type: string
+        default: 'latest, previous, legacy'
+      confluent_versions:
+        description: |
+          List of Confluent Kafka versions to test (comma-separated). Supports get-version patterns and keywords: "latest" (8.1.x), "previous" (8.0.x), "legacy" (7.9.x), "sunset" (7.8.x).
+          Example: 'latest, previous' or '7.5.0, 7.6.0' or '7.LAST, 8.LAST'
+        required: false
+        type: string
+        default: 'latest, previous, legacy, 7.9.2'
+      kafka_connect_modes:
+        description: |
+          List of Kafka Connect modes to alternate through (comma-separated).
+          Example: 'distributed, standalone' or 'distributed'
+        required: false
+        type: string
+        default: 'distributed, standalone'
+      scylla_versions:
+        description: |
+          List of Scylla versions to alternate through (comma-separated). Supports custom values "latest", "prior", "lts-latest", "lts-prior".
+          Example: 'latest, 5.4' or 'lts-latest, lts-prior, 5.2'
+        required: false
+        type: string
+        default: 'latest, prior, lts-latest, lts-prior'
+  workflow_call:
+    inputs:
+      apache_versions:
+        description: |
+          List of Apache Kafka versions to test (comma-separated). Supports get-version patterns and keywords: "latest" (4.1.x), "previous" (4.0.x), "legacy" (3.9.x), "sunset" (3.8.x).
+          Example: 'latest, previous' or '3.7.2, 3.8.0' or '3.LAST, 4.LAST'
+        type: string
+        default: 'latest, previous, legacy'
+      confluent_versions:
+        description: |
+          List of Confluent Kafka versions to test (comma-separated). Supports get-version patterns and keywords: "latest" (8.1.x), "previous" (8.0.x), "legacy" (7.9.x), "sunset" (7.8.x).
+          Example: 'latest, previous' or '7.5.0, 7.6.0' or '7.LAST, 8.LAST'
+        type: string
+        default: 'latest, previous, legacy, 7.9.2'
+      kafka_connect_modes:
+        description: |
+          List of Kafka Connect modes to alternate through (comma-separated).
+          Example: 'distributed, standalone' or 'distributed'
+        type: string
+        default: 'distributed, standalone'
+      scylla_versions:
+        description: |
+          List of Scylla versions to alternate through (comma-separated). Supports custom values "latest", "prior", "lts-latest", "lts-prior".
+          Example: 'latest, 5.4' or 'lts-latest, lts-prior, 5.2'
+        type: string
+        default: 'latest, prior, lts-latest, lts-prior'
+
+env:
+  GET_VERSION_VERSION: 0.4.1
+
+jobs:
+  prepare-matrix:
+    name: Prepare test matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.resolve-versions.outputs.matrix }}
+    steps:
+      - name: Download get-version tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSLo /tmp/get-version.zip https://github.com/scylladb-actions/get-version/releases/download/v${GET_VERSION_VERSION}/get-version_${GET_VERSION_VERSION}_linux_amd64v3.zip
+          unzip -o /tmp/get-version.zip -d /tmp >/dev/null
+          chmod +x /tmp/get-version
+          /tmp/get-version -version || true
+
+      - name: Create matrix and resolve version patterns
+        id: resolve-versions
+        run: |
+          # Function to convert comma-separated string to JSON array
+          csv_to_json() {
+            local csv="$1"
+            local default="$2"
+
+            # Use default if input is empty
+            if [ -z "${csv//[[:space:]]/}" ]; then
+              echo "$default"
+              return
+            fi
+
+            # Convert comma-separated values to JSON array
+            echo "$csv" | jq -R 'split(",") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0))'
+          }
+
+          # Convert inputs from comma-separated to JSON arrays
+          apache=$(csv_to_json '${{ inputs.apache_versions }}' '["3.7.2"]')
+          confluent=$(csv_to_json '${{ inputs.confluent_versions }}' '["7.5.0"]')
+          modes=$(csv_to_json '${{ inputs.kafka_connect_modes }}' '["distributed", "standalone"]')
+          scyllas=$(csv_to_json '${{ inputs.scylla_versions }}' '["latest", "5.4"]')
+
+          # Validate JSON arrays
+          for var in "$apache" "$confluent" "$modes" "$scyllas"; do
+            if ! echo "$var" | jq -e 'type=="array"' >/dev/null 2>&1; then
+              echo "Invalid JSON array generated" >&2
+              exit 1
+            fi
+          done
+
+          # Build matrix with alternating modes and Scylla versions
+          MATRIX=$(jq -n --argjson apache "$apache" \
+                         --argjson confluent "$confluent" \
+                         --argjson modes "$modes" \
+                         --argjson scyllas "$scyllas" '
+            ($modes | length) as $modes_count |
+            ($scyllas | length) as $scyllas_count |
+            [
+              ($apache | to_entries | map({
+                kafka_provider: "apache",
+                provider_version: .value,
+                kafka_connect_mode: $modes[.key % $modes_count],
+                scylla_version: $scyllas[.key % $scyllas_count]
+              })),
+              ($confluent | to_entries | map({
+                kafka_provider: "confluent",
+                provider_version: .value,
+                kafka_connect_mode: $modes[(.key + ($apache | length)) % $modes_count],
+                scylla_version: $scyllas[(.key + ($apache | length)) % $scyllas_count]
+              }))
+            ] | flatten
+          ')
+
+          echo "::group::Original Matrix (with potential patterns)"; echo "$MATRIX" | jq '.'; echo "::endgroup::"
+
+          # Create temp directory for parallel resolution results
+          TEMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TEMP_DIR"' EXIT
+
+          echo "::group::Version Resolution Process"
+
+          # Function to resolve a single matrix entry
+          resolve_entry() {
+            local entry="$1"
+            local index="$2"
+            local temp_file="$TEMP_DIR/result_$index.json"
+
+            PROVIDER=$(echo "$entry" | jq -r '.kafka_provider')
+            PATTERN=$(echo "$entry" | jq -r '.provider_version')
+            MODE=$(echo "$entry" | jq -r '.kafka_connect_mode')
+            SCYLLA_PATTERN=$(echo "$entry" | jq -r '.scylla_version')
+
+            # Resolve Kafka provider version
+            if [ "$PROVIDER" = "confluent" ]; then
+              REPO="confluentinc/cp-kafka"
+            else
+              REPO="apache/kafka"
+            fi
+
+            # Convert pattern to lowercase for case-insensitive matching
+            PATTERN_LOWER=$(echo "$PATTERN" | tr '[:upper:]' '[:lower:]')
+
+            # Map keyword aliases to version patterns (different for Apache vs Confluent)
+            if [ "$PROVIDER" = "confluent" ]; then
+              case "$PATTERN_LOWER" in
+                latest)
+                  PATTERN="*.*.^[0-9]+$ and LAST"
+                  echo "[$index] Mapping Confluent keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+                previous)
+                  PATTERN="*.*.^[0-9]+$ and *.*.LAST and LAST-1"
+                  echo "[$index] Mapping Confluent keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+                legacy)
+                  PATTERN="*.*.^[0-9]+$ and *.*.LAST and LAST-2"
+                  echo "[$index] Mapping Confluent keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+                sunset)
+                  PATTERN="*.*.^[0-9]+$ and *.*.LAST and LAST-3"
+                  echo "[$index] Mapping Confluent keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+              esac
+            else
+              # Apache Kafka
+              case "$PATTERN_LOWER" in
+                latest)
+                  PATTERN="*.*.^[0-9]+$ and LAST.LAST.LAST"
+                  echo "[$index] Mapping Apache keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+                previous)
+                  PATTERN="*.*.^[0-9]+$ and *.*.LAST and LAST-1"
+                  echo "[$index] Mapping Apache keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+                legacy)
+                  PATTERN="*.*.^[0-9]+$ and *.*.LAST and LAST-2"
+                  echo "[$index] Mapping Apache keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+                sunset)
+                  PATTERN="*.*.^[0-9]+$ and *.*.LAST and LAST-3"
+                  echo "[$index] Mapping Apache keyword '$PATTERN_LOWER' to pattern: $PATTERN"
+                  ;;
+              esac
+            fi
+
+            # Check if version contains pattern keywords (LAST or wildcards)
+            if echo "$PATTERN" | grep -qE 'LAST|\.x$'; then
+              echo "[$index] Resolving Kafka: provider=$PROVIDER, connect_mode=$MODE, pattern=$PATTERN, repo=$REPO"
+              if ! VERSION=$(/tmp/get-version -source dockerhub-imagetag -repo "$REPO" -filters "$PATTERN"); then
+                echo "::error::[$index] Resolution command failed for $PROVIDER pattern $PATTERN" >&2
+                exit 1
+              fi
+              VERSION=$(echo "$VERSION" | tr -d '\r')
+              if [ -z "$VERSION" ]; then
+                echo "::error::[$index] Empty version resolved for $PROVIDER pattern $PATTERN" >&2
+                exit 1
+              fi
+              echo "[$index]   ✓ Resolved to: $VERSION"
+            else
+              # Version is already concrete, use as-is
+              VERSION="$PATTERN"
+              echo "[$index] Keeping concrete Kafka version: provider=$PROVIDER, version=$VERSION"
+            fi
+
+            # Resolve Scylla version (convert to lowercase for case-insensitive matching)
+            SCYLLA_PATTERN_LOWER=$(echo "$SCYLLA_PATTERN" | tr '[:upper:]' '[:lower:]')
+
+            if [[ "$SCYLLA_PATTERN_LOWER" == "lts-latest" ]]; then
+              if ! SCYLLA_VERSION=$(/tmp/get-version -source dockerhub-imagetag -repo scylladb/scylla -filters "^[0-9]{4}$.^[0-9]+$.^[0-9]+$ and LAST.1.LAST"); then
+                echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Resolution command failed" >&2
+                exit 1
+              fi
+              SCYLLA_VERSION=$(echo "$SCYLLA_VERSION" | tr -d '\r' | tr -d '"')
+              if [ -z "$SCYLLA_VERSION" ]; then
+                echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Empty version resolved" >&2
+                exit 1
+              fi
+              echo "[$index] $SCYLLA_PATTERN_LOWER => $SCYLLA_VERSION"
+            elif [[ "$SCYLLA_PATTERN_LOWER" == "lts-prior" ]]; then
+              SCYLLA_VERSION=""
+              for repo in "scylladb/scylla" "scylladb/scylla-enterprise"; do
+                echo "[$index] Trying to resolve $SCYLLA_PATTERN_LOWER from $repo"
+                if SCYLLA_VERSION=$(/tmp/get-version -source dockerhub-imagetag -repo "$repo" -filters "^[0-9]{4}$.^[0-9]+$.^[0-9]+$ and LAST-1.1.LAST"); then
+                  SCYLLA_VERSION=$(echo "$SCYLLA_VERSION" | tr -d '\r' | tr -d '"')
+                  if [ -n "$SCYLLA_VERSION" ]; then
+                    break
+                  fi
+                fi
+              done
+              if [ -z "$SCYLLA_VERSION" ]; then
+                echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Failed to resolve from all repositories" >&2
+                exit 1
+              fi
+              echo "[$index] $SCYLLA_PATTERN_LOWER => $SCYLLA_VERSION"
+            elif [[ "$SCYLLA_PATTERN_LOWER" == "latest" ]]; then
+              if ! SCYLLA_VERSION=$(/tmp/get-version -source dockerhub-imagetag -repo scylladb/scylla -filters "^[0-9]{4}$.^[0-9]+$.^[0-9]+$ and LAST.LAST.LAST"); then
+                echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Resolution command failed" >&2
+                exit 1
+              fi
+              SCYLLA_VERSION=$(echo "$SCYLLA_VERSION" | tr -d '\r' | tr -d '"')
+              if [ -z "$SCYLLA_VERSION" ]; then
+                echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Empty version resolved" >&2
+                exit 1
+              fi
+              echo "[$index] $SCYLLA_PATTERN_LOWER => $SCYLLA_VERSION"
+            elif [[ "$SCYLLA_PATTERN_LOWER" == "prior" ]]; then
+              if ! SCYLLA_VERSION=$(/tmp/get-version -source dockerhub-imagetag -repo scylladb/scylla -filters "^[0-9]{4}$.^[0-9]+$.^[0-9]+$ and LAST.LAST.LAST-1"); then
+                echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Resolution command failed" >&2
+                exit 1
+              fi
+              SCYLLA_VERSION=$(echo "$SCYLLA_VERSION" | tr -d '\r' | tr -d '"')
+              if [ -z "$SCYLLA_VERSION" ]; then
+                echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Empty version resolved" >&2
+                exit 1
+              fi
+              echo "[$index] $SCYLLA_PATTERN_LOWER => $SCYLLA_VERSION"
+            elif echo "$SCYLLA_PATTERN_LOWER" | grep -qP '^[0-9\.]+|^latest$'; then
+              # Version is already concrete (numeric version or "latest"), use as-is
+              SCYLLA_VERSION="$SCYLLA_PATTERN"
+              echo "[$index] $SCYLLA_PATTERN_LOWER => $SCYLLA_VERSION"
+            else
+              echo "::error::[$index] $SCYLLA_PATTERN_LOWER => Unknown version pattern" >&2
+              exit 1
+            fi
+
+            RESOLVED_ENTRY=$(jq -n \
+              --arg provider "$PROVIDER" \
+              --arg version "$VERSION" \
+              --arg mode "$MODE" \
+              --arg scylla "$SCYLLA_VERSION" \
+              '{kafka_provider: $provider, provider_version: $version, kafka_connect_mode: $mode, scylla_version: $scylla}')
+            echo "$RESOLVED_ENTRY" > "$temp_file"
+          }
+
+          export -f resolve_entry
+
+          # Launch parallel resolution tasks
+          INDEX=0
+          PIDS=()
+          while IFS= read -r entry; do
+            resolve_entry "$entry" "$INDEX" &
+            PIDS+=($!)
+            INDEX=$((INDEX + 1))
+          done < <(echo "$MATRIX" | jq -c '.[]')
+
+          # Wait for all parallel tasks to complete
+          FAILED=0
+          for pid in "${PIDS[@]}"; do
+            if ! wait "$pid"; then
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "::error::One or more version resolutions failed" >&2
+            exit 1
+          fi
+
+          echo "::endgroup::"
+
+          # Collect all results
+          RESOLVED_MATRIX=$(cat "$TEMP_DIR"/result_*.json | jq -s '.')
+          echo "::group::Resolved Matrix (before deduplication)"; echo "$RESOLVED_MATRIX" | jq '.'; echo "::endgroup::"
+
+          DEDUPLICATED_MATRIX=$(echo "$RESOLVED_MATRIX" | jq -c 'reduce .[] as $i ([]; if any(.[]; . == $i) then . else . + [$i] end)')
+          echo "::group::Final Matrix (after deduplication)"; echo "$DEDUPLICATED_MATRIX" | jq '.'; echo "::endgroup::"
+
+          echo "matrix=$DEDUPLICATED_MATRIX" >> "$GITHUB_OUTPUT"
+
+  integration-tests:
+    needs: prepare-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/integration-test.yml
+    with:
+      kafka_provider: ${{ matrix.kafka_provider }}
+      provider_version: ${{ matrix.provider_version }}
+      kafka_connect_mode: ${{ matrix.kafka_connect_mode }}
+      scylla_version: ${{ matrix.scylla_version }}
