@@ -116,18 +116,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "List of CDC-enabled table names for connector to read. "
                   + "Provided as a comma-separated list of pairs <keyspace name>.<table name>");
 
-  public static final CollectionsMode DEFAULT_COLLECTIONS_MODE = CollectionsMode.DELTA;
-  public static final Field COLLECTIONS_MODE =
-      Field.create("scylla.collections.mode")
-          .withDisplayName("Collections format")
-          .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
-          .withWidth(ConfigDef.Width.SHORT)
-          .withImportance(ConfigDef.Importance.MEDIUM)
-          .withDescription(
-              "Specifies how non-frozen collections are represented. Currently, only 'delta' mode is supported. "
-                  + "In delta mode, collection changes are represented as a struct with 'mode' and 'elements' fields, "
-                  + "where 'mode' indicates the type of change (modify or overwrite) and 'elements' contains the added or removed elements.");
-
   public static final Field USER =
       Field.create("scylla.user")
           .withDisplayName("User")
@@ -555,15 +543,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
       }
     }
     return 9042;
-  }
-
-  public CollectionsMode getCollectionsMode() {
-    String collectionsModeValue = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
-    try {
-      return CollectionsMode.valueOf(collectionsModeValue.toUpperCase());
-    } catch (IllegalArgumentException ex) {
-      return DEFAULT_COLLECTIONS_MODE;
-    }
   }
 
   @Override

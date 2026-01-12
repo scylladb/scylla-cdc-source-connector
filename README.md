@@ -216,37 +216,36 @@ If the operation did not modify the `v` column, the data event will contain the 
 See `UPDATE` example for full  data change event's value.
 
 #### Collections
+
 Connector supports both frozen and non-frozen collections.
-Format for frozen collections is as follows (those structs will be stored in "Cell" mentioned above):
- - `List` and `Set` of type T are represented as `Schema.array(T)`. In the JSON format, this is also an array.
- - `Map` with key type K and value type V is represented as `Schema.map(K, V)`. In JSON, this is an array (not object!) of 2-element arrays (first element is key, second is value).
- - `UDT` is represented as a struct. In JSON, this is an object.
 
-Non-frozen collections are a bit more complicated. `scylla.collections.mode` config defines which representation will be used. Currently, only `delta` mode is supported. In the future, more modes (e.g. preimage / postimage) may be added.
+**Frozen collections:**
+- `List` and `Set` of type T are represented as `Schema.array(T)`. In the JSON format, this is also an array.
+- `Map` with key type K and value type V is represented as `Schema.map(K, V)`. In JSON, this is an array (not object!) of 2-element arrays (first element is key, second is value).
+- `UDT` is represented as a struct. In JSON, this is an object.
 
-##### Non-frozen collections: delta mode.
-Each non-frozen collection column is represented inside the `value` of the "Cell" struct as a struct with fields `mode` and `elements`.
-`mode` can be:
-- `MODIFY` - some elements of the collection were added, updated or deleted.
-- `OVERWRITE` - whole content of collection was removed and new elements were added. If no elements were added (meaning the collection was just removed), this mode won't be used - instead, the whole struct stored in the `value` field of the "Cell" will be `null`.
-
-Type of `elements` field depends on collection type:
-- For `Set` of type T it is an array of structs with fields `{ "element": T, "added": boolean }`. When `added` is `true`, the element is present in the resulting set; when `false`, it was removed.
-- For `List` of type T it is an array of structs with fields `{ "key": string, "value": T }` - `key` is a timeuuid, as described in https://docs.scylladb.com/using-scylla/cdc/cdc-advanced-types/#lists. Removed elements are marked by `"value": null`.
-- For `Map` with key K and value V it is an array of structs with fields `{ "key": K, "value": V }` (compare with frozen collections, which use `Schema.map(K, V)`). Removed entries are marked by `"value": null`.
-- For `UDT` it is a struct representing this UDT, but a bit differently than in frozen UDT: each field of this struct is a "Cell" (a struct with a single field, `value`). "Cell" is used the same way as with columns - `null` means that the field wasn't changed, a "Cell" with `"value": null` means the field was removed, a field with non-null `value` means that field was overwritten.
+**Non-frozen collections:**
+Non-frozen collections always use delta semantics. Each non-frozen collection column is represented inside the `value` of the "Cell" struct as a struct with fields `mode` and `elements`:
+- `mode` can be:
+  - `MODIFY` - some elements of the collection were added, updated or deleted.
+  - `OVERWRITE` - whole content of collection was removed and new elements were added. If no elements were added (meaning the collection was just removed), this mode won't be used - instead, the whole struct stored in the `value` field of the "Cell" will be `null`.
+- Type of `elements` field depends on collection type:
+  - For `Set` of type T it is an array of structs with fields `{ "element": T, "added": boolean }`. When `added` is `true`, the element is present in the resulting set; when `false`, it was removed.
+  - For `List` of type T it is an array of structs with fields `{ "key": string, "value": T }` - `key` is a timeuuid, as described in https://docs.scylladb.com/using-scylla/cdc/cdc-advanced-types/#lists. Removed elements are marked by `"value": null`.
+  - For `Map` with key K and value V it is an array of structs with fields `{ "key": K, "value": V }`. Removed entries are marked by `"value": null`.
+  - For `UDT` it is a struct representing this UDT, but a bit differently than in frozen UDT: each field of this struct is a "Cell" (a struct with a single field, `value`). "Cell" is used the same way as with columns - `null` means that the field wasn't changed, a "Cell" with `"value": null` means the field was removed, a field with non-null `value` means that field was overwritten.
 
 There is no separate `removed_elements` field in the emitted schema. All per-element removals are expressed through the `elements` field as described above.
 
-Non-frozen (delta) semantics apply only to **top-level collection and UDT columns** on the base table, that is, columns for which Scylla CDC exposes `cdc$deleted_elements_<column>` metadata. Collections or UDTs that appear inside another type (for example, as fields of a UDT, or as collection element/value types) are always treated as **frozen** by the connector and use the frozen formats described above, even if their CQL definition does not explicitly use `frozen<...>`.
+Delta semantics apply only to **top-level collection and UDT columns** on the base table, that is, columns for which Scylla CDC exposes `cdc$deleted_elements_<column>` metadata. Collections or UDTs that appear inside another type (for example, as fields of a UDT, or as collection element/value types) are always treated as **frozen** by the connector and use the frozen formats described above, even if their CQL definition does not explicitly use `frozen<...>`.
 
 ###### Limitations for empty vs NULL on non-frozen collections
 
-When using non-frozen collections in delta mode, Scylla CDC exposes element-level additions and removals via the `cdc$deleted_elements_` columns and a single top-level `cdc$deleted_` flag per collection column. For some write patterns (in particular, `INSERT` with empty collections such as `[], {}, {}` versus `INSERT` with `NULL` for the same columns), the CDC log does not contain enough information to distinguish between "explicit empty" and "explicit NULL" for non-frozen collections without performing an additional read from the base table.
+For non-frozen collections, Scylla CDC exposes element-level additions and removals via the `cdc$deleted_elements_` columns and a single top-level `cdc$deleted_` flag per collection column. For some write patterns (in particular, `INSERT` with empty collections such as `[], {}, {}` versus `INSERT` with `NULL` for the same columns), the CDC log does not contain enough information to distinguish between "explicit empty" and "explicit NULL" for non-frozen collections without performing an additional read from the base table.
 
 To avoid guessing, the connector intentionally treats INSERTs of non-frozen collections that have no element-level deltas (no added or deleted elements in CDC) as **ambiguous** and represents them as a top-level `null` in the Kafka record. In practice this means:
 
-- For non-frozen collections in delta mode, on INSERT:
+- On INSERT:
   - If there are concrete element deltas (elements added/removed), the connector emits a `value` struct with `mode` (`OVERWRITE`) and `elements`.
   - If there are no element deltas and only the top-level deleted flag is present, the connector emits the collection column as `null` in the Debezium `after` struct, regardless of whether the original CQL write used `[]/{}` or `NULL`.
 - On UPDATE/DELETE where the whole non-frozen collection is removed, the connector emits a Cell with `value = null` (consistent with other column types).
