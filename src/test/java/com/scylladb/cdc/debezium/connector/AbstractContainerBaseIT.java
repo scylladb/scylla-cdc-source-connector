@@ -1,15 +1,20 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.github.dockerjava.api.async.ResultCallback;
+import com.github.dockerjava.api.model.Frame;
 import com.google.common.flogger.FluentLogger;
 import com.google.common.util.concurrent.Uninterruptibles;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.TestWatcher;
@@ -23,6 +28,8 @@ import org.testcontainers.utility.DockerImageName;
 
 @ExtendWith(AbstractContainerBaseIT.ContainerLogWatcher.class)
 public abstract class AbstractContainerBaseIT {
+  private static final int MAX_TABLE_NAME_LENGTH = 48;
+  private static final int MAX_CONNECTOR_NAME_LENGTH = 80;
 
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
@@ -42,21 +49,26 @@ public abstract class AbstractContainerBaseIT {
 
     try {
       if (KAFKA_PROVIDER == KafkaProvider.APACHE && apacheKafkaContainer != null) {
-        logger.atInfo().log("Apache Kafka container logs:\n%s", apacheKafkaContainer.getLogs());
+        logger.atInfo().log(
+            "Apache Kafka container logs:\n%s",
+            getContainerLogs(apacheKafkaContainer, 2000, 256 * 1024));
       } else if (KAFKA_PROVIDER == KafkaProvider.CONFLUENT) {
         if (confluentKafkaContainer != null) {
           logger.atInfo().log(
-              "Confluent Kafka container logs:\n%s", confluentKafkaContainer.getLogs());
+              "Confluent Kafka container logs:\n%s",
+              getContainerLogs(confluentKafkaContainer, 2000, 256 * 1024));
         }
         if (schemaRegistryContainer != null) {
           logger.atInfo().log(
-              "Schema Registry container logs:\n%s", schemaRegistryContainer.getLogs());
+              "Schema Registry container logs:\n%s",
+              getContainerLogs(schemaRegistryContainer, 2000, 256 * 1024));
         }
       }
 
       // Log ScyllaDB container logs
       if (scyllaDBContainer != null) {
-        logger.atInfo().log("ScyllaDB container logs:\n%s", scyllaDBContainer.getLogs());
+        logger.atInfo().log(
+            "ScyllaDB container logs:\n%s", getContainerLogs(scyllaDBContainer, 2000, 256 * 1024));
       }
     } catch (Exception e) {
       logger.atWarning().withCause(e).log("Failed to collect container logs on test failure");
@@ -719,7 +731,9 @@ public abstract class AbstractContainerBaseIT {
         }
 
         // Kafka Connect logs are written to /tmp/kafka-connect.log
-        return apacheKafkaContainer.execInContainer("cat", "/tmp/kafka-connect.log").getStdout();
+        return apacheKafkaContainer
+            .execInContainer("sh", "-c", "tail -n 2000 /tmp/kafka-connect.log || true")
+            .getStdout();
 
       } else if (KAFKA_PROVIDER == KafkaProvider.CONFLUENT) {
         if (KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED) {
@@ -729,7 +743,7 @@ public abstract class AbstractContainerBaseIT {
           }
 
           // Get logs from the dedicated Kafka Connect container
-          return kafkaConnectContainer.getLogs();
+          return getContainerLogs(kafkaConnectContainer, 2000, 256 * 1024);
 
         } else {
           // For Confluent standalone mode, Connect runs inside the Kafka container
@@ -739,7 +753,7 @@ public abstract class AbstractContainerBaseIT {
 
           // Kafka Connect logs are written to /tmp/kafka-connect.log
           return confluentKafkaContainer
-              .execInContainer("cat", "/tmp/kafka-connect.log")
+              .execInContainer("sh", "-c", "tail -n 2000 /tmp/kafka-connect.log || true")
               .getStdout();
         }
       }
@@ -761,5 +775,86 @@ public abstract class AbstractContainerBaseIT {
     // Start the ScyllaDB container
     logger.atInfo().log("Starting ScyllaDB container with version: %s", SCYLLA_VERSION);
     startScyllaDB();
+  }
+
+  private static String getContainerLogs(
+      GenericContainer<?> container, int tailLines, int maxChars) {
+    if (container == null || !container.isRunning()) {
+      return null;
+    }
+    StringBuilder logs = new StringBuilder();
+    try {
+      ResultCallback.Adapter<Frame> callback =
+          new ResultCallback.Adapter<>() {
+            @Override
+            public void onNext(Frame frame) {
+              if (logs.length() >= maxChars) {
+                return;
+              }
+              String payload = new String(frame.getPayload(), StandardCharsets.UTF_8);
+              int remaining = maxChars - logs.length();
+              if (payload.length() > remaining) {
+                logs.append(payload, 0, remaining);
+              } else {
+                logs.append(payload);
+              }
+            }
+          };
+
+      container
+          .getDockerClient()
+          .logContainerCmd(container.getContainerId())
+          .withStdOut(true)
+          .withStdErr(true)
+          .withTail(tailLines)
+          .exec(callback)
+          .awaitCompletion(10, TimeUnit.SECONDS);
+    } catch (Exception e) {
+      logger.atWarning().withCause(e).log("Failed to retrieve container logs");
+      return "Error retrieving logs: " + e.getMessage();
+    }
+
+    return logs.toString();
+  }
+
+  protected static String connectorName(TestInfo testInfo) {
+    String testMethodName = testInfo.getTestMethod().orElseThrow().getName();
+    String className = simplifyName(testInfo.getTestClass().orElseThrow().getName());
+    return trimWithHash(className + "_" + testMethodName, MAX_CONNECTOR_NAME_LENGTH);
+  }
+
+  protected static String tableName(TestInfo testInfo) {
+    return trimWithHash(testInfo.getTestMethod().orElseThrow().getName(), MAX_TABLE_NAME_LENGTH)
+        .toLowerCase(Locale.ROOT);
+  }
+
+  protected static String keyspaceName(TestInfo testInfo) {
+    return trimWithHash(
+            simplifyName(testInfo.getTestClass().orElseThrow().getName()), MAX_TABLE_NAME_LENGTH)
+        .toLowerCase(Locale.ROOT);
+  }
+
+  protected static String keyspaceTableName(TestInfo testInfo) {
+    return keyspaceName(testInfo) + "." + tableName(testInfo);
+  }
+
+  public static String simplifyName(String input) {
+    // 1) Take only the part after the last dot
+    String afterLastDot = input.substring(input.lastIndexOf('.') + 1);
+
+    // 2) Remove nested class separators without dropping the outer class name.
+    return afterLastDot.replace("$", "");
+  }
+
+  static String trimWithHash(String value, int maxLength) {
+    if (value.length() <= maxLength) {
+      return value;
+    }
+    String hash = Integer.toHexString(value.hashCode());
+    int maxPrefixLength = maxLength - hash.length() - 1;
+    if (maxPrefixLength <= 0) {
+      return value.substring(0, maxLength);
+    }
+    return value.substring(0, maxPrefixLength) + "_" + hash;
   }
 }

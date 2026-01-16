@@ -6,24 +6,24 @@ import java.util.List;
 import java.util.Properties;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 
 public class StartConnectorIT extends AbstractContainerBaseIT {
 
-  private static final String SCYLLA_TEST_CONNECTOR = "ScyllaTestConnector";
-
   @AfterEach
-  public void removeAllConnectors() {
+  public void cleanUp(TestInfo testInfo) {
     try {
-      KafkaConnectUtils.removeAllConnectors();
+      KafkaConnectUtils.removeConnector(connectorName(testInfo));
     } catch (Exception e) {
-      throw new RuntimeException("Failed to clean up connectors after the test.", e);
+      throw new RuntimeException("Failed to remove connector: " + connectorName(testInfo), e);
     }
   }
 
   @Test
-  public void canRegisterScyllaConnector() {
+  public void canRegisterScyllaConnector(TestInfo testInfo) {
+    String connectorName = connectorName(testInfo);
+
     try (Cluster cluster =
             Cluster.builder()
                 .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
@@ -32,34 +32,22 @@ public class StartConnectorIT extends AbstractContainerBaseIT {
         KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer()) {
       Session session = cluster.connect();
       session.execute(
-          "CREATE KEYSPACE IF NOT EXISTS connectortest WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+          "CREATE KEYSPACE IF NOT EXISTS "
+              + "connectortest"
+              + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
       // Create a table with cdc enabled
       session.execute(
-          "CREATE TABLE IF NOT EXISTS connectortest.test_table (id int PRIMARY KEY, name text) WITH cdc = {'enabled':true}");
+          "CREATE TABLE IF NOT EXISTS "
+              + "connectortest.test_table"
+              + " (id int PRIMARY KEY, name text) WITH cdc = {'enabled':true}");
       session.execute("INSERT INTO connectortest.test_table (id, name) VALUES (1, 'test_text');");
       session.close();
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
-      connectorConfiguration.put("topic.prefix", "namespace");
+      connectorConfiguration.put("topic.prefix", connectorName);
       connectorConfiguration.put("scylla.table.names", "connectortest.test_table");
-      connectorConfiguration.put("name", SCYLLA_TEST_CONNECTOR);
-      try {
-        int responseCode =
-            KafkaConnectUtils.registerConnector(connectorConfiguration, SCYLLA_TEST_CONNECTOR);
-        // If we get a 500 error, check if the connector is actually registered (see issue #195)
-        if (responseCode == 500) {
-          String status = KafkaConnectUtils.getConnectorStatus(SCYLLA_TEST_CONNECTOR);
-          if (status == null) {
-            Assertions.fail(
-                "Received 500 error on connector registration and connector is not registered.");
-          }
-        } else if (responseCode / 100 != 2) {
-          Assertions.fail(
-              "Received non-success response code on connector registration: " + responseCode);
-        }
-      } catch (Exception e) {
-        Assertions.fail("Could not register connector.", e);
-      }
-      consumer.subscribe(List.of("namespace.connectortest.test_table"));
+      connectorConfiguration.put("name", connectorName);
+      KafkaConnectUtils.registerConnector(connectorConfiguration, connectorName);
+      consumer.subscribe(List.of(connectorName + ".connectortest.test_table"));
       // Wait for at most 65 seconds for the connector to start and generate the message
       // corresponding to the inserted row
       long startTime = System.currentTimeMillis();
