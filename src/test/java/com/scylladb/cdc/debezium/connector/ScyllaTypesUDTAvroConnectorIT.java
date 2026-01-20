@@ -4,6 +4,9 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.TestInfo;
+
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildAvroConnector;
 
 public class ScyllaTypesUDTAvroConnectorIT
     extends ScyllaTypesUDTBase<GenericRecord, GenericRecord> {
@@ -12,6 +15,9 @@ public class ScyllaTypesUDTAvroConnectorIT
   static void checkKafkaProvider() {
     Assumptions.assumeTrue(
         KAFKA_PROVIDER == KafkaProvider.CONFLUENT, "Avro tests require Confluent Kafka provider");
+    Assumptions.assumeTrue(
+        KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED,
+        "Avro tests require distributed mode, otherwise Avro converter is not available");
   }
 
   @Override
@@ -21,12 +27,7 @@ public class ScyllaTypesUDTAvroConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<GenericRecord, GenericRecord> consumer, String[] expected) {
-    waitAndAssertAvroKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithFrozenUdt() {
+  String[] expectedInsertWithFrozenUdt(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -47,7 +48,7 @@ public class ScyllaTypesUDTAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(connectorName(testInfo), KEYSPACE, KEYSPACE, tableNameOnly())
     };
   }
 
