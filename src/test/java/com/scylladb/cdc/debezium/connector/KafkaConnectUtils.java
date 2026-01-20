@@ -5,14 +5,28 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.List;
 import java.util.Properties;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.Assertions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Utility class for Kafka Connect operations. */
 public final class KafkaConnectUtils {
+  protected static final int CONSUMER_TIMEOUT = 65 * 1000;
 
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
+
+  // Retry configuration with exponential backoff
+  private static final int MAX_RETRIES = 10;
+  private static final long INITIAL_BACKOFF_MS = 500; // 0.5 seconds
+  private static final long MAX_BACKOFF_MS = 60000; // 1 minute
+  private static final Logger log = LoggerFactory.getLogger(KafkaConnectUtils.class);
 
   private KafkaConnectUtils() {
     throw new UnsupportedOperationException("This utility class cannot be instantiated");
@@ -53,33 +67,135 @@ public final class KafkaConnectUtils {
   }
 
   /**
-   * Registers a connector with the running Kafka Connect cluster.
+   * Calculates the exponential backoff delay for a given retry attempt.
+   *
+   * @param attempt The current retry attempt (0-based)
+   * @return The delay in milliseconds, capped at MAX_BACKOFF_MS
+   */
+  private static long calculateBackoffDelay(int attempt) {
+    long delay = INITIAL_BACKOFF_MS * (1L << attempt); // 2^attempt * initial
+    return Math.min(delay, MAX_BACKOFF_MS);
+  }
+
+  /**
+   * Sleeps for the exponential backoff duration for the given retry attempt.
+   *
+   * @param attempt The current retry attempt (0-based)
+   * @throws InterruptedException if the thread is interrupted during sleep
+   */
+  private static void sleepWithBackoff(int attempt) throws InterruptedException {
+    long delay = calculateBackoffDelay(attempt);
+    logger.atFine().log("Retry attempt %d, sleeping for %d ms", attempt + 1, delay);
+    Thread.sleep(delay);
+  }
+
+  /**
+   * Extracts the connector name from a connector configuration JSON string.
+   *
+   * @param connectorConfigJson The connector configuration as a JSON string
+   * @return The connector name, or null if not found
+   */
+  private static String extractConnectorName(String connectorConfigJson) {
+    // Simple parsing for "name":"value" pattern
+    int nameIndex = connectorConfigJson.indexOf("\"name\"");
+    if (nameIndex == -1) {
+      return null;
+    }
+    int colonIndex = connectorConfigJson.indexOf(":", nameIndex);
+    if (colonIndex == -1) {
+      return null;
+    }
+    int startQuote = connectorConfigJson.indexOf("\"", colonIndex);
+    if (startQuote == -1) {
+      return null;
+    }
+    int endQuote = connectorConfigJson.indexOf("\"", startQuote + 1);
+    if (endQuote == -1) {
+      return null;
+    }
+    return connectorConfigJson.substring(startQuote + 1, endQuote);
+  }
+
+  /**
+   * Registers a connector with the running Kafka Connect cluster. Retries on 5xx errors with
+   * exponential backoff, checking if the connector was actually created before each retry.
    *
    * @param connectorConfigJson The connector configuration as a JSON string
    * @return The HTTP response code from the Connect REST API
    * @throws Exception if registration fails or Kafka Connect is not running
    */
-  public static int registerConnector(String connectorConfigJson) throws Exception {
+  public static void registerConnector(String connectorConfigJson) {
     String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
     if (connectUrl == null) {
       throw new IllegalStateException("Kafka Connect is not running");
     }
 
-    URL url = new URL(connectUrl + "/connectors");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("POST");
-    conn.setRequestProperty("Content-Type", "application/json");
-    conn.setDoOutput(true);
-    try (OutputStream os = conn.getOutputStream()) {
-      os.write(connectorConfigJson.getBytes());
-      os.flush();
+    String connectorName = extractConnectorName(connectorConfigJson);
+    if (connectorName == null) {
+      throw new IllegalStateException("Connector name should be present");
     }
 
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("POST %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-    conn.disconnect();
-    return responseCode;
+    int responseCode = 0;
+    String responseBody = "";
+
+    for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      URL url;
+      try {
+        url = new URL(connectUrl + "/connectors");
+      } catch (MalformedURLException e) {
+        throw new RuntimeException(e);
+      }
+      HttpURLConnection conn;
+      try {
+        conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+        try (OutputStream os = conn.getOutputStream()) {
+          os.write(connectorConfigJson.getBytes());
+          os.flush();
+        }
+
+        responseBody = readResponse(conn);
+        responseCode = conn.getResponseCode();
+      } catch (Exception e) {
+        logger.atFinest().log(
+            "POST %s - Failed to send query (attempt %d): %s", url, attempt + 1, e.getMessage());
+        continue;
+      }
+      logger.atFinest().log(
+          "POST %s - Response code: %d, Body: %s (attempt %d)",
+          url, responseCode, responseBody, attempt + 1);
+      conn.disconnect();
+
+      // Check if connector was actually created before retrying
+      try {
+        String status = getConnectorStatus(connectorName);
+        if (status != null) {
+          logger.atFine().log("Connector %s was confirmed to be present", connectorName);
+          return;
+        }
+      } catch (Exception e) {
+        logger.atFine().log("Failed to check connector status during retry: %s", e.getMessage());
+      }
+
+      // Retry with backoff if we have more attempts
+      if (attempt < MAX_RETRIES) {
+        try {
+          sleepWithBackoff(attempt);
+        } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+
+    throw new RuntimeException(
+        "Failed to register connector after "
+            + (MAX_RETRIES + 1)
+            + " attempts. Last response code: "
+            + responseCode
+            + ", body: "
+            + responseBody);
   }
 
   /**
@@ -91,14 +207,21 @@ public final class KafkaConnectUtils {
    * @return The HTTP response code from the Connect REST API
    * @throws Exception if registration fails or Kafka Connect is not running
    */
-  public static int registerConnector(Properties properties, String connectorName)
-      throws Exception {
+  public static void registerConnector(Properties properties, String connectorName) {
     String connectorConfigJson = propertiesToConnectorJson(connectorName, properties);
-    return registerConnector(connectorConfigJson);
+    registerConnector(connectorConfigJson);
+    try {
+      KafkaConnectUtils.waitForConnectorRunning(connectorName, 30_000);
+    } catch (Exception e) {
+      RuntimeException ex = new RuntimeException("Connector failed to reach RUNNING state.", e);
+      ex.addSuppressed(e);
+      throw ex;
+    }
   }
 
   /**
-   * Gets the status of a connector from the running Kafka Connect cluster.
+   * Gets the status of a connector from the running Kafka Connect cluster. Retries on 500 errors
+   * with exponential backoff.
    *
    * @param connectorName The name of the connector
    * @return JSON string containing the connector status, or null if connector doesn't exist
@@ -110,28 +233,50 @@ public final class KafkaConnectUtils {
       throw new IllegalStateException("Kafka Connect is not running");
     }
 
-    URL url = new URL(connectUrl + "/connectors/" + connectorName + "/status");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("GET");
-    conn.setRequestProperty("Accept", "application/json");
+    int responseCode = 0;
+    String responseBody = "";
 
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("GET %s - Response code: %d, Body: %s", url, responseCode, responseBody);
+    for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      URL url = new URL(connectUrl + "/connectors/" + connectorName + "/status");
+      HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+      conn.setRequestMethod("GET");
+      conn.setRequestProperty("Accept", "application/json");
 
-    if (responseCode == 404) {
+      responseBody = readResponse(conn);
+      responseCode = conn.getResponseCode();
+      logger.atFinest().log(
+          "GET %s - Response code: %d, Body: %s (attempt %d)",
+          url, responseCode, responseBody, attempt + 1);
       conn.disconnect();
-      return null; // Connector doesn't exist
-    }
 
-    if (responseCode != 200) {
-      conn.disconnect();
+      if (responseCode == 404) {
+        return null; // Connector doesn't exist
+      }
+
+      if (responseCode == 200) {
+        return responseBody;
+      }
+
+      // Retry on 5xx errors
+      if (responseCode / 100 == 5) {
+        if (attempt < MAX_RETRIES) {
+          sleepWithBackoff(attempt);
+          continue;
+        }
+      }
+
+      // Other errors - don't retry
       throw new RuntimeException(
           "Failed to get connector status. HTTP error code: " + responseCode);
     }
 
-    conn.disconnect();
-    return responseBody;
+    throw new RuntimeException(
+        "Failed to get connector status after "
+            + (MAX_RETRIES + 1)
+            + " attempts. Last response code: "
+            + responseCode
+            + ", body: "
+            + responseBody);
   }
 
   /**
@@ -185,6 +330,37 @@ public final class KafkaConnectUtils {
   }
 
   /**
+   * Waits for a connector to reach RUNNING state, or throws if it fails or times out.
+   *
+   * @param connectorName The name of the connector
+   * @param timeoutMs Maximum time to wait
+   */
+  public static void waitForConnectorRunning(String connectorName, long timeoutMs)
+      throws Exception {
+    long start = System.currentTimeMillis();
+    String lastStatus = null;
+    while (System.currentTimeMillis() - start < timeoutMs) {
+      lastStatus = getConnectorStatus(connectorName);
+      if (lastStatus == null) {
+        Thread.sleep(1000);
+        continue;
+      }
+      if (lastStatus.contains("\"state\":\"FAILED\"")) {
+        throw new IllegalStateException("Connector entered FAILED state: " + lastStatus);
+      }
+      if (lastStatus.contains("\"state\":\"RUNNING\"")) {
+        return;
+      }
+      Thread.sleep(1000);
+    }
+    throw new IllegalStateException(
+        "Connector did not reach RUNNING state within "
+            + timeoutMs
+            + " ms. Last status: "
+            + lastStatus);
+  }
+
+  /**
    * Deletes a connector from the running Kafka Connect cluster.
    *
    * @param connectorName The name of the connector to delete
@@ -207,6 +383,17 @@ public final class KafkaConnectUtils {
         "DELETE %s - Response code: %d, Body: %s", url, responseCode, responseBody);
     conn.disconnect();
     return responseCode;
+  }
+
+  /**
+   * Removes a single connector from the running Kafka Connect cluster.
+   *
+   * @param connectorName The name of the connector to delete
+   * @return The HTTP response code from the Connect REST API
+   * @throws Exception if the request fails or Kafka Connect is not running
+   */
+  public static int removeConnector(String connectorName) throws Exception {
+    return deleteConnector(connectorName);
   }
 
   /**
@@ -503,5 +690,58 @@ public final class KafkaConnectUtils {
       return null;
     }
     return "http://schema-registry:" + AbstractContainerBaseIT.SCHEMA_REGISTRY_PORT;
+  }
+
+  static KafkaConsumer<GenericRecord, GenericRecord> buildAvroConnector(
+      String connectorConfigName, String tableName) {
+    KafkaConsumer<GenericRecord, GenericRecord> consumer = KafkaUtils.createAvroConsumer();
+    Properties connectorConfiguration = KafkaConnectUtils.createAvroConnectorProperties();
+    connectorConfiguration.put("topic.prefix", connectorConfigName);
+    connectorConfiguration.put("scylla.table.names", tableName);
+    connectorConfiguration.put("name", connectorConfigName);
+    registerConnector(connectorConfiguration, connectorConfigName);
+    consumer.subscribe(List.of(connectorConfigName + "." + tableName));
+    return consumer;
+  }
+
+  static KafkaConsumer<String, String> buildScyllaExtractNewRecordStateConnector(
+      String connectorConfigName, String tableName) {
+    KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    connectorConfiguration.put("topic.prefix", connectorConfigName);
+    connectorConfiguration.put("scylla.table.names", tableName);
+    connectorConfiguration.put("name", connectorConfigName);
+    connectorConfiguration.put("transforms", "extractNewRecordState");
+    connectorConfiguration.put(
+        "transforms.extractNewRecordState.type",
+        "com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState");
+    registerConnector(connectorConfiguration, connectorConfigName);
+    consumer.subscribe(List.of(connectorConfigName + "." + tableName));
+    return consumer;
+  }
+
+  static KafkaConsumer<String, String> buildPlainConnector(
+      String connectorConfigName, String tableName) {
+    KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    connectorConfiguration.put("topic.prefix", connectorConfigName);
+    connectorConfiguration.put("scylla.table.names", tableName);
+    connectorConfiguration.put("name", connectorConfigName);
+    registerConnector(connectorConfiguration, connectorConfigName);
+    consumer.subscribe(List.of(connectorConfigName + "." + tableName));
+    return consumer;
+  }
+
+  static void waitForConsumerAssignment(KafkaConsumer<?, ?> consumer) {
+    long startTime = System.currentTimeMillis();
+    while (consumer.assignment().isEmpty()
+        && System.currentTimeMillis() - startTime < CONSUMER_TIMEOUT) {
+      consumer.poll(java.time.Duration.ofSeconds(1));
+    }
+    if (consumer.assignment().isEmpty()) {
+      Assertions.fail(
+          "Consumer did not receive partition assignment within " + CONSUMER_TIMEOUT + " ms.");
+    }
+    consumer.seekToBeginning(consumer.assignment());
   }
 }
