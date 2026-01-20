@@ -1,6 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildPlainConnector;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, String> {
   @Override
@@ -9,12 +12,7 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<String, String> consumer, String[] expected) {
-    waitAndAssertKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithFrozenUdt() {
+  String[] expectedInsertWithFrozenUdt(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -35,12 +33,16 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithNonFrozenUdt() {
+  String[] expectedInsertWithNonFrozenUdt(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -66,12 +68,16 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithNullUdt() {
+  String[] expectedInsertWithNullUdt(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -92,15 +98,20 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "d",
           """
             {
@@ -113,10 +124,11 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
   }
 
   @Override
-  String[] expectedUpdateFrozenUdtFromValueToValue() {
+  String[] expectedUpdateFrozenUdtFromValueToValue(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -129,10 +141,11 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
   }
 
   @Override
-  String[] expectedUpdateFrozenUdtFromValueToNull() {
+  String[] expectedUpdateFrozenUdtFromValueToNull(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -145,10 +158,11 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
   }
 
   @Override
-  String[] expectedUpdateNonFrozenUdtField() {
+  String[] expectedUpdateNonFrozenUdtField(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """

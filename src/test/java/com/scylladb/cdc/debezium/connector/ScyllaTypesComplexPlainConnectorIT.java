@@ -1,6 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildPlainConnector;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<String, String> {
   @Override
@@ -9,12 +12,7 @@ public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<S
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<String, String> consumer, String[] expected) {
-    waitAndAssertKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithAllTypes() {
+  String[] expectedInsertWithAllTypes(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -77,12 +75,16 @@ public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<S
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithNullTypes() {
+  String[] expectedInsertWithNullTypes(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -106,15 +108,20 @@ public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<S
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "d",
           """
             {
@@ -127,10 +134,11 @@ public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<S
   }
 
   @Override
-  String[] expectedUpdateFrozenAddr() {
+  String[] expectedUpdateFrozenAddr(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -149,10 +157,11 @@ public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<S
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrField() {
+  String[] expectedUpdateNonFrozenAddrField(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -172,10 +181,11 @@ public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<S
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrSet() {
+  String[] expectedUpdateNonFrozenAddrSet(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -198,10 +208,11 @@ public class ScyllaTypesComplexPlainConnectorIT extends ScyllaTypesComplexBase<S
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrMap() {
+  String[] expectedUpdateNonFrozenAddrMap(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """

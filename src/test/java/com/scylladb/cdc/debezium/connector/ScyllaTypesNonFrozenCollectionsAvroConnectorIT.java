@@ -1,9 +1,12 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildAvroConnector;
+
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
     extends ScyllaTypesNonFrozenCollectionsBase<GenericRecord, GenericRecord> {
@@ -12,6 +15,9 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   static void checkKafkaProvider() {
     Assumptions.assumeTrue(
         KAFKA_PROVIDER == KafkaProvider.CONFLUENT, "Avro tests require Confluent Kafka provider");
+    Assumptions.assumeTrue(
+        KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED,
+        "Avro tests require distributed mode, otherwise Avro converter is not available");
   }
 
   @Override
@@ -21,12 +27,7 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<GenericRecord, GenericRecord> consumer, String[] expected) {
-    waitAndAssertAvroKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithValues() {
+  String[] expectedInsertWithValues(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -48,12 +49,16 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithNull() {
+  String[] expectedInsertWithNull(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -75,15 +80,20 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "d",
           """
             {
@@ -96,10 +106,11 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateListAddElement() {
+  String[] expectedUpdateListAddElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -112,10 +123,11 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateSetAddElement() {
+  String[] expectedUpdateSetAddElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -128,10 +140,11 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateMapAddElement() {
+  String[] expectedUpdateMapAddElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -144,10 +157,11 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateListRemoveElement() {
+  String[] expectedUpdateListRemoveElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -160,10 +174,11 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateSetRemoveElement() {
+  String[] expectedUpdateSetRemoveElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -176,10 +191,11 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateMapRemoveElement() {
+  String[] expectedUpdateMapRemoveElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """

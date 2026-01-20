@@ -1,6 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildPlainConnector;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
     extends ScyllaTypesNonFrozenCollectionsBase<String, String> {
@@ -10,12 +13,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<String, String> consumer, String[] expected) {
-    waitAndAssertKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithValues() {
+  String[] expectedInsertWithValues(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -37,12 +35,16 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithNull() {
+  String[] expectedInsertWithNull(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -64,15 +66,20 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "d",
           """
             {
@@ -85,10 +92,11 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   }
 
   @Override
-  String[] expectedUpdateListAddElement() {
+  String[] expectedUpdateListAddElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -101,10 +109,11 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   }
 
   @Override
-  String[] expectedUpdateSetAddElement() {
+  String[] expectedUpdateSetAddElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -117,10 +126,11 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   }
 
   @Override
-  String[] expectedUpdateMapAddElement() {
+  String[] expectedUpdateMapAddElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -133,10 +143,11 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   }
 
   @Override
-  String[] expectedUpdateListRemoveElement() {
+  String[] expectedUpdateListRemoveElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -149,10 +160,11 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   }
 
   @Override
-  String[] expectedUpdateSetRemoveElement() {
+  String[] expectedUpdateSetRemoveElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -165,10 +177,11 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   }
 
   @Override
-  String[] expectedUpdateMapRemoveElement() {
+  String[] expectedUpdateMapRemoveElement(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """

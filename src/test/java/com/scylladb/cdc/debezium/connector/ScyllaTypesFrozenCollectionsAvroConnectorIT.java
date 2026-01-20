@@ -1,9 +1,12 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildAvroConnector;
+
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesFrozenCollectionsAvroConnectorIT
     extends ScyllaTypesFrozenCollectionsBase<GenericRecord, GenericRecord> {
@@ -12,6 +15,9 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
   static void checkKafkaProvider() {
     Assumptions.assumeTrue(
         KAFKA_PROVIDER == KafkaProvider.CONFLUENT, "Avro tests require Confluent Kafka provider");
+    Assumptions.assumeTrue(
+        KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED,
+        "Avro tests require distributed mode, otherwise Avro converter is not available");
   }
 
   @Override
@@ -21,12 +27,7 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<GenericRecord, GenericRecord> consumer, String[] expected) {
-    waitAndAssertAvroKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithValues() {
+  String[] expectedInsertWithValues(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -49,12 +50,16 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithEmpty() {
+  String[] expectedInsertWithEmpty(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -77,12 +82,16 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithNull() {
+  String[] expectedInsertWithNull(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -105,15 +114,20 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "d",
           """
             {
@@ -126,10 +140,11 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromValueToValue() {
+  String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -145,10 +160,11 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromValueToEmpty() {
+  String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -164,10 +180,11 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromValueToNull() {
+  String[] expectedUpdateFromValueToNull(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -183,10 +200,11 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToValue() {
+  String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -202,10 +220,11 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromNullToValue() {
+  String[] expectedUpdateFromNullToValue(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """

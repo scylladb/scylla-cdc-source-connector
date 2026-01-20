@@ -1,6 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildScyllaExtractNewRecordStateConnector;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesComplexNewRecordStateConnectorIT
     extends ScyllaTypesComplexBase<String, String> {
@@ -10,12 +13,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<String, String> consumer, String[] expected) {
-    waitAndAssertKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithAllTypes() {
+  String[] expectedInsertWithAllTypes(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -45,7 +43,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedInsertWithNullTypes() {
+  String[] expectedInsertWithNullTypes(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -61,7 +59,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -71,7 +69,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFrozenAddr() {
+  String[] expectedUpdateFrozenAddr(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -91,7 +89,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrField() {
+  String[] expectedUpdateNonFrozenAddrField(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -107,7 +105,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrSet() {
+  String[] expectedUpdateNonFrozenAddrSet(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -125,7 +123,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrMap() {
+  String[] expectedUpdateNonFrozenAddrMap(TestInfo testInfo) {
     return new String[] {
       """
         {

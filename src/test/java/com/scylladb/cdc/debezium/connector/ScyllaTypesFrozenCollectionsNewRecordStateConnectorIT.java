@@ -1,6 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildScyllaExtractNewRecordStateConnector;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
     extends ScyllaTypesFrozenCollectionsBase<String, String> {
@@ -10,12 +13,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<String, String> consumer, String[] expected) {
-    waitAndAssertKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithValues() {
+  String[] expectedInsertWithValues(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -30,7 +28,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedInsertWithEmpty() {
+  String[] expectedInsertWithEmpty(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -45,7 +43,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedInsertWithNull() {
+  String[] expectedInsertWithNull(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -60,7 +58,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -70,7 +68,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromValueToValue() {
+  String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -89,7 +87,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromValueToEmpty() {
+  String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -108,7 +106,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromValueToNull() {
+  String[] expectedUpdateFromValueToNull(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -127,7 +125,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToValue() {
+  String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -146,7 +144,7 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFromNullToValue() {
+  String[] expectedUpdateFromNullToValue(TestInfo testInfo) {
     return new String[] {
       """
         {

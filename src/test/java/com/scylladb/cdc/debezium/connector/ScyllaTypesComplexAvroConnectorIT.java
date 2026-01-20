@@ -1,9 +1,12 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildAvroConnector;
+
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesComplexAvroConnectorIT
     extends ScyllaTypesComplexBase<GenericRecord, GenericRecord> {
@@ -12,6 +15,9 @@ public class ScyllaTypesComplexAvroConnectorIT
   static void checkKafkaProvider() {
     Assumptions.assumeTrue(
         KAFKA_PROVIDER == KafkaProvider.CONFLUENT, "Avro tests require Confluent Kafka provider");
+    Assumptions.assumeTrue(
+        KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED,
+        "Avro tests require distributed mode, otherwise Avro converter is not available");
   }
 
   @Override
@@ -21,12 +27,7 @@ public class ScyllaTypesComplexAvroConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<GenericRecord, GenericRecord> consumer, String[] expected) {
-    waitAndAssertAvroKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithAllTypes() {
+  String[] expectedInsertWithAllTypes(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -89,12 +90,16 @@ public class ScyllaTypesComplexAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedInsertWithNullTypes() {
+  String[] expectedInsertWithNullTypes(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -118,15 +123,20 @@ public class ScyllaTypesComplexAvroConnectorIT
           }
         }
         """
-          .formatted(connectorName(), KEYSPACE, KEYSPACE, tableNameOnly())
+          .formatted(
+              connectorName(testInfo),
+              keyspaceName(testInfo),
+              keyspaceName(testInfo),
+              tableName(testInfo))
     };
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "d",
           """
             {
@@ -139,10 +149,11 @@ public class ScyllaTypesComplexAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateFrozenAddr() {
+  String[] expectedUpdateFrozenAddr(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -161,10 +172,11 @@ public class ScyllaTypesComplexAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrField() {
+  String[] expectedUpdateNonFrozenAddrField(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -184,10 +196,11 @@ public class ScyllaTypesComplexAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrSet() {
+  String[] expectedUpdateNonFrozenAddrSet(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """
@@ -210,10 +223,11 @@ public class ScyllaTypesComplexAvroConnectorIT
   }
 
   @Override
-  String[] expectedUpdateNonFrozenAddrMap() {
+  String[] expectedUpdateNonFrozenAddrMap(TestInfo testInfo) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
+          testInfo,
           "u",
           "null",
           """

@@ -1,6 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildScyllaExtractNewRecordStateConnector;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<String, String> {
   @Override
@@ -9,12 +12,7 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<String, String> consumer, String[] expected) {
-    waitAndAssertKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithFrozenUdt() {
+  String[] expectedInsertWithFrozenUdt(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -27,7 +25,7 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   }
 
   @Override
-  String[] expectedInsertWithNonFrozenUdt() {
+  String[] expectedInsertWithNonFrozenUdt(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -40,7 +38,7 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   }
 
   @Override
-  String[] expectedInsertWithNullUdt() {
+  String[] expectedInsertWithNullUdt(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -53,7 +51,7 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -63,7 +61,7 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   }
 
   @Override
-  String[] expectedUpdateFrozenUdtFromValueToValue() {
+  String[] expectedUpdateFrozenUdtFromValueToValue(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -79,7 +77,7 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   }
 
   @Override
-  String[] expectedUpdateFrozenUdtFromValueToNull() {
+  String[] expectedUpdateFrozenUdtFromValueToNull(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -95,7 +93,7 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   }
 
   @Override
-  String[] expectedUpdateNonFrozenUdtField() {
+  String[] expectedUpdateNonFrozenUdtField(TestInfo testInfo) {
     return new String[] {
       """
         {

@@ -1,6 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildScyllaExtractNewRecordStateConnector;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
     extends ScyllaTypesNonFrozenCollectionsBase<String, String> {
@@ -10,12 +13,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  void waitAndAssert(KafkaConsumer<String, String> consumer, String[] expected) {
-    waitAndAssertKafkaMessages(consumer, expected);
-  }
-
-  @Override
-  String[] expectedInsertWithValues() {
+  String[] expectedInsertWithValues(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -29,7 +27,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedInsertWithNull() {
+  String[] expectedInsertWithNull(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -43,7 +41,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedDelete() {
+  String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -53,7 +51,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateListAddElement() {
+  String[] expectedUpdateListAddElement(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -69,7 +67,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateSetAddElement() {
+  String[] expectedUpdateSetAddElement(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -85,7 +83,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateMapAddElement() {
+  String[] expectedUpdateMapAddElement(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -101,7 +99,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateListRemoveElement() {
+  String[] expectedUpdateListRemoveElement(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -117,7 +115,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateSetRemoveElement() {
+  String[] expectedUpdateSetRemoveElement(TestInfo testInfo) {
     return new String[] {
       """
         {
@@ -133,7 +131,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedUpdateMapRemoveElement() {
+  String[] expectedUpdateMapRemoveElement(TestInfo testInfo) {
     return new String[] {
       """
         {
