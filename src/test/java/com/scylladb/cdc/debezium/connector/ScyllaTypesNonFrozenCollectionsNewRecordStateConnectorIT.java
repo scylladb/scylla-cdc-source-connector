@@ -18,9 +18,9 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "list_col": {"mode": "OVERWRITE", "elements": [{"value": 10}, {"value": 20}, {"value": 30}]},
-          "set_col": {"mode": "OVERWRITE", "elements": [{"element": "x", "added": true}, {"element": "y", "added": true}, {"element": "z", "added": true}]},
-          "map_col": {"mode": "OVERWRITE", "elements": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]}
+          "list_col": [10, 20, 30],
+          "set_col": ["x", "y", "z"],
+          "map_col": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]
         }
         """
     };
@@ -60,7 +60,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "list_col": {"mode": "MODIFY", "elements": [{"value": 30}]}
+          "list_col": [30]
         }
         """
     };
@@ -76,7 +76,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "set_col": {"mode": "MODIFY", "elements": [{"element": "z", "added": true}]}
+          "set_col": ["z"]
         }
         """
     };
@@ -92,7 +92,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "map_col": {"mode": "MODIFY", "elements": [{"key": 20, "value": "twenty"}]}
+          "map_col": [{"key": 20, "value": "twenty"}]
         }
         """
     };
@@ -108,7 +108,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "list_col": {"mode": "MODIFY", "elements": [{"value": null}]}
+          "list_col": [null]
         }
         """
     };
@@ -124,7 +124,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "set_col": {"mode": "MODIFY", "elements": [{"element": "y", "added": false}]}
+          "set_col": []
         }
         """
     };
@@ -140,7 +140,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "map_col": {"mode": "MODIFY", "elements": [{"key": 10, "value": null}]}
+          "map_col": [{"key": 10, "value": null}]
         }
         """
     };
