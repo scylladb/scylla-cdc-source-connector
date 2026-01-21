@@ -227,11 +227,20 @@ public class ScyllaChangeRecordEmitter
 
         Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
         Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
-        Boolean isDeleted = this.change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
+        Cell deletedCell = this.change.getCell("cdc$deleted_" + cdef.getColumnName());
+        Boolean isDeleted = deletedCell != null ? deletedCell.getBoolean() : null;
 
         if (value != null || (isDeleted != null && isDeleted)) {
           Struct cell = new Struct(cellSchema);
           cell.put(ScyllaSchema.CELL_VALUE, value);
+          valueStruct.put(cdef.getColumnName(), cell);
+          continue;
+        }
+
+        if (change.getOperationType() == RawChange.OperationType.ROW_INSERT) {
+          // Preserve explicit nulls on INSERT for frozen collections/UDTs and scalar columns.
+          Struct cell = new Struct(cellSchema);
+          cell.put(ScyllaSchema.CELL_VALUE, null);
           valueStruct.put(cdef.getColumnName(), cell);
         }
       }
@@ -270,12 +279,23 @@ public class ScyllaChangeRecordEmitter
 
     Cell elementsCell = change.getCell(cdef.getColumnName());
     Cell deletedElementsCell = change.getCell("cdc$deleted_elements_" + cdef.getColumnName());
-    boolean isDeleted =
-        Boolean.TRUE.equals(change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean());
+    Cell deletedCell = change.getCell("cdc$deleted_" + cdef.getColumnName());
+    boolean isDeleted = deletedCell != null && Boolean.TRUE.equals(deletedCell.getBoolean());
+    boolean hasElements = elementsCell != null && elementsCell.getAsObject() != null;
+    boolean hasDeletedElements =
+        deletedElementsCell != null && deletedElementsCell.getAsObject() != null;
+
+    if (!hasElements && !hasDeletedElements) {
+      if (isDeleted) {
+        cell.put(ScyllaSchema.CELL_VALUE, null);
+        return cell;
+      }
+      return null;
+    }
 
     Object elements;
     boolean hasModified = false;
-    switch (elementsCell.getDataType().getCqlType()) {
+    switch (cdef.getCdcLogDataType().getCqlType()) {
       case SET:
         {
           Schema elementsArraySchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
@@ -285,10 +305,12 @@ public class ScyllaChangeRecordEmitter
 
           @SuppressWarnings("unchecked")
           var addedElements =
-              (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
+              hasElements
+                  ? (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema)
+                  : null;
           @SuppressWarnings("unchecked")
           var deletedElements =
-              deletedElementsCell != null
+              hasDeletedElements
                   ? (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema)
                   : null;
           var delta =
@@ -318,10 +340,12 @@ public class ScyllaChangeRecordEmitter
 
           @SuppressWarnings("unchecked")
           var addedElements =
-              (Map<Object, Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
+              hasElements
+                  ? (Map<Object, Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema)
+                  : null;
           @SuppressWarnings("unchecked")
           var deletedKeys =
-              deletedElementsCell != null
+              hasDeletedElements
                   ? (List<Object>)
                       translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema)
                   : null;

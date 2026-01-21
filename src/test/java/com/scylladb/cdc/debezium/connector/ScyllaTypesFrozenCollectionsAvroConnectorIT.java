@@ -36,7 +36,7 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
             "id": 1,
             "frozen_list_col": {"value": [1, 2, 3]},
             "frozen_set_col": {"value": ["a", "b", "c"]},
-            "frozen_map_col": {"value": [[1, "one"], [2, "two"]]},
+            "frozen_map_col": {"value": [{"key": 1, "value": "one"}, {"key": 2, "value": "two"}]},
             "frozen_tuple_col": {"value": {"tuple_member_0": 42, "tuple_member_1": "foo"}}
           },
           "op": "c",
@@ -152,7 +152,7 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
               "id": 1,
               "frozen_list_col": {"value": [4, 5, 6]},
               "frozen_set_col": {"value": ["x", "y", "z"]},
-              "frozen_map_col": {"value": [[3, "three"], [4, "four"]]},
+              "frozen_map_col": {"value": [{"key": 3, "value": "three"}, {"key": 4, "value": "four"}]},
               "frozen_tuple_col": {"value": {"tuple_member_0": 99, "tuple_member_1": "bar"}}
             }
             """)
@@ -212,7 +212,7 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
               "id": 1,
               "frozen_list_col": {"value": [1, 2, 3]},
               "frozen_set_col": {"value": ["a", "b", "c"]},
-              "frozen_map_col": {"value": [[1, "one"], [2, "two"]]},
+              "frozen_map_col": {"value": [{"key": 1, "value": "one"}, {"key": 2, "value": "two"}]},
               "frozen_tuple_col": {"value": {"tuple_member_0": 42, "tuple_member_1": "foo"}}
             }
             """)
@@ -232,7 +232,7 @@ public class ScyllaTypesFrozenCollectionsAvroConnectorIT
               "id": 1,
               "frozen_list_col": {"value": [1, 2, 3]},
               "frozen_set_col": {"value": ["a", "b", "c"]},
-              "frozen_map_col": {"value": [[1, "one"], [2, "two"]]},
+              "frozen_map_col": {"value": [{"key": 1, "value": "one"}, {"key": 2, "value": "two"}]},
               "frozen_tuple_col": {"value": {"tuple_member_0": 42, "tuple_member_1": "foo"}}
             }
             """)

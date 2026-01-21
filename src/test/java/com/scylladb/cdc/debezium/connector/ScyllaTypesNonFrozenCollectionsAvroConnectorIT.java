@@ -65,9 +65,9 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
           "before": null,
           "after": {
             "id": 1,
-            "list_col": null,
-            "set_col": null,
-            "map_col": null
+            "list_col": {"value": null},
+            "set_col": {"value": null},
+            "map_col": {"value": null}
           },
           "op": "c",
           "source": {
@@ -167,7 +167,7 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
           """
             {
               "id": 1,
-              "list_col": {"value": {"mode": "MODIFY", "elements": [{"value": null}]}}
+              "list_col": null
             }
             """)
     };
@@ -184,7 +184,7 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
           """
             {
               "id": 1,
-              "set_col": {"value": {"mode": "MODIFY", "elements": [{"element": "y", "added": false}]}}
+              "set_col": null
             }
             """)
     };
@@ -201,7 +201,7 @@ public class ScyllaTypesNonFrozenCollectionsAvroConnectorIT
           """
             {
               "id": 1,
-              "map_col": {"value": {"mode": "MODIFY", "elements": [{"key": 10, "value": null}]}}
+              "map_col": null
             }
             """)
     };

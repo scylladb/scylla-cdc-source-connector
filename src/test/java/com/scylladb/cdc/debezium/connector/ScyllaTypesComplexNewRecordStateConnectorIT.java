@@ -35,7 +35,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
             {"street": "s1", "phones": ["666"], "tags": ["tag1"]}
           ],
           "nf_addr_map": [
-            [10, {"street": "m1", "phones": ["888"], "tags": ["tagm1"]}]
+            {"key": 10, "value": {"street": "m1", "phones": ["888"], "tags": ["tagm1"]}}
           ]
         }
         """
@@ -133,7 +133,7 @@ public class ScyllaTypesComplexNewRecordStateConnectorIT
         {
           "id": 1,
           "nf_addr_map": [
-            [20, {"street": "m2", "phones": ["999"], "tags": ["tagm2"]}]
+            {"key": 20, "value": {"street": "m2", "phones": ["999"], "tags": ["tagm2"]}}
           ]
         }
         """

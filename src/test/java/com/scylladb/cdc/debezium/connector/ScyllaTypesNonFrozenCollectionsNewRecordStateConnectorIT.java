@@ -108,7 +108,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "list_col": [null]
+          "list_col": null
         }
         """
     };
@@ -124,7 +124,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "set_col": []
+          "set_col": null
         }
         """
     };
@@ -140,7 +140,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": 1,
-          "map_col": [{"key": 10, "value": null}]
+          "map_col": null
         }
         """
     };
