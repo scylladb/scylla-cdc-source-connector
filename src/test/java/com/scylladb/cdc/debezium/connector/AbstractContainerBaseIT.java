@@ -45,6 +45,12 @@ public abstract class AbstractContainerBaseIT {
     logger.atSevere().withCause(exception).log("Test failed: %s", testName);
 
     logger.atInfo().log("Kafka Connect URL: %s", getKafkaConnectUrl());
+    if (!LOG_CONTAINER_LOGS_ON_FAILURE) {
+      logger.atInfo().log(
+          "Container logs suppressed. Enable with -Dit.container.logs.on.failure=true");
+      return;
+    }
+
     logger.atInfo().log("Kafka Connect logs:\n%s", getKafkaConnectLogs());
 
     try {
@@ -243,6 +249,13 @@ public abstract class AbstractContainerBaseIT {
 
   /** The default ScyllaDB version when system property is not defined */
   private static final String DEFAULT_SCYLLA_VERSION = "6.2";
+
+  /**
+   * Whether to print container logs on test failure. Defaults to false; enable with
+   * -Dit.container.logs.on.failure=true.
+   */
+  private static final boolean LOG_CONTAINER_LOGS_ON_FAILURE =
+      Boolean.parseBoolean(System.getProperty("it.container.logs.on.failure", "false"));
 
   /**
    * The Kafka provider, read from the "it.kafka.provider" system property. Expected values:
