@@ -292,8 +292,10 @@ public abstract class AbstractContainerBaseIT {
     String modules = System.getProperty("it.scylla.log.modules", "init=info");
 
     StringBuilder cmd =
-        new StringBuilder("--developer-mode=1 --overprovisioned=1 --default-log-level=")
-            .append(defaultLevel);
+        new StringBuilder("--developer-mode=1 --overprovisioned=1")
+            .append(" --smp=2")
+            .append(" --memory=1G")
+            .append(" --default-log-level=" + defaultLevel);
 
     if (!modules.trim().isEmpty()) {
       String normalized = modules.trim().replace(",", ":").replaceAll("\\s+", "");
@@ -377,6 +379,7 @@ public abstract class AbstractContainerBaseIT {
         new KafkaContainer(DockerImageName.parse("apache/kafka:" + imageVersion))
             .withNetwork(NETWORK)
             .withExposedPorts(KAFKA_PORT, KAFKA_CONNECT_PORT)
+            .withEnv("KAFKA_HEAP_OPTS", "-Xms512m -Xmx512m")
             .withListener("broker:19092")
             .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
             .withStartupTimeout(Duration.ofMinutes(5));
@@ -521,6 +524,7 @@ public abstract class AbstractContainerBaseIT {
             .withNetwork(NETWORK)
             .withNetworkAliases("broker")
             .withListener("broker:19092")
+            .withEnv("KAFKA_HEAP_OPTS", "-Xms512m -Xmx512m")
             .withExposedPorts(KAFKA_PORT, KAFKA_CONNECT_PORT)
             .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
             .withStartupTimeout(Duration.ofMinutes(5));
@@ -530,6 +534,7 @@ public abstract class AbstractContainerBaseIT {
             .withNetwork(NETWORK)
             .withNetworkAliases("schema-registry")
             .withExposedPorts(SCHEMA_REGISTRY_PORT)
+            .withEnv("SCHEMA_REGISTRY_HEAP_OPTS", "-Xms256m -Xmx256m")
             .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "broker:19092")
             .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
             .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
@@ -544,6 +549,7 @@ public abstract class AbstractContainerBaseIT {
               .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
               .withNetworkAliases("kafka-connect")
               .withExposedPorts(KAFKA_CONNECT_PORT)
+              .withEnv("KAFKA_HEAP_OPTS", "-Xms512m -Xmx512m")
               .withEnv("CONNECT_BOOTSTRAP_SERVERS", "broker:19092")
               .withEnv("CONNECT_REST_ADVERTISED_HOST_NAME", "connect")
               .withEnv("CONNECT_GROUP_ID", "kafka-connect")
