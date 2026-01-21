@@ -124,13 +124,9 @@ public abstract class ScyllaTypesNonFrozenCollectionsBase<K, V> extends ScyllaTy
   void testUpdateListRemoveElement(TestInfo testInfo) {
     truncateTables(testInfo);
     session.execute(
-        "INSERT INTO "
-            + keyspaceTableName(testInfo)
-            + " (id, list_col) VALUES (1, [10, 20, 30]);");
+        "INSERT INTO " + keyspaceTableName(testInfo) + " (id, list_col) VALUES (1, [10, 20, 30]);");
     session.execute(
-        "UPDATE "
-            + keyspaceTableName(testInfo)
-            + " SET list_col = list_col - [20] WHERE id = 1;");
+        "UPDATE " + keyspaceTableName(testInfo) + " SET list_col = list_col - [20] WHERE id = 1;");
     String[] expected = expectedUpdateListRemoveElement(testInfo);
     waitAndAssert(getConsumer(), expected);
   }

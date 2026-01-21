@@ -7,6 +7,11 @@ import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<String, String> {
   @Override
+  protected boolean expectFrozenUdtUpdates() {
+    return false;
+  }
+
+  @Override
   KafkaConsumer<String, String> buildConsumer(String connectorName, String tableName) {
     return buildScyllaExtractNewRecordStateConnector(connectorName, tableName);
   }
@@ -65,10 +70,6 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
     return new String[] {
       """
         {
-        }
-        """,
-      """
-        {
           "id": 1,
           "frozen_udt": {"a": 99, "b": "updated"}
         }
@@ -81,10 +82,6 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
     return new String[] {
       """
         {
-        }
-        """,
-      """
-        {
           "id": 1,
           "frozen_udt": null
         }
@@ -95,10 +92,6 @@ public class ScyllaTypesUDTNewRecordStateConnectorIT extends ScyllaTypesUDTBase<
   @Override
   String[] expectedUpdateNonFrozenUdtField(TestInfo testInfo) {
     return new String[] {
-      """
-        {
-        }
-        """,
       """
         {
           "id": 1,

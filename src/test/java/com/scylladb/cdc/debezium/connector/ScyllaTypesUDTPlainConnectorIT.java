@@ -126,7 +126,6 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
   @Override
   String[] expectedUpdateFrozenUdtFromValueToValue(TestInfo testInfo) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
           testInfo,
           "u",
@@ -143,7 +142,6 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
   @Override
   String[] expectedUpdateFrozenUdtFromValueToNull(TestInfo testInfo) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
           testInfo,
           "u",
@@ -160,7 +158,6 @@ public class ScyllaTypesUDTPlainConnectorIT extends ScyllaTypesUDTBase<String, S
   @Override
   String[] expectedUpdateNonFrozenUdtField(TestInfo testInfo) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
       expectedRecord(
           testInfo,
           "u",

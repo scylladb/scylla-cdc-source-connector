@@ -44,8 +44,18 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
 
   /** Waits for and asserts expected Kafka messages. */
   void waitAndAssert(KafkaConsumer<K, V> consumer, String[] expected) {
+    waitAndAssertInternal(consumer, expected, true);
+  }
+
+  /** Waits for and asserts expected Kafka messages without resetting consumer offsets. */
+  void waitAndAssertFromCurrentPosition(KafkaConsumer<K, V> consumer, String[] expected) {
+    waitAndAssertInternal(consumer, expected, false);
+  }
+
+  private void waitAndAssertInternal(
+      KafkaConsumer<K, V> consumer, String[] expected, boolean resetOffsets) {
     List<ConsumerRecord<K, V>> actual = new ArrayList<>();
-    KafkaConnectUtils.waitForConsumerAssignment(consumer);
+    ensureConsumerAssignment(consumer, resetOffsets);
 
     long startTime = System.currentTimeMillis();
     while (System.currentTimeMillis() - startTime < KafkaConnectUtils.CONSUMER_TIMEOUT) {
@@ -106,6 +116,23 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
 
     if (!errors.isEmpty()) {
       Assertions.fail(String.join("\n\n", errors));
+    }
+  }
+
+  private void ensureConsumerAssignment(KafkaConsumer<K, V> consumer, boolean seekToBeginning) {
+    long startTime = System.currentTimeMillis();
+    while (consumer.assignment().isEmpty()
+        && System.currentTimeMillis() - startTime < KafkaConnectUtils.CONSUMER_TIMEOUT) {
+      consumer.poll(Duration.ofSeconds(1));
+    }
+    if (consumer.assignment().isEmpty()) {
+      Assertions.fail(
+          "Consumer did not receive partition assignment within "
+              + KafkaConnectUtils.CONSUMER_TIMEOUT
+              + " ms.");
+    }
+    if (seekToBeginning) {
+      consumer.seekToBeginning(consumer.assignment());
     }
   }
 

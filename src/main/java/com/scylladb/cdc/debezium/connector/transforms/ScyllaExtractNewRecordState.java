@@ -44,7 +44,8 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
         if (isNonFrozenCollectionSchema(innerSchema) && extractedValue instanceof Struct) {
           Struct nonFrozenValue = (Struct) extractedValue;
           Schema flattenedSchema = updatedSchema.field(field.name()).schema();
-          updatedValue.put(field.name(), flattenNonFrozenCollection(nonFrozenValue, flattenedSchema));
+          updatedValue.put(
+              field.name(), flattenNonFrozenCollection(nonFrozenValue, flattenedSchema));
         } else {
           updatedValue.put(field.name(), extractedValue);
         }
@@ -91,9 +92,7 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
     }
     Field modeField = schema.field("mode");
     Field elementsField = schema.field("elements");
-    return modeField != null
-        && elementsField != null
-        && modeField.schema().type() == Type.STRING;
+    return modeField != null && elementsField != null && modeField.schema().type() == Type.STRING;
   }
 
   /** Determines if a non-frozen collection is a UDT (elements is a struct, not an array). */
@@ -113,7 +112,9 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
         && entrySchema.field("added") != null;
   }
 
-  /** Determines if a non-frozen collection is a MAP or LIST (elements array has "key" and "value"). */
+  /**
+   * Determines if a non-frozen collection is a MAP or LIST (elements array has "key" and "value").
+   */
   private boolean isNonFrozenMapOrListSchema(Schema elementsSchema) {
     if (elementsSchema == null || elementsSchema.type() != Type.ARRAY) {
       return false;
@@ -182,7 +183,9 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
     return result;
   }
 
-  /** Flattens a non-frozen MAP/LIST: for MAP keeps [{key, value}] structs, for LIST outputs [value]. */
+  /**
+   * Flattens a non-frozen MAP/LIST: for MAP keeps [{key, value}] structs, for LIST outputs [value].
+   */
   @SuppressWarnings("unchecked")
   private List<Object> flattenNonFrozenMapOrList(List<?> elementsList, Schema flattenedSchema) {
     List<Object> result = new ArrayList<>();
@@ -266,10 +269,7 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
       } else {
         // MAP: array of {key, value} structs
         Schema mapEntrySchema =
-            SchemaBuilder.struct()
-                .field("key", keySchema)
-                .field("value", valueSchema)
-                .build();
+            SchemaBuilder.struct().field("key", keySchema).field("value", valueSchema).build();
         return SchemaBuilder.array(mapEntrySchema).optional().build();
       }
     }

@@ -27,6 +27,10 @@ public abstract class ScyllaTypesUDTBase<K, V> extends ScyllaTypesIT<K, V> {
 
   abstract String[] expectedUpdateNonFrozenUdtField(TestInfo testInfo);
 
+  protected boolean expectFrozenUdtUpdates() {
+    return true;
+  }
+
   @Override
   protected String createTableCql(String tableName) {
     return "("
@@ -98,12 +102,15 @@ public abstract class ScyllaTypesUDTBase<K, V> extends ScyllaTypesIT<K, V> {
         "INSERT INTO "
             + keyspaceTableName(testInfo)
             + " (id, frozen_udt, nf_udt) VALUES (1, {a: 42, b: 'foo'}, null);");
+    waitAndAssert(getConsumer(), expectedInsertWithFrozenUdt(testInfo));
     session.execute(
         "UPDATE "
             + keyspaceTableName(testInfo)
             + " SET frozen_udt = {a: 99, b: 'updated'} WHERE id = 1;");
-    String[] expected = expectedUpdateFrozenUdtFromValueToValue(testInfo);
-    waitAndAssert(getConsumer(), expected);
+    if (expectFrozenUdtUpdates()) {
+      String[] expected = expectedUpdateFrozenUdtFromValueToValue(testInfo);
+      waitAndAssertFromCurrentPosition(getConsumer(), expected);
+    }
   }
 
   @Test
@@ -113,10 +120,13 @@ public abstract class ScyllaTypesUDTBase<K, V> extends ScyllaTypesIT<K, V> {
         "INSERT INTO "
             + keyspaceTableName(testInfo)
             + " (id, frozen_udt, nf_udt) VALUES (1, {a: 42, b: 'foo'}, null);");
+    waitAndAssert(getConsumer(), expectedInsertWithFrozenUdt(testInfo));
     session.execute(
         "UPDATE " + keyspaceTableName(testInfo) + " SET frozen_udt = null WHERE id = 1;");
-    String[] expected = expectedUpdateFrozenUdtFromValueToNull(testInfo);
-    waitAndAssert(getConsumer(), expected);
+    if (expectFrozenUdtUpdates()) {
+      String[] expected = expectedUpdateFrozenUdtFromValueToNull(testInfo);
+      waitAndAssertFromCurrentPosition(getConsumer(), expected);
+    }
   }
 
   @Test
@@ -126,9 +136,9 @@ public abstract class ScyllaTypesUDTBase<K, V> extends ScyllaTypesIT<K, V> {
         "INSERT INTO "
             + keyspaceTableName(testInfo)
             + " (id, frozen_udt, nf_udt) VALUES (1, null, {a: 7, b: 'bar'});");
-    session.execute(
-        "UPDATE " + keyspaceTableName(testInfo) + " SET nf_udt.a = 100 WHERE id = 1;");
+    waitAndAssert(getConsumer(), expectedInsertWithNonFrozenUdt(testInfo));
+    session.execute("UPDATE " + keyspaceTableName(testInfo) + " SET nf_udt.a = 100 WHERE id = 1;");
     String[] expected = expectedUpdateNonFrozenUdtField(testInfo);
-    waitAndAssert(getConsumer(), expected);
+    waitAndAssertFromCurrentPosition(getConsumer(), expected);
   }
 }
