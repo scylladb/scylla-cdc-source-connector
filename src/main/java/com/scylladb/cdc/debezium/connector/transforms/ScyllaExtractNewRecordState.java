@@ -182,14 +182,14 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
     return result;
   }
 
-  /** Flattens a non-frozen MAP/LIST: transforms [{key, value}] to [[key, value]] or [value]. */
+  /** Flattens a non-frozen MAP/LIST: for MAP keeps [{key, value}] structs, for LIST outputs [value]. */
   @SuppressWarnings("unchecked")
   private List<Object> flattenNonFrozenMapOrList(List<?> elementsList, Schema flattenedSchema) {
     List<Object> result = new ArrayList<>();
     Schema entrySchema = flattenedSchema.valueSchema();
 
-    // Check if the flattened schema expects arrays (MAP) or direct values (LIST)
-    boolean isMapStyle = entrySchema != null && entrySchema.type() == Type.ARRAY;
+    // Check if the flattened schema expects structs (MAP) or direct values (LIST)
+    boolean isMapStyle = entrySchema != null && entrySchema.type() == Type.STRUCT;
 
     for (Object entry : elementsList) {
       if (entry instanceof Struct) {
@@ -198,11 +198,11 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
         Object value = entryStruct.get("value");
 
         if (isMapStyle) {
-          // MAP: output as [key, value] arrays
-          List<Object> pair = new ArrayList<>();
-          pair.add(key);
-          pair.add(value);
-          result.add(pair);
+          // MAP: output as {key, value} structs (keep original format)
+          Struct mapEntry = new Struct(entrySchema);
+          mapEntry.put("key", key);
+          mapEntry.put("value", value);
+          result.add(mapEntry);
         } else {
           // LIST: output just the value (ignore the timeuuid key)
           result.add(value);
@@ -253,7 +253,7 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
       Schema elementSchema = entrySchema.field("element").schema();
       return SchemaBuilder.array(elementSchema).optional().build();
     } else if (isNonFrozenMapOrListSchema(elementsSchema)) {
-      // MAP/LIST: flatten to array of [key, value] or array of values
+      // MAP/LIST: flatten to array of {key, value} structs or array of values
       Schema entrySchema = elementsSchema.valueSchema();
       Schema keySchema = entrySchema.field("key").schema();
       Schema valueSchema = entrySchema.field("value").schema();
@@ -264,9 +264,13 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
         // LIST: just array of values
         return SchemaBuilder.array(valueSchema).optional().build();
       } else {
-        // MAP: array of [key, value] tuples
-        Schema tupleSchema = SchemaBuilder.array(Schema.OPTIONAL_STRING_SCHEMA).build();
-        return SchemaBuilder.array(tupleSchema).optional().build();
+        // MAP: array of {key, value} structs
+        Schema mapEntrySchema =
+            SchemaBuilder.struct()
+                .field("key", keySchema)
+                .field("value", valueSchema)
+                .build();
+        return SchemaBuilder.array(mapEntrySchema).optional().build();
       }
     }
 
