@@ -79,7 +79,31 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
           "d",
           """
             {
-              "id": 1
+              "id": 1,
+              "ascii_col": null,
+              "bigint_col": null,
+              "blob_col": null,
+              "boolean_col": null,
+              "date_col": null,
+              "decimal_col": null,
+              "double_col": null,
+              "duration_col": null,
+              "float_col": null,
+              "inet_col": null,
+              "int_col": null,
+              "smallint_col": null,
+              "text_col": null,
+              "time_col": null,
+              "timestamp_col": null,
+              "timeuuid_col": null,
+              "tinyint_col": null,
+              "uuid_col": null,
+              "varchar_col": null,
+              "varint_col": null,
+              "untouched_text": null,
+              "untouched_int": null,
+              "untouched_boolean": null,
+              "untouched_uuid": null
             }
             """,
           "null"),

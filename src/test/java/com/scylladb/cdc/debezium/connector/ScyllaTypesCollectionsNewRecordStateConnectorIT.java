@@ -5,8 +5,8 @@ import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildScyllaE
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.TestInfo;
 
-public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
-    extends ScyllaTypesFrozenCollectionsBase<String, String> {
+public class ScyllaTypesCollectionsNewRecordStateConnectorIT
+    extends ScyllaTypesCollectionsBase<String, String> {
   /** {@inheritDoc} */
   @Override
   KafkaConsumer<String, String> buildConsumer(String connectorName, String tableName) {
@@ -43,7 +43,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": [{"key": "varchar_key", "value": "varchar_value"}],
           "frozen_map_varint_col": [{"key": "999999999", "value": "varint_value"}],
           "frozen_map_tuple_key_col": [{"key": {"tuple_member_0": 1, "tuple_member_1": "tuple_key"}, "value": "tuple_value"}],
-          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]
+          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}],
+          "frozen_udt": {"a": 42, "b": "foo"},
+          "frozen_nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "frozen_udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "frozen_udt_with_list": {"l": [1, 2, 3]},
+          "frozen_udt_with_set": {"s": ["a", "b", "c"]},
+          "list_col": [{"value": 10}, {"value": 20}, {"value": 30}],
+          "set_col": ["x", "y", "z"],
+          "map_col": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}],
+          "udt": {"a": 7, "b": "bar"},
+          "nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "udt_with_list": {"l": [1, 2, 3]},
+          "udt_with_set": {"s": ["a", "b", "c"]}
         }
         """
     };
@@ -79,7 +92,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": [],
           "frozen_map_varint_col": [],
           "frozen_map_tuple_key_col": [],
-          "frozen_map_udt_key_col": []
+          "frozen_map_udt_key_col": [],
+          "frozen_udt": {"a": null, "b": null},
+          "frozen_nested_udt": {"inner": null, "z": null},
+          "frozen_udt_with_map": {"m": []},
+          "frozen_udt_with_list": {"l": []},
+          "frozen_udt_with_set": {"s": []},
+          "list_col": null,
+          "set_col": null,
+          "map_col": null,
+          "udt": null,
+          "nested_udt": null,
+          "udt_with_map": {"m": []},
+          "udt_with_list": {"l": []},
+          "udt_with_set": {"s": []}
         }
         """
     };
@@ -115,7 +141,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": null,
           "frozen_map_varint_col": null,
           "frozen_map_tuple_key_col": null,
-          "frozen_map_udt_key_col": null
+          "frozen_map_udt_key_col": null,
+          "frozen_udt": null,
+          "frozen_nested_udt": null,
+          "frozen_udt_with_map": null,
+          "frozen_udt_with_list": null,
+          "frozen_udt_with_set": null,
+          "list_col": null,
+          "set_col": null,
+          "map_col": null,
+          "udt": null,
+          "nested_udt": null,
+          "udt_with_map": {"m": []},
+          "udt_with_list": {"l": []},
+          "udt_with_set": {"s": []}
         }
         """
     };
@@ -151,7 +190,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": [{"key": "varchar_key", "value": "varchar_value"}],
           "frozen_map_varint_col": [{"key": "999999999", "value": "varint_value"}],
           "frozen_map_tuple_key_col": [{"key": {"tuple_member_0": 1, "tuple_member_1": "tuple_key"}, "value": "tuple_value"}],
-          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]
+          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}],
+          "frozen_udt": {"a": 42, "b": "foo"},
+          "frozen_nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "frozen_udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "frozen_udt_with_list": {"l": [1, 2, 3]},
+          "frozen_udt_with_set": {"s": ["a", "b", "c"]},
+          "list_col": [{"value": 10}, {"value": 20}, {"value": 30}],
+          "set_col": ["x", "y", "z"],
+          "map_col": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}],
+          "udt": {"a": 7, "b": "bar"},
+          "nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "udt_with_list": {"l": [1, 2, 3]},
+          "udt_with_set": {"s": ["a", "b", "c"]}
         }
         """
     };
@@ -191,7 +243,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": [{"key": "varchar_key_2", "value": "varchar_value_2"}],
           "frozen_map_varint_col": [{"key": "888888888", "value": "varint_value_2"}],
           "frozen_map_tuple_key_col": [{"key": {"tuple_member_0": 2, "tuple_member_1": "tuple_key_2"}, "value": "tuple_value_2"}],
-          "frozen_map_udt_key_col": [{"key": {"a": 2, "b": "udt_key_2"}, "value": "udt_value_2"}]
+          "frozen_map_udt_key_col": [{"key": {"a": 2, "b": "udt_key_2"}, "value": "udt_value_2"}],
+          "frozen_udt": {"a": 99, "b": "updated"},
+          "frozen_nested_udt": {"inner": {"x": 11, "y": "updated"}, "z": 21},
+          "frozen_udt_with_map": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]},
+          "frozen_udt_with_list": {"l": [4, 5, 6]},
+          "frozen_udt_with_set": {"s": ["d", "e"]},
+          "list_col": [{"value": 40}, {"value": 50}, {"value": 60}],
+          "set_col": ["p", "q", "r"],
+          "map_col": [{"key": 30, "value": "thirty"}, {"key": 40, "value": "forty"}],
+          "udt": {"a": 100, "b": "updated"},
+          "nested_udt": {"inner": {"x": 11, "y": "updated"}, "z": 21},
+          "udt_with_map": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]},
+          "udt_with_list": {"l": [4, 5, 6]},
+          "udt_with_set": {"s": ["d", "e"]}
         }
         """
     };
@@ -231,7 +296,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": [],
           "frozen_map_varint_col": [],
           "frozen_map_tuple_key_col": [],
-          "frozen_map_udt_key_col": []
+          "frozen_map_udt_key_col": [],
+          "frozen_udt": {"a": null, "b": null},
+          "frozen_nested_udt": {"inner": null, "z": null},
+          "frozen_udt_with_map": {"m": []},
+          "frozen_udt_with_list": {"l": []},
+          "frozen_udt_with_set": {"s": []},
+          "list_col": null,
+          "set_col": null,
+          "map_col": null,
+          "udt": null,
+          "nested_udt": null,
+          "udt_with_map": {"m": []},
+          "udt_with_list": {"l": []},
+          "udt_with_set": {"s": []}
         }
         """
     };
@@ -271,7 +349,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": null,
           "frozen_map_varint_col": null,
           "frozen_map_tuple_key_col": null,
-          "frozen_map_udt_key_col": null
+          "frozen_map_udt_key_col": null,
+          "frozen_udt": null,
+          "frozen_nested_udt": null,
+          "frozen_udt_with_map": null,
+          "frozen_udt_with_list": null,
+          "frozen_udt_with_set": null,
+          "list_col": null,
+          "set_col": null,
+          "map_col": null,
+          "udt": null,
+          "nested_udt": null,
+          "udt_with_map": {"m": []},
+          "udt_with_list": {"l": []},
+          "udt_with_set": {"s": []}
         }
         """
     };
@@ -311,7 +402,20 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": [{"key": "varchar_key", "value": "varchar_value"}],
           "frozen_map_varint_col": [{"key": "999999999", "value": "varint_value"}],
           "frozen_map_tuple_key_col": [{"key": {"tuple_member_0": 1, "tuple_member_1": "tuple_key"}, "value": "tuple_value"}],
-          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]
+          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}],
+          "frozen_udt": {"a": 42, "b": "foo"},
+          "frozen_nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "frozen_udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "frozen_udt_with_list": {"l": [1, 2, 3]},
+          "frozen_udt_with_set": {"s": ["a", "b", "c"]},
+          "list_col": [{"value": 10}, {"value": 20}, {"value": 30}],
+          "set_col": ["x", "y", "z"],
+          "map_col": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}],
+          "udt": {"a": 7, "b": "bar"},
+          "nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "udt_with_list": {"l": [1, 2, 3]},
+          "udt_with_set": {"s": ["a", "b", "c"]}
         }
         """
     };
@@ -351,7 +455,140 @@ public class ScyllaTypesFrozenCollectionsNewRecordStateConnectorIT
           "frozen_map_varchar_col": [{"key": "varchar_key", "value": "varchar_value"}],
           "frozen_map_varint_col": [{"key": "999999999", "value": "varint_value"}],
           "frozen_map_tuple_key_col": [{"key": {"tuple_member_0": 1, "tuple_member_1": "tuple_key"}, "value": "tuple_value"}],
-          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]
+          "frozen_map_udt_key_col": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}],
+          "frozen_udt": {"a": 42, "b": "foo"},
+          "frozen_nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "frozen_udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "frozen_udt_with_list": {"l": [1, 2, 3]},
+          "frozen_udt_with_set": {"s": ["a", "b", "c"]},
+          "list_col": [{"value": 10}, {"value": 20}, {"value": 30}],
+          "set_col": ["x", "y", "z"],
+          "map_col": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}],
+          "udt": {"a": 7, "b": "bar"},
+          "nested_udt": {"inner": {"x": 10, "y": "hello"}, "z": 20},
+          "udt_with_map": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]},
+          "udt_with_list": {"l": [1, 2, 3]},
+          "udt_with_set": {"s": ["a", "b", "c"]}
+        }
+        """
+    };
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  String[] expectedNonFrozenAddElement(TestInfo testInfo) {
+    return new String[] {
+      """
+        {
+        }
+        """,
+      """
+        {
+          "id": 1,
+          "list_col": [{"value": 40}],
+          "set_col": ["w"],
+          "map_col": [{"key": 30, "value": "thirty"}],
+          "udt": {"a": 100, "b": null},
+          "nested_udt": {"inner": null, "z": 21},
+          "udt_with_map": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]},
+          "udt_with_list": {"l": [4, 5, 6]},
+          "udt_with_set": {"s": ["d", "e"]}
+        }
+        """
+    };
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  String[] expectedNonFrozenRemoveElement(TestInfo testInfo) {
+    return new String[] {
+      """
+        {
+        }
+        """,
+      """
+        {
+          "id": 1,
+          "list_col": [{"value": null}],
+          "set_col": ["y"],
+          "map_col": [{"key": 10, "value": null}],
+          "udt": {"a": 100, "b": null},
+          "nested_udt": {"inner": null, "z": 21},
+          "udt_with_map": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]},
+          "udt_with_list": {"l": [4, 5, 6]},
+          "udt_with_set": {"s": ["d", "e"]}
+        }
+        """
+    };
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  String[] expectedNonFrozenAddElementFromNull(TestInfo testInfo) {
+    return new String[] {
+      """
+        {
+        }
+        """,
+      """
+        {
+          "id": 1,
+          "list_col": [{"value": 40}],
+          "set_col": ["w"],
+          "map_col": [{"key": 30, "value": "thirty"}],
+          "udt": {"a": 100, "b": null},
+          "nested_udt": {"inner": null, "z": 21},
+          "udt_with_map": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]},
+          "udt_with_list": {"l": [4, 5, 6]},
+          "udt_with_set": {"s": ["d", "e"]}
+        }
+        """
+    };
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  String[] expectedNonFrozenAddElementFromEmpty(TestInfo testInfo) {
+    return new String[] {
+      """
+        {
+        }
+        """,
+      """
+        {
+          "id": 1,
+          "list_col": [{"value": 40}],
+          "set_col": ["w"],
+          "map_col": [{"key": 30, "value": "thirty"}],
+          "udt": {"a": 100, "b": null},
+          "nested_udt": {"inner": null, "z": 21},
+          "udt_with_map": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]},
+          "udt_with_list": {"l": [4, 5, 6]},
+          "udt_with_set": {"s": ["d", "e"]}
+        }
+        """
+    };
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  String[] expectedNonFrozenRemoveAllElements(TestInfo testInfo) {
+    return new String[] {
+      """
+        {
+        }
+        """,
+      """
+        {
+          "id": 1,
+          "list_col": [{"value": null}, {"value": null}, {"value": null}],
+          "set_col": ["x", "y", "z"],
+          "map_col": [{"key": 10, "value": null}, {"key": 20, "value": null}],
+          "udt": {"a": null, "b": null},
+          "nested_udt": {"inner": null, "z": null},
+          "udt_with_map": {"m": []},
+          "udt_with_list": {"l": []},
+          "udt_with_set": {"s": []}
         }
         """
     };

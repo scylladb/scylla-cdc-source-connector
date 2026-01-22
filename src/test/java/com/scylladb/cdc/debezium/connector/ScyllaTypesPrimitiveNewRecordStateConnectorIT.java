@@ -60,9 +60,38 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     return new String[] {
       """
         {
-          "id": 1
+          "id": 1,
+          "ascii_col": "ascii",
+          "bigint_col": 1234567890123,
+          "blob_col": "yv66vg==",
+          "boolean_col": true,
+          "date_col": 19884,
+          "decimal_col": "12345.67",
+          "double_col": 3.14159,
+          "duration_col": "1d12h30m",
+          "float_col": 2.71828,
+          "inet_col": "127.0.0.1",
+          "int_col": 42,
+          "smallint_col": 7,
+          "text_col": "delete me",
+          "time_col": 45296789000000,
+          "timestamp_col": 1718022896789,
+          "timeuuid_col": "81d4a030-4632-11f0-9484-409dd8f36eba",
+          "tinyint_col": 5,
+          "uuid_col": "453662fa-db4b-4938-9033-d8523c0a371c",
+          "varchar_col": "varchar text",
+          "varint_col": "999999999",
+          "untouched_text": "%s",
+          "untouched_int": %d,
+          "untouched_boolean": %s,
+          "untouched_uuid": "%s"
         }
         """
+          .formatted(
+              UNTOUCHED_TEXT_VALUE,
+              UNTOUCHED_INT_VALUE,
+              UNTOUCHED_BOOLEAN_VALUE,
+              UNTOUCHED_UUID_VALUE)
     };
   }
 

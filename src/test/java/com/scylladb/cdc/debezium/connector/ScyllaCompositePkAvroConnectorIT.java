@@ -82,13 +82,15 @@ public class ScyllaCompositePkAvroConnectorIT
           testInfo,
           "d",
           """
-                {
-                  "pk1": 1,
-                  "pk2": "%s",
-                  "pk3": "%s",
-                  "pk4": 10
-                }
-                """
+            {
+              "pk1": 1,
+              "pk2": "%s",
+              "pk3": "%s",
+              "pk4": 10,
+              "value_text": null,
+              "value_int": null
+            }
+            """
               .formatted(PK2_VALUE, PK3_VALUE),
           "null"),
       null

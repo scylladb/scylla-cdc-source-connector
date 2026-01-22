@@ -62,7 +62,9 @@ public class ScyllaCompositePkNewRecordStateConnectorIT
           "pk1": 1,
           "pk2": "%s",
           "pk3": "%s",
-          "pk4": 10
+          "pk4": 10,
+          "value_text": "first",
+          "value_int": 100
         }
         """
           .formatted(PK2_VALUE, PK3_VALUE)

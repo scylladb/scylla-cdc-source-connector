@@ -5,15 +5,13 @@ import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildPlainCo
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.TestInfo;
 
-public class ScyllaTypesFrozenCollectionsPlainConnectorIT
-    extends ScyllaTypesFrozenCollectionsBase<String, String> {
-  /** {@inheritDoc} */
+public class ScyllaTypesCollectionsPlainConnectorIT
+    extends ScyllaTypesCollectionsBase<String, String> {
   @Override
   KafkaConsumer<String, String> buildConsumer(String connectorName, String tableName) {
     return buildPlainConnector(connectorName, tableName);
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedInsertWithValues(TestInfo testInfo) {
     return new String[] {
@@ -45,7 +43,20 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
             "frozen_map_varchar_col": {"value": [{"key": "varchar_key", "value": "varchar_value"}]},
             "frozen_map_varint_col": {"value": [{"key": "999999999", "value": "varint_value"}]},
             "frozen_map_tuple_key_col": {"value": [{"key": {"tuple_member_0": 1, "tuple_member_1": "tuple_key"}, "value": "tuple_value"}]},
-            "frozen_map_udt_key_col": {"value": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]}
+            "frozen_map_udt_key_col": {"value": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]},
+            "frozen_udt": {"value": {"a": 42, "b": "foo"}},
+            "frozen_nested_udt": {"value": {"inner": {"x": 10, "y": "hello"}, "z": 20}},
+            "frozen_udt_with_map": {"value": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]}},
+            "frozen_udt_with_list": {"value": {"l": [1, 2, 3]}},
+            "frozen_udt_with_set": {"value": {"s": ["a", "b", "c"]}},
+            "list_col": {"value": [{"value": 10}, {"value": 20}, {"value": 30}]},
+            "set_col": {"value": ["x", "y", "z"]},
+            "map_col": {"value": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]},
+            "udt": {"value": {"a": 7, "b": "bar"}},
+            "nested_udt": {"value": {"inner": {"x": 10, "y": "hello"}, "z": 20}},
+            "udt_with_map": {"value": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]}},
+            "udt_with_list": {"value": {"l": [1, 2, 3]}},
+            "udt_with_set": {"value": {"s": ["a", "b", "c"]}}
           },
           "op": "c",
           "source": {
@@ -66,7 +77,6 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedInsertWithEmpty(TestInfo testInfo) {
     return new String[] {
@@ -98,7 +108,20 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
             "frozen_map_varchar_col": {"value": []},
             "frozen_map_varint_col": {"value": []},
             "frozen_map_tuple_key_col": {"value": []},
-            "frozen_map_udt_key_col": {"value": []}
+            "frozen_map_udt_key_col": {"value": []},
+            "frozen_udt": {"value": {"a": null, "b": null}},
+            "frozen_nested_udt": {"value": {"inner": null, "z": null}},
+            "frozen_udt_with_map": {"value": {"m": []}},
+            "frozen_udt_with_list": {"value": {"l": []}},
+            "frozen_udt_with_set": {"value": {"s": []}},
+            "list_col": {"value": null},
+            "set_col": {"value": null},
+            "map_col": {"value": null},
+            "udt": null,
+            "nested_udt": null,
+            "udt_with_map": {"value": {"m": []}},
+            "udt_with_list": {"value": {"l": []}},
+            "udt_with_set": {"value": {"s": []}}
           },
           "op": "c",
           "source": {
@@ -119,7 +142,6 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedInsertWithNull(TestInfo testInfo) {
     return new String[] {
@@ -151,7 +173,20 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
             "frozen_map_varchar_col": {"value": null},
             "frozen_map_varint_col": {"value": null},
             "frozen_map_tuple_key_col": {"value": null},
-            "frozen_map_udt_key_col": {"value": null}
+            "frozen_map_udt_key_col": {"value": null},
+            "frozen_udt": {"value": null},
+            "frozen_nested_udt": {"value": null},
+            "frozen_udt_with_map": {"value": null},
+            "frozen_udt_with_list": {"value": null},
+            "frozen_udt_with_set": {"value": null},
+            "list_col": {"value": null},
+            "set_col": {"value": null},
+            "map_col": {"value": null},
+            "udt": null,
+            "nested_udt": null,
+            "udt_with_map": {"value": {"m": []}},
+            "udt_with_list": {"value": {"l": []}},
+            "udt_with_set": {"value": {"s": []}}
           },
           "op": "c",
           "source": {
@@ -172,7 +207,6 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
@@ -206,7 +240,20 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
               "frozen_map_varchar_col": null,
               "frozen_map_varint_col": null,
               "frozen_map_tuple_key_col": null,
-              "frozen_map_udt_key_col": null
+              "frozen_map_udt_key_col": null,
+              "frozen_udt": null,
+              "frozen_nested_udt": null,
+              "frozen_udt_with_map": null,
+              "frozen_udt_with_list": null,
+              "frozen_udt_with_set": null,
+              "list_col": null,
+              "set_col": null,
+              "map_col": null,
+              "udt": null,
+              "nested_udt": null,
+              "udt_with_map": null,
+              "udt_with_list": null,
+              "udt_with_set": null
             }
             """,
           "null"),
@@ -214,7 +261,6 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
     return new String[] {
@@ -249,13 +295,25 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
               "frozen_map_varchar_col": {"value": [{"key": "varchar_key_2", "value": "varchar_value_2"}]},
               "frozen_map_varint_col": {"value": [{"key": "888888888", "value": "varint_value_2"}]},
               "frozen_map_tuple_key_col": {"value": [{"key": {"tuple_member_0": 2, "tuple_member_1": "tuple_key_2"}, "value": "tuple_value_2"}]},
-              "frozen_map_udt_key_col": {"value": [{"key": {"a": 2, "b": "udt_key_2"}, "value": "udt_value_2"}]}
+              "frozen_map_udt_key_col": {"value": [{"key": {"a": 2, "b": "udt_key_2"}, "value": "udt_value_2"}]},
+              "frozen_udt": {"value": {"a": 99, "b": "updated"}},
+              "frozen_nested_udt": {"value": {"inner": {"x": 11, "y": "updated"}, "z": 21}},
+              "frozen_udt_with_map": {"value": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]}},
+              "frozen_udt_with_list": {"value": {"l": [4, 5, 6]}},
+              "frozen_udt_with_set": {"value": {"s": ["d", "e"]}},
+              "list_col": {"value": [{"value": 40}, {"value": 50}, {"value": 60}]},
+              "set_col": {"value": ["p", "q", "r"]},
+              "map_col": {"value": [{"key": 30, "value": "thirty"}, {"key": 40, "value": "forty"}]},
+              "udt": {"value": {"a": 100, "b": "updated"}},
+              "nested_udt": {"value": {"inner": {"x": 11, "y": "updated"}, "z": 21}},
+              "udt_with_map": {"value": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]}},
+              "udt_with_list": {"value": {"l": [4, 5, 6]}},
+              "udt_with_set": {"value": {"s": ["d", "e"]}}
             }
             """)
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -290,13 +348,25 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
               "frozen_map_varchar_col": {"value": []},
               "frozen_map_varint_col": {"value": []},
               "frozen_map_tuple_key_col": {"value": []},
-              "frozen_map_udt_key_col": {"value": []}
+              "frozen_map_udt_key_col": {"value": []},
+              "frozen_udt": {"value": {"a": null, "b": null}},
+              "frozen_nested_udt": {"value": {"inner": null, "z": null}},
+              "frozen_udt_with_map": {"value": {"m": []}},
+              "frozen_udt_with_list": {"value": {"l": []}},
+              "frozen_udt_with_set": {"value": {"s": []}},
+              "list_col": {"value": null},
+              "set_col": {"value": null},
+              "map_col": {"value": null},
+              "udt": {"value": null},
+              "nested_udt": {"value": null},
+              "udt_with_map": {"value": {"m": []}},
+              "udt_with_list": {"value": {"l": []}},
+              "udt_with_set": {"value": {"s": []}}
             }
             """)
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToNull(TestInfo testInfo) {
     return new String[] {
@@ -331,13 +401,25 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
               "frozen_map_varchar_col": {"value": null},
               "frozen_map_varint_col": {"value": null},
               "frozen_map_tuple_key_col": {"value": null},
-              "frozen_map_udt_key_col": {"value": null}
+              "frozen_map_udt_key_col": {"value": null},
+              "frozen_udt": {"value": null},
+              "frozen_nested_udt": {"value": null},
+              "frozen_udt_with_map": {"value": null},
+              "frozen_udt_with_list": {"value": null},
+              "frozen_udt_with_set": {"value": null},
+              "list_col": {"value": null},
+              "set_col": {"value": null},
+              "map_col": {"value": null},
+              "udt": {"value": null},
+              "nested_udt": {"value": null},
+              "udt_with_map": {"value": {"m": []}},
+              "udt_with_list": {"value": {"l": []}},
+              "udt_with_set": {"value": {"s": []}}
             }
             """)
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
     return new String[] {
@@ -372,13 +454,25 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
               "frozen_map_varchar_col": {"value": [{"key": "varchar_key", "value": "varchar_value"}]},
               "frozen_map_varint_col": {"value": [{"key": "999999999", "value": "varint_value"}]},
               "frozen_map_tuple_key_col": {"value": [{"key": {"tuple_member_0": 1, "tuple_member_1": "tuple_key"}, "value": "tuple_value"}]},
-              "frozen_map_udt_key_col": {"value": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]}
+              "frozen_map_udt_key_col": {"value": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]},
+              "frozen_udt": {"value": {"a": 42, "b": "foo"}},
+              "frozen_nested_udt": {"value": {"inner": {"x": 10, "y": "hello"}, "z": 20}},
+              "frozen_udt_with_map": {"value": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]}},
+              "frozen_udt_with_list": {"value": {"l": [1, 2, 3]}},
+              "frozen_udt_with_set": {"value": {"s": ["a", "b", "c"]}},
+              "list_col": {"value": [{"value": 10}, {"value": 20}, {"value": 30}]},
+              "set_col": {"value": ["x", "y", "z"]},
+              "map_col": {"value": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]},
+              "udt": {"value": {"a": 7, "b": "bar"}},
+              "nested_udt": {"value": {"inner": {"x": 10, "y": "hello"}, "z": 20}},
+              "udt_with_map": {"value": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]}},
+              "udt_with_list": {"value": {"l": [1, 2, 3]}},
+              "udt_with_set": {"value": {"s": ["a", "b", "c"]}}
             }
             """)
     };
   }
 
-  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNullToValue(TestInfo testInfo) {
     return new String[] {
@@ -413,7 +507,140 @@ public class ScyllaTypesFrozenCollectionsPlainConnectorIT
               "frozen_map_varchar_col": {"value": [{"key": "varchar_key", "value": "varchar_value"}]},
               "frozen_map_varint_col": {"value": [{"key": "999999999", "value": "varint_value"}]},
               "frozen_map_tuple_key_col": {"value": [{"key": {"tuple_member_0": 1, "tuple_member_1": "tuple_key"}, "value": "tuple_value"}]},
-              "frozen_map_udt_key_col": {"value": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]}
+              "frozen_map_udt_key_col": {"value": [{"key": {"a": 1, "b": "udt_key"}, "value": "udt_value"}]},
+              "frozen_udt": {"value": {"a": 42, "b": "foo"}},
+              "frozen_nested_udt": {"value": {"inner": {"x": 10, "y": "hello"}, "z": 20}},
+              "frozen_udt_with_map": {"value": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]}},
+              "frozen_udt_with_list": {"value": {"l": [1, 2, 3]}},
+              "frozen_udt_with_set": {"value": {"s": ["a", "b", "c"]}},
+              "list_col": {"value": [{"value": 10}, {"value": 20}, {"value": 30}]},
+              "set_col": {"value": ["x", "y", "z"]},
+              "map_col": {"value": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]},
+              "udt": {"value": {"a": 7, "b": "bar"}},
+              "nested_udt": {"value": {"inner": {"x": 10, "y": "hello"}, "z": 20}},
+              "udt_with_map": {"value": {"m": [{"key": "key1", "value": 100}, {"key": "key2", "value": 200}]}},
+              "udt_with_list": {"value": {"l": [1, 2, 3]}},
+              "udt_with_set": {"value": {"s": ["a", "b", "c"]}}
+            }
+            """)
+    };
+  }
+
+  @Override
+  String[] expectedNonFrozenAddElement(TestInfo testInfo) {
+    return new String[] {
+      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord(
+          testInfo,
+          "u",
+          "null",
+          """
+            {
+              "id": 1,
+              "list_col": {"value": [{"value": 40}]},
+              "set_col": {"value": ["w"]},
+              "map_col": {"value": [{"key": 30, "value": "thirty"}]},
+              "udt": {"value": {"a": 100, "b": null}},
+              "nested_udt": {"value": {"inner": null, "z": 21}},
+              "udt_with_map": {"value": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]}},
+              "udt_with_list": {"value": {"l": [4, 5, 6]}},
+              "udt_with_set": {"value": {"s": ["d", "e"]}}
+            }
+            """)
+    };
+  }
+
+  @Override
+  String[] expectedNonFrozenRemoveElement(TestInfo testInfo) {
+    return new String[] {
+      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord(
+          testInfo,
+          "u",
+          "null",
+          """
+            {
+              "id": 1,
+              "list_col": {"value": [{"value": null}]},
+              "set_col": {"value": ["y"]},
+              "map_col": {"value": [{"key": 10, "value": null}]},
+              "udt": {"value": {"a": 100, "b": null}},
+              "nested_udt": {"value": {"inner": null, "z": 21}},
+              "udt_with_map": {"value": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]}},
+              "udt_with_list": {"value": {"l": [4, 5, 6]}},
+              "udt_with_set": {"value": {"s": ["d", "e"]}}
+            }
+            """)
+    };
+  }
+
+  @Override
+  String[] expectedNonFrozenAddElementFromNull(TestInfo testInfo) {
+    return new String[] {
+      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord(
+          testInfo,
+          "u",
+          "null",
+          """
+            {
+              "id": 1,
+              "list_col": {"value": [{"value": 40}]},
+              "set_col": {"value": ["w"]},
+              "map_col": {"value": [{"key": 30, "value": "thirty"}]},
+              "udt": {"value": {"a": 100, "b": null}},
+              "nested_udt": {"value": {"inner": null, "z": 21}},
+              "udt_with_map": {"value": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]}},
+              "udt_with_list": {"value": {"l": [4, 5, 6]}},
+              "udt_with_set": {"value": {"s": ["d", "e"]}}
+            }
+            """)
+    };
+  }
+
+  @Override
+  String[] expectedNonFrozenAddElementFromEmpty(TestInfo testInfo) {
+    return new String[] {
+      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord(
+          testInfo,
+          "u",
+          "null",
+          """
+            {
+              "id": 1,
+              "list_col": {"value": [{"value": 40}]},
+              "set_col": {"value": ["w"]},
+              "map_col": {"value": [{"key": 30, "value": "thirty"}]},
+              "udt": {"value": {"a": 100, "b": null}},
+              "nested_udt": {"value": {"inner": null, "z": 21}},
+              "udt_with_map": {"value": {"m": [{"key": "key1", "value": 101}, {"key": "key3", "value": 300}]}},
+              "udt_with_list": {"value": {"l": [4, 5, 6]}},
+              "udt_with_set": {"value": {"s": ["d", "e"]}}
+            }
+            """)
+    };
+  }
+
+  @Override
+  String[] expectedNonFrozenRemoveAllElements(TestInfo testInfo) {
+    return new String[] {
+      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord(
+          testInfo,
+          "u",
+          "null",
+          """
+            {
+              "id": 1,
+              "list_col": {"value": [{"value": null}, {"value": null}, {"value": null}]},
+              "set_col": {"value": ["x", "y", "z"]},
+              "map_col": {"value": [{"key": 10, "value": null}, {"key": 20, "value": null}]},
+              "udt": {"value": {"a": null, "b": null}},
+              "nested_udt": {"value": {"inner": null, "z": null}},
+              "udt_with_map": {"value": {"m": []}},
+              "udt_with_list": {"value": {"l": []}},
+              "udt_with_set": {"value": {"s": []}}
             }
             """)
     };

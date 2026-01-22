@@ -33,6 +33,8 @@ These instructions help AI coding agents quickly work productively in this repo.
   - `UDT`: struct with only modified fields present; removed fields are `null`.
   - When there are no element-level deltas on INSERT, Scylla CDC does not distinguish explicit empty (`[]/{}`) from `NULL`; the connector may emit a **top-level null** for that column in this ambiguous case.
   - For non-INSERT operations that delete the entire non-frozen collection, the connector emits a Cell with `value = null`.
+  - Only **top-level collection and UDT columns** can be non-frozen and use this delta representation; detection relies on `cdc$deleted_elements_<column>` in the CDC schema.
+  - Collections and UDTs that appear as nested fields (for example, as fields of a UDT, or as collection element/value types) are always treated as **frozen** and use the frozen formats, even if their CQL type is not declared `frozen<...>`.
 
 Refer to `ScyllaTypesIT.canReplicateNonFrozenCollectionsEdgeCases` for concrete examples and assertions of this behavior.
 
