@@ -241,8 +241,11 @@ public abstract class AbstractContainerBaseIT {
   /** The default Kafka provider when system property is not defined */
   private static final String DEFAULT_KAFKA_PROVIDER = "apache";
 
-  /** The default Kafka version when system property is not defined */
-  private static final String DEFAULT_PROVIDER_IMAGE_VERSION = "4.0.0";
+  /** The default Kafka version when system property is not defined (Apache provider). */
+  private static final String DEFAULT_APACHE_PROVIDER_IMAGE_VERSION = "4.0.0";
+
+  /** The default Kafka version when system property is not defined (Confluent provider). */
+  private static final String DEFAULT_CONFLUENT_PROVIDER_IMAGE_VERSION = "7.5.0";
 
   /** The default Kafka Connect mode when system property is not defined */
   private static final String DEFAULT_KAFKA_CONNECT_MODE = "distributed";
@@ -266,12 +269,19 @@ public abstract class AbstractContainerBaseIT {
 
   /**
    * The Kafka version, read from the "it.provider.image.version" system property. Expected format:
-   * major.minor.patch[-label] (e.g. "2.8.1" or "4.1.0-rc1") Defaults to "4.0.0" if system property
-   * is not defined.
+   * major.minor.patch[-label] (e.g. "2.8.1" or "4.1.0-rc1"). Defaults to the provider-specific
+   * version if the system property is not defined.
    */
   public static final KafkaVersion PROVIDER_IMAGE_VERSION =
       new KafkaVersion(
-          System.getProperty("it.provider.image.version", DEFAULT_PROVIDER_IMAGE_VERSION));
+          System.getProperty("it.provider.image.version", defaultProviderImageVersion()));
+
+  private static String defaultProviderImageVersion() {
+    if (KAFKA_PROVIDER == KafkaProvider.CONFLUENT) {
+      return DEFAULT_CONFLUENT_PROVIDER_IMAGE_VERSION;
+    }
+    return DEFAULT_APACHE_PROVIDER_IMAGE_VERSION;
+  }
 
   /**
    * The Kafka Connect deployment mode, read from the "it.kafka.connect.mode" system property.

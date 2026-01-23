@@ -216,6 +216,38 @@ If the operation did not modify the `v` column, the data event will contain the 
 
 See `UPDATE` example for full  data change event's value.
 
+#### Collections
+
+Connector supports both frozen and non-frozen collections.
+
+**Frozen collections:**
+- `List` and `Set` of type T are represented as `Schema.array(T)`. In the JSON format, this is also an array.
+- `Map` with key type K and value type V is represented as an array of structs with fields `{ "key": K, "value": V }`. In JSON, this is an array of objects with `key` and `value`.
+- `UDT` is represented as a struct. In JSON, this is an object.
+
+**Non-frozen collections:**
+Non-frozen collections always use delta semantics. Each non-frozen collection column is represented inside the `value` of the "Cell" struct as the delta payload (there is no separate `mode` field). The payload shape depends on the collection type:
+- `Set<T>` is an array of elements touched by the change. The CDC log does not include per-element add/remove flags, so additions and removals are represented the same way.
+- `List<T>` is an array of structs with a single field `{ "value": T }`. Added elements are represented as `{ "value": <element> }`, removed elements as `{ "value": null }`. The list element keys/timeuuid values are not included in the emitted payload.
+- `Map<K,V>` is an array of structs with fields `{ "key": K, "value": V }`. Removed entries are marked by `"value": null`.
+- `UDT` is a struct with only modified fields present; removed fields are represented as `null` values.
+
+There is no separate `removed_elements` field in the emitted schema. Per-element removals are encoded in the delta payload itself (for example, map entries with `value: null` or list elements with `value: null`).
+
+Delta semantics apply only to **top-level collection and UDT columns** on the base table, that is, columns for which Scylla CDC exposes `cdc$deleted_elements_<column>` metadata. Collections or UDTs that appear inside another type (for example, as fields of a UDT, or as collection element/value types) are always treated as **frozen** by the connector and use the frozen formats described above, even if their CQL definition does not explicitly use `frozen<...>`.
+
+###### Limitations for empty vs NULL on non-frozen collections
+
+For non-frozen collections, Scylla CDC exposes element-level additions and removals via the `cdc$deleted_elements_` columns and a single top-level `cdc$deleted_` flag per collection column. For some write patterns (in particular, `INSERT` with empty collections such as `[], {}, {}`), the CDC log does not contain enough information to distinguish between "explicit empty" and "explicit NULL" for non-frozen collections without performing an additional read from the base table.
+
+To avoid guessing, the connector treats INSERTs of non-frozen collections that have no element-level deltas (no added or deleted elements in CDC) as **ambiguous** and may represent them as a top-level `null` in the Kafka record. In practice this means:
+
+- On INSERT:
+  - If there are concrete element deltas, the connector emits the delta payload in the Cell `value` (see the collection type rules above).
+  - If CDC provides no element deltas, the connector cannot distinguish explicit empty from explicit `NULL`; in that case it may emit the collection column as `null` in the Debezium `after` struct. When CDC only supplies the top-level deleted flag without any element payload, the connector emits a Cell with `value = null`.
+- On UPDATE/DELETE where the whole non-frozen collection is removed, the connector emits a Cell with `value = null` (consistent with other column types).
+
+Consumers that need to distinguish between empty and NULL collections should either use frozen collections (which preserve this distinction) or perform their own lookups against the base table.
 #### Single Message Transformations (SMTs)
 The connector provides two single message transformations (SMTs): `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) and `ScyllaFlattenColumns` (`com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`).
 
@@ -725,3 +757,45 @@ Scylla CDC Source Connector reads the CDC log by quering on [Vnode](https://docs
 
 #### `tasks.max` property
 By adjusting `tasks.max` property, you can configure how many Kafka Connect worker tasks will be started. By scaling up the number of nodes in your Kafka Connect cluster (and `tasks.max` number), you can achieve higher throughput. In general, the `tasks.max` property should be greater or equal the number of nodes in Kafka Connect cluster, to allow the connector to start on each node. `tasks.max` property should also be greater or equal the number of nodes in your Scylla cluster, especially if those nodes have high shard count (32 or greater) as they have a large number of [CDC Streams](https://docs.scylladb.com/using-scylla/cdc/cdc-streams/).
+
+## Known Limitations
+
+### Non-frozen UDTs with Collection Fields
+
+When a non-frozen UDT column contains frozen collection fields (such as `frozen<map<...>>`, `frozen<list<...>>`, or `frozen<set<...>>`), the connector cannot correctly distinguish between setting the UDT to `null` versus setting it to an empty value.
+
+**Example schema:**
+```sql
+CREATE TYPE my_udt (
+    m frozen<map<text, int>>,
+    l frozen<list<int>>,
+    s frozen<set<text>>
+);
+
+CREATE TABLE my_table (
+    pk int PRIMARY KEY,
+    udt_col my_udt
+) WITH cdc = {'enabled': true};
+```
+
+**Affected operations:**
+```sql
+-- Setting UDT to null
+UPDATE my_table SET udt_col = null WHERE pk = 1;
+
+-- Setting UDT to empty collections
+UPDATE my_table SET udt_col = {m: {}, l: [], s: {}} WHERE pk = 1;
+```
+
+**Expected behavior:** The first operation should produce `{"udt_col": {"value": null}}` in the Kafka message.
+
+**Actual behavior:** Both operations produce `{"udt_col": {"value": {"m": [], "l": [], "s": []}}}` in the Kafka message.
+
+**Root cause:** This is a limitation at the Scylla CDC level. For non-frozen UDTs, Scylla CDC tracks changes using element-level delta semantics with `cdc$deleted_elements_<column>` metadata. However, when a UDT is set to `null`, the CDC log does not set the `cdc$deleted_<column>` flag to `true`, and the `cdc$deleted_elements_<column>` column does not contain the field indices. Instead, frozen collection fields within the UDT are represented as empty collections in the CDC log, making it impossible for the connector to differentiate between an explicit `null` assignment and an assignment of empty collections.
+
+**Note:** This limitation does not affect:
+- Non-frozen UDTs with only scalar fields (e.g., `int`, `text`, `timestamp`) - these work correctly
+- Frozen UDTs - which preserve the null vs empty distinction
+- Simple non-frozen collections (`set`, `list`, `map`) at the top level - see [Limitations for empty vs NULL on non-frozen collections](#limitations-for-empty-vs-null-on-non-frozen-collections)
+
+**Workaround:** If distinguishing between `null` and empty is required for UDT columns with collection fields, consider using frozen UDTs (`frozen<my_udt>`) instead, which preserve this distinction in the CDC log.

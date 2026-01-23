@@ -252,7 +252,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "The initial backoff in milliseconds that will be used for queries to Scylla. "
                   + "Each consecutive retry will increase exponentially by a factor of 2 up to configured max backoff.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(50);
 
   public static final Field RETRY_MAX_BACKOFF_MS =
@@ -264,7 +263,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription(
               "Maximum backoff in milliseconds that will be used for queries to Scylla.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(30000);
 
   public static final Field RETRY_BACKOFF_JITTER_PERCENTAGE =
@@ -279,7 +277,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "subtracted before application. The jitter does not modify base backoff and has no impact on exponential rise. "
                   + "Minimal allowed value is 1. Max is 100.")
           .withValidation(Field::isPositiveInteger)
-          .optional()
           .withDefault(20);
 
   public static final Field POOLING_CORE_POOL_LOCAL =
@@ -293,7 +290,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Local nodes are the nodes of local datacenter. "
                   + "Driver session used by worker will aim to maintain this number of connections per local node.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1);
 
   public static final Field POOLING_MAX_POOL_LOCAL =
@@ -307,7 +303,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Worker will open additional connections up to this maximum whenever existing ones go above certain threshold"
                   + " of concurrent requests.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1);
 
   public static final Field POOLING_MAX_QUEUE_SIZE =
@@ -322,7 +317,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "be necessary to increase this to avoid BusyPoolException. Additional requests above this limit will be "
                   + "rejected. Requests that wait for longer than pool timeout value also will be rejected.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(512);
 
   public static final Field POOLING_MAX_REQUESTS_PER_CONNECTION =
@@ -335,7 +329,6 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "Worker's maximum requests per connection to a Scylla node within distance 'LOCAL'. Requests above "
                   + "this quantity will be enqueued.")
           .withValidation(Field::isNonNegativeInteger)
-          .optional()
           .withDefault(1024);
 
   public static final Field POOLING_POOL_TIMEOUT_MS =
@@ -404,85 +397,105 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   private final Configuration config;
 
+  /** Builds a connector configuration wrapper around the Debezium config. */
   protected ScyllaConnectorConfig(Configuration config) {
     super(config, 0);
     this.config = config;
   }
 
+  /** Returns the connector configuration definition for Kafka Connect. */
   public static ConfigDef configDef() {
     return CONFIG_DEFINITION.configDef();
   }
 
+  /** Returns the configured Scylla contact points (host:port). */
   public List<InetSocketAddress> getContactPoints() {
     return ConfigSerializerUtil.deserializeClusterIpAddresses(
         config.getString(ScyllaConnectorConfig.CLUSTER_IP_ADDRESSES));
   }
 
+  /** Returns whether SSL is enabled for Scylla connections. */
   public boolean getSslEnabled() {
     return config.getBoolean(SSL_ENABLED);
   }
 
+  /** Returns the SSL provider to use for Scylla connections. */
   public SslProvider getSslProvider() {
     return EnumUtils.getEnum(SslProvider.class, config.getString(SSL_PROVIDER).toUpperCase());
   }
 
+  /** Returns the configured truststore path, if any. */
   public String getTrustStorePath() {
     return config.getString(SSL_TRUSTSTORE_PATH);
   }
 
+  /** Returns the configured truststore password, if any. */
   public String getTrustStorePassword() {
     return config.getString(SSL_TRUSTSTORE_PASSWORD);
   }
 
+  /** Returns the configured keystore path, if any. */
   public String getKeyStorePath() {
     return config.getString(SSL_KEYSTORE_PATH);
   }
 
+  /** Returns the configured keystore password, if any. */
   public String getKeyStorePassword() {
     return config.getString(SSL_KEYSTORE_PASSWORD);
   }
 
+  /** Returns the configured SSL cipher suites list. */
   public List<String> getCipherSuite() {
     return config.getInstance(SSL_CIPHER_SUITES, List.class);
   }
 
+  /** Returns the OpenSSL certificate chain path, if any. */
   public String getCertPath() {
     return config.getString(SSL_OPENSLL_KEYCERTCHAIN);
   }
 
+  /** Returns the OpenSSL private key path, if any. */
   public String getPrivateKeyPath() {
     return config.getString(SSL_OPENSLL_PRIVATEKEY);
   }
 
+  /** Returns the configured CDC-enabled table names. */
   public Set<TableName> getTableNames() {
     return ConfigSerializerUtil.deserializeTableNames(
         config.getString(ScyllaConnectorConfig.TABLE_NAMES));
   }
 
+  /** Returns the username for Scylla authentication, if set. */
   public String getUser() {
     return config.getString(ScyllaConnectorConfig.USER);
   }
 
+  /** Returns the password for Scylla authentication, if set. */
   public String getPassword() {
     return config.getString(ScyllaConnectorConfig.PASSWORD);
   }
 
+  /** Returns the CDC query time window size in milliseconds. */
   public long getQueryTimeWindowSizeMs() {
     return config.getInteger(ScyllaConnectorConfig.QUERY_TIME_WINDOW_SIZE);
   }
 
+  /** Returns the CDC confidence window size in milliseconds. */
   public long getConfidenceWindowSizeMs() {
     return config.getInteger(ScyllaConnectorConfig.CONFIDENCE_WINDOW_SIZE);
   }
 
+  /** Returns the minimal wait time between CDC windows in milliseconds. */
   public long getMinimalWaitForWindowMs() {
     return config.getInteger(ScyllaConnectorConfig.MINIMAL_WAIT_FOR_WINDOW_MS);
   }
 
+  /** Returns the heartbeat interval in milliseconds. */
   public long getHeartbeatIntervalMs() {
     return config.getInteger(Heartbeat.HEARTBEAT_INTERVAL);
   }
 
+  /** Returns the configured consistency level, falling back to the default when invalid. */
   public CQLConfiguration.ConsistencyLevel getConsistencyLevel() {
     String consistencyLevelValue = config.getString(ScyllaConnectorConfig.CONSISTENCY_LEVEL);
     try {
@@ -492,30 +505,37 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     }
   }
 
+  /** Returns the local datacenter name, if configured. */
   public String getLocalDCName() {
     return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
   }
 
+  /** Returns whether CDC preimages are enabled. */
   public boolean getPreimagesEnabled() {
     return config.getBoolean(ScyllaConnectorConfig.PREIMAGES_ENABLED);
   }
 
+  /** Returns the driver query fetch size for CDC reads. */
   public int getQueryOptionsFetchSize() {
     return config.getInteger(ScyllaConnectorConfig.QUERY_OPTIONS_FETCH_SIZE);
   }
 
+  /** Returns the base retry backoff in milliseconds. */
   public int getRetryBackoffBaseMs() {
     return config.getInteger(ScyllaConnectorConfig.RETRY_BACKOFF_BASE_MS);
   }
 
+  /** Returns the maximum retry backoff in milliseconds. */
   public int getRetryMaxBackoffMs() {
     return config.getInteger(ScyllaConnectorConfig.RETRY_MAX_BACKOFF_MS);
   }
 
+  /** Returns the retry jitter percentage. */
   public int getRetryBackoffJitterPercentage() {
     return config.getInteger(ScyllaConnectorConfig.RETRY_BACKOFF_JITTER_PERCENTAGE);
   }
 
+  /** Builds the retry backoff policy for CDC worker queries. */
   public ExponentialRetryBackoffWithJitter createCDCWorkerRetryBackoff() {
     int backoffMs = getRetryBackoffBaseMs();
     int maxBackoffMs = getRetryMaxBackoffMs();
@@ -523,26 +543,32 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     return new ExponentialRetryBackoffWithJitter(backoffMs, maxBackoffMs, jitter);
   }
 
+  /** Returns the core connection pool size for local nodes. */
   public int getPoolingCorePoolLocal() {
     return config.getInteger(POOLING_CORE_POOL_LOCAL);
   }
 
+  /** Returns the maximum connection pool size for local nodes. */
   public int getPoolingMaxPoolLocal() {
     return config.getInteger(POOLING_MAX_POOL_LOCAL);
   }
 
+  /** Returns the maximum requests per connection. */
   public int getPoolingMaxRequestsPerConnection() {
     return config.getInteger(POOLING_MAX_REQUESTS_PER_CONNECTION);
   }
 
+  /** Returns the maximum queue size for pooled connections. */
   public int getPoolingMaxQueueSize() {
     return config.getInteger(POOLING_MAX_QUEUE_SIZE);
   }
 
+  /** Returns the timeout to acquire a pooled connection in milliseconds. */
   public int getPoolingPoolTimeoutMs() {
     return config.getInteger(POOLING_POOL_TIMEOUT_MS);
   }
 
+  /** Returns the default port to use when none is specified in contact points. */
   public int getDefaultPort() {
     for (InetSocketAddress cp : this.getContactPoints()) {
       if (cp.getPort() != 0) {
@@ -552,11 +578,13 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     return 9042;
   }
 
+  /** {@inheritDoc} */
   @Override
   public String getContextName() {
     return "Scylla";
   }
 
+  /** {@inheritDoc} */
   @Override
   public String getConnectorName() {
     return "scylla";
@@ -571,22 +599,26 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
       this.value = value;
     }
 
+    /** {@inheritDoc} */
     @Override
     public String getValue() {
       return value;
     }
   }
 
+  /** {@inheritDoc} */
   @Override
   public EnumeratedValue getSnapshotMode() {
     return SnapshotMode.INITIAL;
   }
 
+  /** {@inheritDoc} */
   @Override
   public Optional<? extends EnumeratedValue> getSnapshotLockingMode() {
     return Optional.empty();
   }
 
+  /** {@inheritDoc} */
   @Override
   protected SourceInfoStructMaker<?> getSourceInfoStructMaker(Version version) {
     return getSourceInfoStructMaker(

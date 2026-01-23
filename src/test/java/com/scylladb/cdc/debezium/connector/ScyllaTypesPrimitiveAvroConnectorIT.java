@@ -11,6 +11,7 @@ import org.junit.jupiter.api.TestInfo;
 public class ScyllaTypesPrimitiveAvroConnectorIT
     extends ScyllaTypesPrimitiveBase<GenericRecord, GenericRecord> {
 
+  /** Skips Avro tests unless Confluent distributed mode is available. */
   @BeforeAll
   static void checkKafkaProvider() {
     Assumptions.assumeTrue(
@@ -20,12 +21,14 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
         "Avro tests require distributed mode, otherwise Avro converter is not available");
   }
 
+  /** {@inheritDoc} */
   @Override
   KafkaConsumer<GenericRecord, GenericRecord> buildConsumer(
       String connectorName, String tableName) {
     return buildAvroConnector(connectorName, tableName);
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedInsert(TestInfo testInfo) {
     return new String[] {
@@ -82,6 +85,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
@@ -91,7 +95,31 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
           "d",
           """
             {
-              "id": 1
+              "id": 1,
+              "ascii_col": null,
+              "bigint_col": null,
+              "blob_col": null,
+              "boolean_col": null,
+              "date_col": null,
+              "decimal_col": null,
+              "double_col": null,
+              "duration_col": null,
+              "float_col": null,
+              "inet_col": null,
+              "int_col": null,
+              "smallint_col": null,
+              "text_col": null,
+              "time_col": null,
+              "timestamp_col": null,
+              "timeuuid_col": null,
+              "tinyint_col": null,
+              "uuid_col": null,
+              "varchar_col": null,
+              "varint_col": null,
+              "untouched_text": null,
+              "untouched_int": null,
+              "untouched_boolean": null,
+              "untouched_uuid": null
             }
             """,
           "null"),
@@ -99,6 +127,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToNil(TestInfo testInfo) {
     return new String[] {
@@ -135,6 +164,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -171,6 +201,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
     return new String[] {
@@ -207,6 +238,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToValue(TestInfo testInfo) {
     return new String[] {
@@ -243,6 +275,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -279,6 +312,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToNil(TestInfo testInfo) {
     return new String[] {
@@ -315,6 +349,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
     return new String[] {
@@ -351,6 +386,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToNil(TestInfo testInfo) {
     return new String[] {
@@ -387,6 +423,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToEmpty(TestInfo testInfo) {
     return new String[] {

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.TestInfo;
 public class ScyllaCompositePkAvroConnectorIT
     extends ScyllaCompositePkBase<GenericRecord, GenericRecord> {
 
+  /** Skips Avro tests unless Confluent distributed mode is available. */
   @BeforeAll
   static void checkKafkaProvider() {
     Assumptions.assumeTrue(
@@ -20,12 +21,14 @@ public class ScyllaCompositePkAvroConnectorIT
         "Avro tests require distributed mode, otherwise Avro converter is not available");
   }
 
+  /** {@inheritDoc} */
   @Override
   KafkaConsumer<GenericRecord, GenericRecord> buildConsumer(
       String connectorName, String tableName) {
     return buildAvroConnector(connectorName, tableName);
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedInsert(TestInfo testInfo) {
     return new String[] {
@@ -47,6 +50,7 @@ public class ScyllaCompositePkAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdate(TestInfo testInfo) {
     return new String[] {
@@ -69,6 +73,7 @@ public class ScyllaCompositePkAvroConnectorIT
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
@@ -77,13 +82,15 @@ public class ScyllaCompositePkAvroConnectorIT
           testInfo,
           "d",
           """
-                {
-                  "pk1": 1,
-                  "pk2": "%s",
-                  "pk3": "%s",
-                  "pk4": 10
-                }
-                """
+            {
+              "pk1": 1,
+              "pk2": "%s",
+              "pk3": "%s",
+              "pk4": 10,
+              "value_text": null,
+              "value_int": null
+            }
+            """
               .formatted(PK2_VALUE, PK3_VALUE),
           "null"),
       null

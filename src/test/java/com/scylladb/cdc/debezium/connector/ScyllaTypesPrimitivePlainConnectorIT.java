@@ -6,11 +6,13 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBase<String, String> {
+  /** {@inheritDoc} */
   @Override
   KafkaConsumer<String, String> buildConsumer(String connectorName, String tableName) {
     return buildPlainConnector(connectorName, tableName);
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedInsert(TestInfo testInfo) {
     return new String[] {
@@ -67,6 +69,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedDelete(TestInfo testInfo) {
     return new String[] {
@@ -76,7 +79,31 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
           "d",
           """
             {
-              "id": 1
+              "id": 1,
+              "ascii_col": null,
+              "bigint_col": null,
+              "blob_col": null,
+              "boolean_col": null,
+              "date_col": null,
+              "decimal_col": null,
+              "double_col": null,
+              "duration_col": null,
+              "float_col": null,
+              "inet_col": null,
+              "int_col": null,
+              "smallint_col": null,
+              "text_col": null,
+              "time_col": null,
+              "timestamp_col": null,
+              "timeuuid_col": null,
+              "tinyint_col": null,
+              "uuid_col": null,
+              "varchar_col": null,
+              "varint_col": null,
+              "untouched_text": null,
+              "untouched_int": null,
+              "untouched_boolean": null,
+              "untouched_uuid": null
             }
             """,
           "null"),
@@ -84,6 +111,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToNil(TestInfo testInfo) {
     return new String[] {
@@ -120,6 +148,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -156,6 +185,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
     return new String[] {
@@ -192,6 +222,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToValue(TestInfo testInfo) {
     return new String[] {
@@ -228,6 +259,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToEmpty(TestInfo testInfo) {
     return new String[] {
@@ -264,6 +296,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromNilToNil(TestInfo testInfo) {
     return new String[] {
@@ -300,6 +333,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
     return new String[] {
@@ -336,6 +370,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToNil(TestInfo testInfo) {
     return new String[] {
@@ -372,6 +407,7 @@ public class ScyllaTypesPrimitivePlainConnectorIT extends ScyllaTypesPrimitiveBa
     };
   }
 
+  /** {@inheritDoc} */
   @Override
   String[] expectedUpdateFromEmptyToEmpty(TestInfo testInfo) {
     return new String[] {
