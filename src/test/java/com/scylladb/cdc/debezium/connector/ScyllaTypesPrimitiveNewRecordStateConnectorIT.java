@@ -3,7 +3,6 @@ package com.scylladb.cdc.debezium.connector;
 import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildScyllaExtractNewRecordStateConnector;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.junit.jupiter.api.TestInfo;
 
 public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
     extends ScyllaTypesPrimitiveBase<String, String> {
@@ -13,11 +12,45 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedInsert(TestInfo testInfo) {
+  protected int extractPkFromValue(String value) {
+    return extractIdFromJson(value);
+  }
+
+  @Override
+  protected int extractPkFromKey(String key) {
+    return extractIdFromJson(key);
+  }
+
+  private int extractIdFromJson(String json) {
+    // Parse JSON to extract "id" from the root level (flattened by NewRecordState transform)
+    if (json == null) {
+      return -1;
+    }
+    int idIndex = json.indexOf("\"id\":");
+    if (idIndex == -1) {
+      return -1;
+    }
+    int start = idIndex + 5;
+    while (start < json.length() && Character.isWhitespace(json.charAt(start))) {
+      start++;
+    }
+    int end = start;
+    while (end < json.length()
+        && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-')) {
+      end++;
+    }
+    if (end > start) {
+      return Integer.parseInt(json.substring(start, end));
+    }
+    return -1;
+  }
+
+  @Override
+  String[] expectedInsert(int pk) {
     return new String[] {
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": "ascii",
           "bigint_col": 1234567890123,
           "blob_col": "yv66vg==",
@@ -45,6 +78,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         }
         """
           .formatted(
+              pk,
               UNTOUCHED_TEXT_VALUE,
               UNTOUCHED_INT_VALUE,
               UNTOUCHED_BOOLEAN_VALUE,
@@ -53,18 +87,19 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
   }
 
   @Override
-  String[] expectedDelete(TestInfo testInfo) {
+  String[] expectedDelete(int pk) {
     return new String[] {
       """
         {
-          "id": 1
+          "id": %d
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromValueToNil(TestInfo testInfo) {
+  String[] expectedUpdateFromValueToNil(int pk) {
     return new String[] {
       """
         {
@@ -72,7 +107,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": null,
           "bigint_col": null,
           "blob_col": null,
@@ -95,11 +130,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": null
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
+  String[] expectedUpdateFromValueToEmpty(int pk) {
     return new String[] {
       """
         {
@@ -107,7 +143,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": "",
           "bigint_col": 1234567890124,
           "blob_col": "3q2+7w==",
@@ -130,11 +166,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": "888888888"
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
+  String[] expectedUpdateFromValueToValue(int pk) {
     return new String[] {
       """
         {
@@ -142,7 +179,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": "ascii2",
           "bigint_col": 1234567890124,
           "blob_col": "3q2+7w==",
@@ -165,11 +202,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": "888888888"
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromNilToValue(TestInfo testInfo) {
+  String[] expectedUpdateFromNilToValue(int pk) {
     return new String[] {
       """
         {
@@ -177,7 +215,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": "ascii",
           "bigint_col": 1234567890123,
           "blob_col": "yv66vg==",
@@ -200,11 +238,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": "999999999"
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromNilToEmpty(TestInfo testInfo) {
+  String[] expectedUpdateFromNilToEmpty(int pk) {
     return new String[] {
       """
         {
@@ -212,7 +251,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": "",
           "bigint_col": 1234567890124,
           "blob_col": "3q2+7w==",
@@ -235,11 +274,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": "888888888"
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromNilToNil(TestInfo testInfo) {
+  String[] expectedUpdateFromNilToNil(int pk) {
     return new String[] {
       """
         {
@@ -247,7 +287,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": null,
           "bigint_col": null,
           "blob_col": null,
@@ -270,11 +310,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": null
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
+  String[] expectedUpdateFromEmptyToValue(int pk) {
     return new String[] {
       """
         {
@@ -282,7 +323,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": "ascii2",
           "bigint_col": 1234567890124,
           "blob_col": "3q2+7w==",
@@ -305,11 +346,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": "888888888"
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToNil(TestInfo testInfo) {
+  String[] expectedUpdateFromEmptyToNil(int pk) {
     return new String[] {
       """
         {
@@ -317,7 +359,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": null,
           "bigint_col": null,
           "blob_col": null,
@@ -340,11 +382,12 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": null
         }
         """
+          .formatted(pk)
     };
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToEmpty(TestInfo testInfo) {
+  String[] expectedUpdateFromEmptyToEmpty(int pk) {
     return new String[] {
       """
         {
@@ -352,7 +395,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
         """,
       """
         {
-          "id": 1,
+          "id": %d,
           "ascii_col": "",
           "bigint_col": 1234567890124,
           "blob_col": "3q2+7w==",
@@ -375,6 +418,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "varint_col": "888888888"
         }
         """
+          .formatted(pk)
     };
   }
 }

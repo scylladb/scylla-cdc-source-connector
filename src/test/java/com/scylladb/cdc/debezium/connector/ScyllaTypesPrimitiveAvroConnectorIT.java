@@ -12,12 +12,14 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
     extends ScyllaTypesPrimitiveBase<GenericRecord, GenericRecord> {
 
   @BeforeAll
-  static void checkKafkaProvider() {
+  @Override
+  public void setupSuite(TestInfo testInfo) {
     Assumptions.assumeTrue(
         KAFKA_PROVIDER == KafkaProvider.CONFLUENT, "Avro tests require Confluent Kafka provider");
     Assumptions.assumeTrue(
         KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED,
         "Avro tests require distributed mode, otherwise Avro converter is not available");
+    super.setupSuite(testInfo);
   }
 
   @Override
@@ -27,13 +29,63 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
   }
 
   @Override
-  String[] expectedInsert(TestInfo testInfo) {
+  protected int extractPkFromValue(GenericRecord value) {
+    return extractIdFromRecord(value);
+  }
+
+  @Override
+  protected int extractPkFromKey(GenericRecord key) {
+    return extractIdFromRecord(key);
+  }
+
+  private int extractIdFromRecord(GenericRecord record) {
+    if (record == null) {
+      return -1;
+    }
+    // Try to get "after" field first (standard Debezium envelope)
+    if (record.getSchema().getField("after") != null) {
+      Object after = record.get("after");
+      if (after instanceof GenericRecord) {
+        GenericRecord afterRecord = (GenericRecord) after;
+        if (afterRecord.getSchema().getField("id") != null) {
+          Object id = afterRecord.get("id");
+          if (id instanceof Number) {
+            return ((Number) id).intValue();
+          }
+        }
+      }
+    }
+    // Try "before" field (for delete operations)
+    if (record.getSchema().getField("before") != null) {
+      Object before = record.get("before");
+      if (before instanceof GenericRecord) {
+        GenericRecord beforeRecord = (GenericRecord) before;
+        if (beforeRecord.getSchema().getField("id") != null) {
+          Object id = beforeRecord.get("id");
+          if (id instanceof Number) {
+            return ((Number) id).intValue();
+          }
+        }
+      }
+    }
+    // Fallback to direct "id" field (for keys)
+    if (record.getSchema().getField("id") != null) {
+      Object id = record.get("id");
+      if (id instanceof Number) {
+        return ((Number) id).intValue();
+      }
+    }
+    return -1;
+  }
+
+  @Override
+  String[] expectedInsert(int pk) {
     return new String[] {
       """
         {
           "before": null,
           "after": {
-            "id": 1,
+            "id": %d,
             "ascii_col": {"value": "ascii"},
             "bigint_col": {"value": 1234567890123},
             "blob_col": {"value": "Êþº¾"},
@@ -71,45 +123,45 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
         }
         """
           .formatted(
+              pk,
               UNTOUCHED_TEXT_VALUE,
               UNTOUCHED_INT_VALUE,
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
-              connectorName(testInfo),
-              keyspaceName(testInfo),
-              keyspaceName(testInfo),
-              tableName(testInfo))
+              getSuiteConnectorName(),
+              getSuiteKeyspaceName(),
+              getSuiteKeyspaceName(),
+              getSuiteTableName())
     };
   }
 
   @Override
-  String[] expectedDelete(TestInfo testInfo) {
+  String[] expectedDelete(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "d",
           """
             {
-              "id": 1
+              "id": %d
             }
-            """,
+            """
+              .formatted(pk),
           "null"),
       null
     };
   }
 
   @Override
-  String[] expectedUpdateFromValueToNil(TestInfo testInfo) {
+  String[] expectedUpdateFromValueToNil(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": null},
               "bigint_col": {"value": null},
               "blob_col": {"value": null},
@@ -131,21 +183,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": null},
               "varint_col": {"value": null}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromValueToEmpty(TestInfo testInfo) {
+  String[] expectedUpdateFromValueToEmpty(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": ""},
               "bigint_col": {"value": 1234567890124},
               "blob_col": {"value": "Þ­¾ï"},
@@ -167,21 +219,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": ""},
               "varint_col": {"value": "888888888"}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromValueToValue(TestInfo testInfo) {
+  String[] expectedUpdateFromValueToValue(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": "ascii2"},
               "bigint_col": {"value": 1234567890124},
               "blob_col": {"value": "Þ­¾ï"},
@@ -203,21 +255,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": "varchar text 2"},
               "varint_col": {"value": "888888888"}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromNilToValue(TestInfo testInfo) {
+  String[] expectedUpdateFromNilToValue(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": "ascii"},
               "bigint_col": {"value": 1234567890123},
               "blob_col": {"value": "Êþº¾"},
@@ -239,21 +291,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": "varchar text"},
               "varint_col": {"value": "999999999"}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromNilToEmpty(TestInfo testInfo) {
+  String[] expectedUpdateFromNilToEmpty(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": ""},
               "bigint_col": {"value": 1234567890124},
               "blob_col": {"value": "Þ­¾ï"},
@@ -275,21 +327,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": ""},
               "varint_col": {"value": "888888888"}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromNilToNil(TestInfo testInfo) {
+  String[] expectedUpdateFromNilToNil(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": null},
               "bigint_col": {"value": null},
               "blob_col": {"value": null},
@@ -311,21 +363,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": null},
               "varint_col": {"value": null}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToValue(TestInfo testInfo) {
+  String[] expectedUpdateFromEmptyToValue(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": "ascii2"},
               "bigint_col": {"value": 1234567890124},
               "blob_col": {"value": "Þ­¾ï"},
@@ -347,21 +399,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": "varchar text 2"},
               "varint_col": {"value": "888888888"}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToNil(TestInfo testInfo) {
+  String[] expectedUpdateFromEmptyToNil(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": null},
               "bigint_col": {"value": null},
               "blob_col": {"value": null},
@@ -383,21 +435,21 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": null},
               "varint_col": {"value": null}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 
   @Override
-  String[] expectedUpdateFromEmptyToEmpty(TestInfo testInfo) {
+  String[] expectedUpdateFromEmptyToEmpty(int pk) {
     return new String[] {
-      expectedRecord(testInfo, "c", "null", "{}"),
+      expectedRecord("c", "null", "{}"),
       expectedRecord(
-          testInfo,
           "u",
           "null",
           """
             {
-              "id": 1,
+              "id": %d,
               "ascii_col": {"value": ""},
               "bigint_col": {"value": 1234567890124},
               "blob_col": {"value": "Þ­¾ï"},
@@ -419,7 +471,8 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               "varchar_col": {"value": ""},
               "varint_col": {"value": "888888888"}
             }
-            """)
+            """
+              .formatted(pk))
     };
   }
 }

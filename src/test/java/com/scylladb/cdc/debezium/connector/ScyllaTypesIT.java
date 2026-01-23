@@ -7,15 +7,19 @@ import com.datastax.driver.core.Session;
 import com.google.common.flogger.FluentLogger;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInfo;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.skyscreamer.jsonassert.JSONAssert;
 import org.skyscreamer.jsonassert.JSONCompareMode;
 
@@ -23,18 +27,34 @@ import org.skyscreamer.jsonassert.JSONCompareMode;
  * Base class for Scylla types integration tests. Provides common infrastructure for test setup,
  * teardown, and Kafka consumer management.
  *
+ * <p>Uses PER_CLASS lifecycle to run a single connector per test class with test isolation via
+ * unique primary keys. A background subscriber continuously polls messages into a shared list.
+ *
  * @param <K> the type of the Kafka consumer key
  * @param <V> the type of the Kafka consumer value
  */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@Execution(ExecutionMode.CONCURRENT)
 public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
   private static final Object DDL_LOCK = new Object();
 
+  static Cluster cluster;
   static Session session;
-  static int SessionCount;
   private static final Object SESSION_LOCK = new Object();
 
+  private final AtomicInteger pkTicket = new AtomicInteger(1);
+  private final List<ConsumerRecord<K, V>> receivedRecords =
+      Collections.synchronizedList(new ArrayList<>());
+
   private KafkaConsumer<K, V> consumer;
+  private Thread pollingThread;
+  private volatile boolean pollingRunning = true;
+
+  private final ThreadLocal<Integer> recordsIndexBeforeTest = new ThreadLocal<>();
+
+  private String suiteConnectorName;
+  private String suiteKeyspaceTableName;
 
   /** Returns the CQL CREATE TABLE statement (without "IF NOT EXISTS" and CDC options). */
   protected abstract String createTableCql(String tableName);
@@ -42,26 +62,92 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
   /** Builds and returns a Kafka consumer for the given connector and table. */
   abstract KafkaConsumer<K, V> buildConsumer(String connectorName, String tableName);
 
-  /** Waits for and asserts expected Kafka messages. */
-  void waitAndAssert(KafkaConsumer<K, V> consumer, String[] expected) {
-    List<ConsumerRecord<K, V>> actual = new ArrayList<>();
-    KafkaConnectUtils.waitForConsumerAssignment(consumer);
+  /**
+   * Extracts the primary key (id) from a Kafka record value. Subclasses must implement this to
+   * support PK-based filtering.
+   */
+  protected abstract int extractPkFromValue(V value);
+
+  /**
+   * Extracts the primary key (id) from a Kafka record key. Subclasses must implement this to
+   * support PK-based filtering for tombstone records (where value is null).
+   */
+  protected abstract int extractPkFromKey(K key);
+
+  /** Returns the connector name for this test suite. */
+  protected String getSuiteConnectorName() {
+    return suiteConnectorName;
+  }
+
+  /** Returns the keyspace.table name for this test suite. */
+  protected String getSuiteKeyspaceTableName() {
+    return suiteKeyspaceTableName;
+  }
+
+  /** Returns the keyspace name for this test suite. */
+  protected String getSuiteKeyspaceName() {
+    int dotIndex = suiteKeyspaceTableName.indexOf('.');
+    return suiteKeyspaceTableName.substring(0, dotIndex);
+  }
+
+  /** Returns the table name for this test suite. */
+  protected String getSuiteTableName() {
+    int dotIndex = suiteKeyspaceTableName.indexOf('.');
+    return suiteKeyspaceTableName.substring(dotIndex + 1);
+  }
+
+  /**
+   * Waits for and asserts expected Kafka messages for the given PK. Filters received records to
+   * only match records with the specified primary key.
+   *
+   * @param pk the primary key to filter records by
+   * @param expected the expected JSON records
+   */
+  void waitAndAssert(int pk, String[] expected) {
+    List<ConsumerRecord<K, V>> matchingRecords = new ArrayList<>();
+    int startIndex = recordsIndexBeforeTest.get();
 
     long startTime = System.currentTimeMillis();
     while (System.currentTimeMillis() - startTime < KafkaConnectUtils.CONSUMER_TIMEOUT) {
-      consumer.poll(Duration.ofSeconds(5)).forEach(actual::add);
-      if (expected.length <= actual.size()) {
+      matchingRecords.clear();
+      synchronized (receivedRecords) {
+        for (int i = startIndex; i < receivedRecords.size(); i++) {
+          ConsumerRecord<K, V> record = receivedRecords.get(i);
+          V value = record.value();
+          if (value == null) {
+            // Tombstone records - check key to determine which test owns this record
+            int keyPk = extractPkFromKey(record.key());
+            if (keyPk == pk) {
+              matchingRecords.add(record);
+            }
+          } else {
+            int recordPk = extractPkFromValue(value);
+            if (recordPk == pk) {
+              matchingRecords.add(record);
+            }
+          }
+        }
+      }
+      if (matchingRecords.size() >= expected.length) {
+        break;
+      }
+      try {
+        Thread.sleep(100);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
         break;
       }
     }
 
     List<String> errors = new ArrayList<>();
-    assertEquals(expected.length, actual.size());
+    assertEquals(
+        expected.length,
+        matchingRecords.size(),
+        "Expected " + expected.length + " records for PK " + pk);
 
     for (int i = 0; i < expected.length; i++) {
       String exp = expected[i];
-
-      V value = actual.get(i).value();
+      V value = matchingRecords.get(i).value();
 
       String got;
       if (value instanceof String) {
@@ -73,7 +159,7 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
       }
 
       if (exp == null || got == null) {
-        if (exp != got) { // reference check is fine here: null vs non-null
+        if (exp != got) {
           errors.add("Record[" + i + "] mismatch:\nexpected: " + exp + "\nactual:   " + got);
         }
         continue;
@@ -110,81 +196,118 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
   }
 
   @BeforeAll
-  public static synchronized void setupSuite() {
+  public void setupSuite(TestInfo testInfo) {
     synchronized (SESSION_LOCK) {
-      if (SessionCount == 0 && session == null) {
-        session =
+      if (cluster == null || cluster.isClosed()) {
+        cluster =
             Cluster.builder()
                 .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
                 .withPort(scyllaDBContainer.getMappedPort(9042))
-                .build()
-                .connect();
-      }
-      SessionCount++;
-    }
-  }
-
-  @AfterAll
-  public static void cleanupSuite() {
-    synchronized (SESSION_LOCK) {
-      SessionCount--;
-      if (SessionCount == 0 && session != null) {
-        session.close();
-        session = null;
+                .build();
+        session = cluster.connect();
       }
     }
-  }
 
-  @BeforeEach
-  void setupTest(TestInfo testInfo) {
+    Assertions.assertNotNull(session, "Session was not initialized");
+
+    // Use class-based naming for suite-level connector and table
+    // Constants: MAX_CONNECTOR_NAME_LENGTH=80, MAX_TABLE_NAME_LENGTH=48
+    String className = simplifyName(testInfo.getTestClass().orElseThrow().getName());
+    suiteConnectorName = trimWithHash(className, 80);
+    String keyspace = trimWithHash(className, 48).toLowerCase(java.util.Locale.ROOT);
+    String table = "types_test";
+    suiteKeyspaceTableName = keyspace + "." + table;
+
+    session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS "
+            + getSuiteKeyspaceName()
+            + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+
     synchronized (DDL_LOCK) {
       session.execute(
           "CREATE TABLE IF NOT EXISTS "
-              + keyspaceTableName(testInfo)
+              + suiteKeyspaceTableName
               + " "
-              + createTableCql(keyspaceTableName(testInfo))
+              + createTableCql(suiteKeyspaceTableName)
               + " WITH cdc = {'enabled':true}");
     }
 
-    consumer = buildConsumer(connectorName(testInfo), keyspaceTableName(testInfo));
+    consumer = buildConsumer(suiteConnectorName, suiteKeyspaceTableName);
+    KafkaConnectUtils.waitForConsumerAssignment(consumer);
+
+    pollingRunning = true;
+    pollingThread =
+        new Thread(
+            () -> {
+              while (pollingRunning) {
+                try {
+                  consumer.poll(Duration.ofSeconds(1)).forEach(receivedRecords::add);
+                } catch (Exception e) {
+                  if (pollingRunning) {
+                    logger.atWarning().withCause(e).log("Error polling consumer");
+                  }
+                }
+              }
+            },
+            "kafka-polling-" + suiteConnectorName);
+    pollingThread.setDaemon(true);
+    pollingThread.start();
+
+    logger.atInfo().log(
+        "Started connector %s for table %s with background polling",
+        suiteConnectorName, suiteKeyspaceTableName);
   }
 
-  @AfterEach
-  public void cleanUp(TestInfo testInfo) {
+  @AfterAll
+  public void cleanupSuite() {
+    pollingRunning = false;
+    if (pollingThread != null) {
+      try {
+        pollingThread.join(5000);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
     if (consumer != null) {
       consumer.close();
       consumer = null;
     }
+
     try {
-      KafkaConnectUtils.removeConnector(connectorName(testInfo));
+      KafkaConnectUtils.removeConnector(suiteConnectorName);
     } catch (Exception e) {
-      throw new RuntimeException("Failed to remove connector: " + connectorName(testInfo), e);
+      logger.atWarning().withCause(e).log("Failed to remove connector: %s", suiteConnectorName);
     }
+
     synchronized (DDL_LOCK) {
       if (session != null && !session.isClosed()) {
-        session.execute("DROP TABLE IF EXISTS " + keyspaceTableName(testInfo));
-      } else {
-        logger.atWarning().log(
-            "Skipping table cleanup because session is closed: %s", keyspaceTableName(testInfo));
+        session.execute("DROP TABLE IF EXISTS " + suiteKeyspaceTableName);
       }
     }
+
+    // Note: We intentionally don't close the cluster/session here.
+    // With parallel test execution, one class's @AfterAll could close the session
+    // while another class is still running tests. The cluster/session will be
+    // cleaned up when the JVM exits.
+
+    logger.atInfo().log("Cleaned up connector %s", suiteConnectorName);
   }
 
-  protected void truncateTables(TestInfo testInfo) {
-    session.execute("TRUNCATE TABLE " + keyspaceTableName(testInfo));
-    session.execute("TRUNCATE TABLE " + cdcLogTableName(testInfo));
+  @BeforeEach
+  void setupRecordsIndex() {
+    recordsIndexBeforeTest.set(receivedRecords.size());
   }
 
-  private String cdcLogTableName(TestInfo testInfo) {
-    return keyspaceName(testInfo) + "." + tableName(testInfo) + "_scylla_cdc_log";
+  /** Reserves and returns a unique primary key for a test. */
+  protected int reservePk() {
+    int pk = pkTicket.getAndIncrement();
+    logger.atFine().log(
+        "Test reserved PK %d, starting from record index %d", pk, recordsIndexBeforeTest.get());
+    return pk;
   }
 
-  protected KafkaConsumer<K, V> getConsumer() {
-    return consumer;
-  }
-
-  public static String expectedRecord(
-      TestInfo testInfo, String op, String beforeJson, String afterJson) {
+  public String expectedRecord(String op, String beforeJson, String afterJson) {
     return """
         {
           "before": %s,
@@ -204,9 +327,9 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
             beforeJson,
             afterJson,
             op,
-            connectorName(testInfo),
-            keyspaceName(testInfo),
-            keyspaceName(testInfo),
-            tableName(testInfo));
+            suiteConnectorName,
+            getSuiteKeyspaceName(),
+            getSuiteKeyspaceName(),
+            getSuiteTableName());
   }
 }
