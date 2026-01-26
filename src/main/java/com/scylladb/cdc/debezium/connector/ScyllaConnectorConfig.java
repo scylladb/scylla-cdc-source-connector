@@ -12,13 +12,32 @@ import io.debezium.connector.SourceInfoStructMaker;
 import io.debezium.heartbeat.Heartbeat;
 import io.netty.handler.ssl.SslProvider;
 import java.net.InetSocketAddress;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.kafka.common.config.ConfigDef;
 
 public class ScyllaConnectorConfig extends CommonConnectorConfig {
+
+  // Configuration key constants
+  /** Configuration key for CDC include before mode. */
+  public static final String CDC_INCLUDE_BEFORE_KEY = "cdc.include.before";
+
+  /** Configuration key for CDC include after mode. */
+  public static final String CDC_INCLUDE_AFTER_KEY = "cdc.include.after";
+
+  /** Configuration key for CDC include PK locations. */
+  public static final String CDC_INCLUDE_PK_KEY = "cdc.include.primary-key.placement";
+
+  /** Configuration key for CDC include PK payload key field name. */
+  public static final String CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_KEY =
+      "cdc.include.primary-key.payload-key-name";
+
+  /** Default value for the payload key field name. */
+  public static final String CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_DEFAULT = "key";
 
   public static final Field WORKER_CONFIG =
       Field.create("scylla.worker.config")
@@ -210,18 +229,61 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "the connection to Scylla to prioritize sending requests to "
                   + "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
 
-  public static final Field PREIMAGES_ENABLED =
-      Field.create("experimental.preimages.enabled")
-          .withDisplayName("Enable experimental preimages support")
-          .withType(ConfigDef.Type.BOOLEAN)
+  public static final Field CDC_INCLUDE_BEFORE =
+      Field.create(CDC_INCLUDE_BEFORE_KEY)
+          .withDisplayName("CDC Include Before")
+          .withEnum(CdcIncludeMode.class, CdcIncludeMode.NONE)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.MEDIUM)
+          .withDescription(
+              "Specifies whether to include the 'before' state of the row in CDC messages. "
+                  + "Set to 'full' to include the complete row before the change. "
+                  + "Set to 'only-updated' to include only the columns that were modified by the operation. "
+                  + "Requires the table to have preimage enabled (WITH cdc = {'preimage': true}). "
+                  + "Default is 'none'.");
+
+  public static final Field CDC_INCLUDE_AFTER =
+      Field.create(CDC_INCLUDE_AFTER_KEY)
+          .withDisplayName("CDC Include After")
+          .withEnum(CdcIncludeMode.class, CdcIncludeMode.NONE)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.MEDIUM)
+          .withDescription(
+              "Specifies whether to include the 'after' state of the row in CDC messages. "
+                  + "Set to 'full' to include the complete row after the change. "
+                  + "Set to 'only-updated' to include only the columns that were modified by the operation. "
+                  + "Requires the table to have postimage enabled (WITH cdc = {'postimage': true}). "
+                  + "Default is 'none'.");
+
+  public static final Field CDC_INCLUDE_PK =
+      Field.create(CDC_INCLUDE_PK_KEY)
+          .withDisplayName("CDC Include PK Locations")
+          .withType(ConfigDef.Type.LIST)
+          .withWidth(ConfigDef.Width.LONG)
+          .withImportance(ConfigDef.Importance.MEDIUM)
+          .withDefault("kafka-key,payload-after,payload-before")
+          .withValidation(Field::isRequired, ConfigSerializerUtil::validateCdcIncludePk)
+          .withDescription(
+              "Specifies where primary key (PK) and clustering key (CK) columns should be included "
+                  + "in the output. Provide as a comma-separated list of locations: "
+                  + "'kafka-key' (Kafka record key for partitioning/ordering), "
+                  + "'payload-after' (inside value.after), "
+                  + "'payload-before' (inside value.before), "
+                  + "'payload-key' (top-level key object in message value), "
+                  + "'kafka-headers' (as Kafka message headers). "
+                  + "Default is 'kafka-key,payload-after,payload-before'.");
+
+  public static final Field CDC_INCLUDE_PK_PAYLOAD_KEY_NAME =
+      Field.create(CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_KEY)
+          .withDisplayName("CDC Include PK Payload Key Field Name")
+          .withType(ConfigDef.Type.STRING)
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.LOW)
-          .withDefault(false)
+          .withDefault(CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_DEFAULT)
           .withDescription(
-              "If enabled connector will use PRE_IMAGE CDC entries to populate 'before' field of the "
-                  + "debezium Envelope of the next kafka message. This may change some expected behaviours (e.g. ROW_DELETE "
-                  + "will use preimage instead of its own information). See Scylla docs for more information about CDC "
-                  + "preimages limitations. ");
+              "Specifies the field name for the primary key object in the message payload "
+                  + "when 'payload-key' is included in cdc.include.primary-key.placement. "
+                  + "Default is 'key'.");
 
   /*
    * Scylla CDC Source Connector relies on heartbeats to move the offset,
@@ -375,7 +437,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               QUERY_TIME_WINDOW_SIZE,
               CONFIDENCE_WINDOW_SIZE,
               MINIMAL_WAIT_FOR_WINDOW_MS,
-              PREIMAGES_ENABLED,
+              CDC_INCLUDE_BEFORE,
+              CDC_INCLUDE_AFTER,
+              CDC_INCLUDE_PK,
+              CDC_INCLUDE_PK_PAYLOAD_KEY_NAME,
               RETRY_BACKOFF_BASE_MS,
               RETRY_MAX_BACKOFF_MS,
               RETRY_BACKOFF_JITTER_PERCENTAGE,
@@ -443,7 +508,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   }
 
   public List<String> getCipherSuite() {
-    return config.getInstance(SSL_CIPHER_SUITES, List.class);
+    return config.getList(SSL_CIPHER_SUITES);
   }
 
   public String getCertPath() {
@@ -496,8 +561,23 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
   }
 
-  public boolean getPreimagesEnabled() {
-    return config.getBoolean(ScyllaConnectorConfig.PREIMAGES_ENABLED);
+  public CdcIncludeMode getCdcIncludeBefore() {
+    String value = config.getString(ScyllaConnectorConfig.CDC_INCLUDE_BEFORE);
+    return CdcIncludeMode.parse(value);
+  }
+
+  public CdcIncludeMode getCdcIncludeAfter() {
+    String value = config.getString(ScyllaConnectorConfig.CDC_INCLUDE_AFTER);
+    return CdcIncludeMode.parse(value);
+  }
+
+  public EnumSet<CdcIncludePkLocation> getCdcIncludePk() {
+    List<String> values = config.getList(ScyllaConnectorConfig.CDC_INCLUDE_PK);
+    return CdcIncludePkLocation.parseList(values);
+  }
+
+  public String getCdcIncludePkPayloadKeyName() {
+    return config.getString(ScyllaConnectorConfig.CDC_INCLUDE_PK_PAYLOAD_KEY_NAME);
   }
 
   public int getQueryOptionsFetchSize() {
@@ -574,6 +654,112 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     @Override
     public String getValue() {
       return value;
+    }
+  }
+
+  public enum CdcIncludeMode implements EnumeratedValue {
+    NONE("none"),
+    FULL("full"),
+    ONLY_UPDATED("only-updated");
+
+    private final String value;
+
+    CdcIncludeMode(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public String getValue() {
+      return value;
+    }
+
+    /**
+     * Returns true if this mode requires preimage/postimage data.
+     *
+     * @return true for FULL and ONLY_UPDATED modes, false for NONE
+     */
+    public boolean requiresImage() {
+      return this == FULL || this == ONLY_UPDATED;
+    }
+
+    public static CdcIncludeMode parse(String value) {
+      if (value == null) {
+        return NONE;
+      }
+      String normalized = value.trim().toLowerCase(Locale.ROOT);
+      for (CdcIncludeMode mode : values()) {
+        if (mode.getValue().equals(normalized)) {
+          return mode;
+        }
+      }
+      return NONE;
+    }
+  }
+
+  /**
+   * Enum representing possible locations where PK/CK values can be included in the output.
+   *
+   * <p>Each location controls a specific placement of primary key and clustering key values:
+   *
+   * <ul>
+   *   <li>{@code KAFKA_KEY} - Include in Kafka record key (for partitioning/ordering/compaction)
+   *   <li>{@code PAYLOAD_AFTER} - Include in the 'after' image within the message value
+   *   <li>{@code PAYLOAD_BEFORE} - Include in the 'before' image within the message value
+   *   <li>{@code PAYLOAD_DIFF} - Reserved for future use (not yet implemented)
+   *   <li>{@code PAYLOAD_KEY} - Include in a top-level 'key' object within the message value
+   *   <li>{@code KAFKA_HEADERS} - Include as Kafka message headers
+   * </ul>
+   */
+  public enum CdcIncludePkLocation implements EnumeratedValue {
+    KAFKA_KEY("kafka-key"),
+    PAYLOAD_AFTER("payload-after"),
+    PAYLOAD_BEFORE("payload-before"),
+    PAYLOAD_DIFF("payload-diff"),
+    PAYLOAD_KEY("payload-key"),
+    KAFKA_HEADERS("kafka-headers");
+
+    private final String value;
+
+    CdcIncludePkLocation(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public String getValue() {
+      return value;
+    }
+
+    public static CdcIncludePkLocation parse(String value) {
+      if (value == null) {
+        return null;
+      }
+      String normalized = value.trim().toLowerCase(Locale.ROOT);
+      for (CdcIncludePkLocation location : values()) {
+        if (location.getValue().equals(normalized)) {
+          return location;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Parses a comma-separated list of location values into an EnumSet.
+     *
+     * @param values comma-separated list of location values
+     * @return EnumSet containing the parsed locations, or empty set if none valid
+     */
+    public static EnumSet<CdcIncludePkLocation> parseList(List<String> values) {
+      EnumSet<CdcIncludePkLocation> result = EnumSet.noneOf(CdcIncludePkLocation.class);
+      if (values == null) {
+        return result;
+      }
+      for (String value : values) {
+        CdcIncludePkLocation location = parse(value);
+        if (location != null) {
+          result.add(location);
+        }
+      }
+      return result;
     }
   }
 
