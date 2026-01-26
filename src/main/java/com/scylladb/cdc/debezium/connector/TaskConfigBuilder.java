@@ -31,6 +31,10 @@ public class TaskConfigBuilder {
                 })
             .collect(Collectors.toList());
 
+    if (serializedTasks.isEmpty()) {
+      return Collections.emptyList();
+    }
+
     int partitionSize = (serializedTasks.size() + maxTasks - 1) / maxTasks;
     List<List<String>> partitionedTasks = Lists.partition(serializedTasks, partitionSize);
 

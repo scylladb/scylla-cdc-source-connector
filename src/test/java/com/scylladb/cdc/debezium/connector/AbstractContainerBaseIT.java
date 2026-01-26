@@ -83,13 +83,15 @@ public abstract class AbstractContainerBaseIT {
 
   /** Enum representing supported Kafka providers. */
   public enum KafkaProvider {
-    APACHE("apache"),
-    CONFLUENT("confluent");
+    APACHE("apache", "4.0.0"),
+    CONFLUENT("confluent", "7.8.0");
 
     private final String value;
+    private final String defaultVersion;
 
-    KafkaProvider(String value) {
+    KafkaProvider(String value, String defaultVersion) {
       this.value = value;
+      this.defaultVersion = defaultVersion;
     }
 
     public static KafkaProvider fromString(String value) {
@@ -103,6 +105,10 @@ public abstract class AbstractContainerBaseIT {
         }
       }
       throw new IllegalArgumentException("Unknown Kafka provider: " + value);
+    }
+
+    public String getDefaultVersion() {
+      return defaultVersion;
     }
 
     @Override
@@ -241,21 +247,18 @@ public abstract class AbstractContainerBaseIT {
   /** The default Kafka provider when system property is not defined */
   private static final String DEFAULT_KAFKA_PROVIDER = "apache";
 
-  /** The default Kafka version when system property is not defined */
-  private static final String DEFAULT_PROVIDER_IMAGE_VERSION = "4.0.0";
-
   /** The default Kafka Connect mode when system property is not defined */
   private static final String DEFAULT_KAFKA_CONNECT_MODE = "distributed";
 
   /** The default ScyllaDB version when system property is not defined */
-  private static final String DEFAULT_SCYLLA_VERSION = "6.2";
+  private static final String DEFAULT_SCYLLA_VERSION = "2025.4.0";
 
   /**
    * Whether to print container logs on test failure. Defaults to false; enable with
    * -Dit.container.logs.on.failure=true.
    */
   private static final boolean LOG_CONTAINER_LOGS_ON_FAILURE =
-      Boolean.parseBoolean(System.getProperty("it.container.logs.on.failure", "false"));
+      Boolean.parseBoolean(System.getProperty("it.container.logs.on.failure", "true"));
 
   /**
    * The Kafka provider, read from the "it.kafka.provider" system property. Expected values:
@@ -266,12 +269,12 @@ public abstract class AbstractContainerBaseIT {
 
   /**
    * The Kafka version, read from the "it.provider.image.version" system property. Expected format:
-   * major.minor.patch[-label] (e.g. "2.8.1" or "4.1.0-rc1") Defaults to "4.0.0" if system property
-   * is not defined.
+   * major.minor.patch[-label] (e.g. "2.8.1" or "4.1.0-rc1"). Defaults to the provider-specific
+   * version (4.0.0 for Apache, 7.8.0 for Confluent) if system property is not defined.
    */
   public static final KafkaVersion PROVIDER_IMAGE_VERSION =
       new KafkaVersion(
-          System.getProperty("it.provider.image.version", DEFAULT_PROVIDER_IMAGE_VERSION));
+          System.getProperty("it.provider.image.version", KAFKA_PROVIDER.getDefaultVersion()));
 
   /**
    * The Kafka Connect deployment mode, read from the "it.kafka.connect.mode" system property.
@@ -535,6 +538,7 @@ public abstract class AbstractContainerBaseIT {
             .withNetworkAliases("broker")
             .withListener("broker:19092")
             .withExposedPorts(KAFKA_PORT, KAFKA_CONNECT_PORT)
+            .withEnv("CONNECT_LOG4J_LOGGERS", "root=INFO,com.scylladb=DEBUG")
             .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
             .withStartupTimeout(Duration.ofMinutes(5));
 
@@ -546,6 +550,7 @@ public abstract class AbstractContainerBaseIT {
             .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "broker:19092")
             .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
             .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
+            .withEnv("CONNECT_LOG4J_LOGGERS", "root=INFO,com.scylladb=DEBUG")
             .dependsOn(confluentKafkaContainer)
             .withStartupTimeout(Duration.ofMinutes(5));
 
@@ -557,6 +562,7 @@ public abstract class AbstractContainerBaseIT {
               .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
               .withNetworkAliases("kafka-connect")
               .withExposedPorts(KAFKA_CONNECT_PORT)
+              .withEnv("CONNECT_LOG4J_LOGGERS", "root=INFO,com.scylladb=DEBUG")
               .withEnv("CONNECT_BOOTSTRAP_SERVERS", "broker:19092")
               .withEnv("CONNECT_REST_ADVERTISED_HOST_NAME", "connect")
               .withEnv("CONNECT_GROUP_ID", "kafka-connect")
