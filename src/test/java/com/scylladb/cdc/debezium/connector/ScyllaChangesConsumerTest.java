@@ -45,7 +45,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void constructor_createsTaskInfoMap_whenPreimagesEnabled() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.FULL, CdcIncludeMode.NONE);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
@@ -55,7 +56,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void constructor_createsTaskInfoMap_whenPostimagesEnabled() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.NONE, CdcIncludeMode.FULL);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
@@ -65,7 +67,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void constructor_createsTaskInfoMap_whenBothEnabled() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.FULL, CdcIncludeMode.FULL);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
@@ -75,7 +78,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void constructor_noTaskInfoMap_whenBothDisabled() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.NONE, CdcIncludeMode.NONE);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNull(taskInfoMap);
@@ -84,7 +88,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void getOrCreateTaskInfo_throwsWhenMapIsNull() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.NONE, CdcIncludeMode.NONE);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     // Access the private method via reflection
     Method method =
@@ -110,7 +115,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void cleanupStaleTasks_doesNothingWhenMapIsNull() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.NONE, CdcIncludeMode.NONE);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     // Access the private method via reflection
     Method cleanupMethod = ScyllaChangesConsumer.class.getDeclaredMethod("cleanupStaleTasks");
@@ -123,7 +129,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void cleanupStaleTasks_doesNothingWhenMapIsEmpty() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.FULL, CdcIncludeMode.NONE);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     // Access the private method via reflection
     Method cleanupMethod = ScyllaChangesConsumer.class.getDeclaredMethod("cleanupStaleTasks");
@@ -160,7 +167,7 @@ public class ScyllaChangesConsumerTest {
 
     // Use the package-private constructor with custom timeout
     ScyllaChangesConsumer consumer =
-        new ScyllaChangesConsumer(null, null, null, null, config, customTimeoutMs);
+        new ScyllaChangesConsumer(null, null, null, null, config, null, customTimeoutMs);
 
     // Verify the consumer was created successfully
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
@@ -170,7 +177,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void taskInfoMapIsConcurrentHashMap_whenEnabled() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.FULL, CdcIncludeMode.NONE);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
@@ -182,7 +190,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void constructor_createsTaskInfoMap_whenOnlyUpdatedBeforeEnabled() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.ONLY_UPDATED, CdcIncludeMode.NONE);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
@@ -192,7 +201,8 @@ public class ScyllaChangesConsumerTest {
   @Test
   void constructor_createsTaskInfoMap_whenOnlyUpdatedAfterEnabled() throws Exception {
     ScyllaConnectorConfig config = createConfig(CdcIncludeMode.NONE, CdcIncludeMode.ONLY_UPDATED);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
@@ -203,7 +213,8 @@ public class ScyllaChangesConsumerTest {
   void constructor_createsTaskInfoMap_whenOnlyUpdatedBothEnabled() throws Exception {
     ScyllaConnectorConfig config =
         createConfig(CdcIncludeMode.ONLY_UPDATED, CdcIncludeMode.ONLY_UPDATED);
-    ScyllaChangesConsumer consumer = new ScyllaChangesConsumer(null, null, null, null, config);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(null, null, null, null, config, null);
 
     Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);

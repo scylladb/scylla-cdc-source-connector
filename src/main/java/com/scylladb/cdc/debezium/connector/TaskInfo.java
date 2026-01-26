@@ -108,10 +108,12 @@ public interface TaskInfo {
   class Basic implements TaskInfo {
     private final long createdAtMillis = System.currentTimeMillis();
     private RawChange change;
+    private boolean isComplete;
 
     @Override
     public TaskInfo setChange(RawChange change) {
       this.change = change;
+      this.isComplete = change != null;
       return this;
     }
 
@@ -142,7 +144,7 @@ public interface TaskInfo {
 
     @Override
     public boolean isComplete() {
-      return change != null;
+      return isComplete;
     }
 
     @Override
@@ -162,16 +164,60 @@ public interface TaskInfo {
    * <ul>
    *   <li>INSERT: Complete with just the change (no preimage exists for new rows)
    *   <li>UPDATE/DELETE: Requires both preimage and change
+   *   <li>PARTITION_DELETE: Depends on {@code waitPreimageForPartitionDelete} flag
    * </ul>
    */
   class Before implements TaskInfo {
     private final long createdAtMillis = System.currentTimeMillis();
+    private final boolean waitPreimageForPartitionDelete;
     private RawChange preImage;
     private RawChange change;
+    private boolean isComplete;
+
+    /** Creates a Before TaskInfo that does not wait for preimage on partition deletes. */
+    public Before() {
+      this(false);
+    }
+
+    /**
+     * Creates a Before TaskInfo with configurable partition delete behavior.
+     *
+     * @param waitPreimageForPartitionDelete if true, wait for preimage on partition deletes (Scylla
+     *     >= 2026.1.0)
+     */
+    public Before(boolean waitPreimageForPartitionDelete) {
+      this.waitPreimageForPartitionDelete = waitPreimageForPartitionDelete;
+    }
+
+    private void recalculateIsComplete() {
+      if (change == null) {
+        isComplete = false;
+        return;
+      }
+      RawChange.OperationType op = change.getOperationType();
+      // INSERT operations don't have preimage - row didn't exist before
+      if (op == RawChange.OperationType.ROW_INSERT) {
+        isComplete = true;
+        return;
+      }
+      // PARTITION_DELETE: only wait for preimage if Scylla version supports it
+      if (op == RawChange.OperationType.PARTITION_DELETE) {
+        if (waitPreimageForPartitionDelete) {
+          isComplete = preImage != null;
+          return;
+        }
+        // Older Scylla versions don't send preimage for partition deletes
+        isComplete = true;
+        return;
+      }
+      // UPDATE and ROW_DELETE require preimage
+      isComplete = preImage != null;
+    }
 
     @Override
     public TaskInfo setPreImage(RawChange preImage) {
       this.preImage = preImage;
+      recalculateIsComplete();
       return this;
     }
 
@@ -183,6 +229,7 @@ public interface TaskInfo {
     @Override
     public TaskInfo setChange(RawChange change) {
       this.change = change;
+      recalculateIsComplete();
       return this;
     }
 
@@ -203,15 +250,7 @@ public interface TaskInfo {
 
     @Override
     public boolean isComplete() {
-      if (change == null) {
-        return false;
-      }
-      // INSERT operations don't have preimage - row didn't exist before
-      if (change.getOperationType() == RawChange.OperationType.ROW_INSERT) {
-        return true;
-      }
-      // UPDATE and DELETE require preimage
-      return preImage != null;
+      return isComplete;
     }
 
     @Override
@@ -237,16 +276,35 @@ public interface TaskInfo {
     private final long createdAtMillis = System.currentTimeMillis();
     private RawChange postImage;
     private RawChange change;
+    private boolean isComplete;
+
+    private void recalculateIsComplete() {
+      if (change == null) {
+        isComplete = false;
+        return;
+      }
+      // DELETE operations don't have postimage - row no longer exists after
+      RawChange.OperationType op = change.getOperationType();
+      if (op == RawChange.OperationType.ROW_DELETE
+          || op == RawChange.OperationType.PARTITION_DELETE) {
+        isComplete = true;
+        return;
+      }
+      // INSERT and UPDATE require postimage
+      isComplete = postImage != null;
+    }
 
     @Override
     public TaskInfo setPostImage(RawChange postImage) {
       this.postImage = postImage;
+      recalculateIsComplete();
       return this;
     }
 
     @Override
     public TaskInfo setChange(RawChange change) {
       this.change = change;
+      recalculateIsComplete();
       return this;
     }
 
@@ -272,17 +330,7 @@ public interface TaskInfo {
 
     @Override
     public boolean isComplete() {
-      if (change == null) {
-        return false;
-      }
-      // DELETE operations don't have postimage - row no longer exists after
-      RawChange.OperationType op = change.getOperationType();
-      if (op == RawChange.OperationType.ROW_DELETE
-          || op == RawChange.OperationType.PARTITION_DELETE) {
-        return true;
-      }
-      // INSERT and UPDATE require postimage
-      return postImage != null;
+      return isComplete;
     }
 
     @Override
@@ -302,30 +350,84 @@ public interface TaskInfo {
    * <ul>
    *   <li>INSERT: Requires change + postimage (no preimage for new rows)
    *   <li>DELETE: Requires preimage + change (no postimage for deleted rows)
+   *   <li>PARTITION_DELETE: Depends on {@code waitPreimageForPartitionDelete} flag
    *   <li>UPDATE: Requires all three: preimage + change + postimage
    * </ul>
    */
   class BeforeAfter implements TaskInfo {
     private final long createdAtMillis = System.currentTimeMillis();
+    private final boolean waitPreimageForPartitionDelete;
     private RawChange preImage;
     private RawChange postImage;
     private RawChange change;
+    private boolean isComplete;
+
+    /** Creates a BeforeAfter TaskInfo that does not wait for preimage on partition deletes. */
+    public BeforeAfter() {
+      this(false);
+    }
+
+    /**
+     * Creates a BeforeAfter TaskInfo with configurable partition delete behavior.
+     *
+     * @param waitPreimageForPartitionDelete if true, wait for preimage on partition deletes (Scylla
+     *     >= 2026.1.0)
+     */
+    public BeforeAfter(boolean waitPreimageForPartitionDelete) {
+      this.waitPreimageForPartitionDelete = waitPreimageForPartitionDelete;
+    }
+
+    private void recalculateIsComplete() {
+      if (change == null) {
+        isComplete = false;
+        return;
+      }
+      RawChange.OperationType op = change.getOperationType();
+      switch (op) {
+        case ROW_INSERT:
+          // INSERT: no preimage (row didn't exist), requires postimage
+          isComplete = postImage != null;
+          break;
+        case ROW_DELETE:
+          // ROW_DELETE: no postimage (row no longer exists), requires preimage
+          isComplete = preImage != null;
+          break;
+        case PARTITION_DELETE:
+          // PARTITION_DELETE: only wait for preimage if Scylla version supports it
+          if (waitPreimageForPartitionDelete) {
+            isComplete = preImage != null;
+          } else {
+            // Older Scylla versions don't send preimage for partition deletes
+            isComplete = true;
+          }
+          break;
+        case ROW_UPDATE:
+          // UPDATE: requires both preimage and postimage
+          isComplete = preImage != null && postImage != null;
+          break;
+        default:
+          isComplete = false;
+      }
+    }
 
     @Override
     public TaskInfo setPreImage(RawChange preImage) {
       this.preImage = preImage;
+      recalculateIsComplete();
       return this;
     }
 
     @Override
     public TaskInfo setPostImage(RawChange postImage) {
       this.postImage = postImage;
+      recalculateIsComplete();
       return this;
     }
 
     @Override
     public TaskInfo setChange(RawChange change) {
       this.change = change;
+      recalculateIsComplete();
       return this;
     }
 
@@ -346,28 +448,7 @@ public interface TaskInfo {
 
     @Override
     public boolean isComplete() {
-      if (change == null) {
-        return false;
-      }
-      RawChange.OperationType op = change.getOperationType();
-      switch (op) {
-        case ROW_INSERT:
-          // INSERT: no preimage (row didn't exist), requires postimage
-          return postImage != null;
-        case ROW_DELETE:
-          // ROW_DELETE: no postimage (row no longer exists), requires preimage
-          return preImage != null;
-        case PARTITION_DELETE:
-          // PARTITION_DELETE: Scylla doesn't send preimage for partition deletes,
-          // even on tables with only partition key (no clustering key).
-          // Complete immediately since preimage won't arrive.
-          return true;
-        case ROW_UPDATE:
-          // UPDATE: requires both preimage and postimage
-          return preImage != null && postImage != null;
-        default:
-          return false;
-      }
+      return isComplete;
     }
 
     @Override

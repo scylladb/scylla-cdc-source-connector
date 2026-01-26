@@ -37,6 +37,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   private final Clock clock;
   private final boolean usePreimages;
   private final boolean usePostimages;
+  private final boolean waitPreimageForPartitionDelete;
   private final Map<TaskId, TaskInfo> taskInfoMap;
   private final ScyllaConnectorConfig connectorConfig;
   private final long incompleteTaskTimeoutMs;
@@ -47,13 +48,15 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
       ScyllaOffsetContext offsetContext,
       ScyllaSchema schema,
       Clock clock,
-      ScyllaConnectorConfig connectorConfig) {
+      ScyllaConnectorConfig connectorConfig,
+      ScyllaVersion scyllaVersion) {
     this(
         dispatcher,
         offsetContext,
         schema,
         clock,
         connectorConfig,
+        scyllaVersion,
         connectorConfig.getIncompleteTaskTimeoutMs());
   }
 
@@ -65,6 +68,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
    * @param schema the schema
    * @param clock the clock
    * @param connectorConfig the connector configuration
+   * @param scyllaVersion the detected Scylla version, may be null
    * @param incompleteTaskTimeoutMs timeout for incomplete tasks in milliseconds
    */
   ScyllaChangesConsumer(
@@ -73,6 +77,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
       ScyllaSchema schema,
       Clock clock,
       ScyllaConnectorConfig connectorConfig,
+      ScyllaVersion scyllaVersion,
       long incompleteTaskTimeoutMs) {
     this.dispatcher = dispatcher;
     this.offsetContext = offsetContext;
@@ -85,6 +90,12 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     // Use postimages if the new config requires image data
     this.usePostimages = connectorConfig.getCdcIncludeAfter().requiresImage();
 
+    // Wait for preimage on partition delete (tables without CK) if:
+    // 1. Scylla version >= 2026.1.0 (supports preimage for partition deletes)
+    // 2. Preimages are enabled in the config
+    this.waitPreimageForPartitionDelete =
+        usePreimages && scyllaVersion != null && scyllaVersion.supportsPartitionDeletePreimage();
+
     if (usePreimages || usePostimages) {
       // Use ConcurrentHashMap for thread safety
       this.taskInfoMap = new ConcurrentHashMap<>();
@@ -95,9 +106,9 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
 
   private TaskInfo createTaskInfo() {
     if (usePreimages && usePostimages) {
-      return new TaskInfo.BeforeAfter();
+      return new TaskInfo.BeforeAfter(waitPreimageForPartitionDelete);
     } else if (usePreimages) {
-      return new TaskInfo.Before();
+      return new TaskInfo.Before(waitPreimageForPartitionDelete);
     } else if (usePostimages) {
       return new TaskInfo.After();
     } else {
@@ -193,6 +204,8 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
             break;
           case PARTITION_DELETE:
             if (isSinglePartitionDelete(change.getSchema())) {
+              // TaskInfo.isComplete() handles the decision on whether to wait for preimage
+              // based on the waitPreimageForPartitionDelete flag passed to the constructor
               taskInfo = getOrCreateTaskInfo(task.id).setChange(change);
             }
             break;
