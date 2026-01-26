@@ -20,15 +20,15 @@ The connector has the following capabilities:
 - Compatible with standard Kafka Connect transformations
 - Metadata about CDC events - each generated Kafka message contains information about source, such as timestamp and table name
 - Seamless handling of schema changes and topology changes (adding, removing nodes from Scylla cluster)
-- Preimage support ([optional](#advanced-configuration-parameters)) - messages generated for row-level changes can have their [`before`](#data-change-event-value) field filled with information from corresponding preimage row.
+- Preimage and postimage support ([optional](#preimagepostimage-configuration)) - messages generated for row-level changes can have their [`before`](#data-change-event-value) and/or [`after`](#data-change-event-value) fields filled with complete row state from corresponding preimage/postimage rows.
 
 The connector has the following limitations:
 - Only Kafka 2.6.0+ is supported
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
-    - Partition deletes - those changes are ignored
     - Row range deletes - those changes are ignored
+    - Partition deletes - see [Partition Delete Support](#partition-delete-support) section below
 - No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
-- No support for postimage, preimage needs to be enabled - By default changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
+- By default, changes only contain those columns that were modified, not the entire row before/after change. To include full row state, configure [preimage/postimage support](#preimagepostimage-configuration). More information [here](#cell-representation)
 
 ### Compatibility
 
@@ -713,8 +713,177 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | `scylla.confidence.window.size`  | The size of the confidence window. It is necessary for the connector to avoid reading too fresh data from the CDC log due to the eventual consistency of Scylla. The problem could appear when a newer write reaches a replica before some older write. For a short period of time, when reading, it is possible for the replica to return only the newer write. The connector mitigates this problem by not reading a window of most recent changes (controlled by this parameter). Value expressed in milliseconds. |
 | `scylla.consistency.level`       | The consistency level of CDC table read queries. This consistency level is used only for read queries to the CDC log table. By default, `QUORUM` level is used.                                                                                                                                                                                                                                                                                                                                                       |
 | `scylla.local.dc`                | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.                                                                                                                                                                                                                                                                         |
-| `experimental.preimages.enabled` | False by default. If enabled connector will use `PRE_IMAGE` CDC entries to populate 'before' field of the debezium Envelope of the next kafka message. This may change some expected behaviours (e.g. ROW_DELETE will use preimage instead of its own information). Relies on correct ordering of rows within same stream in CDC tables.                                                                                                                                                                              |
 
+
+### Preimage/Postimage Configuration
+
+The connector supports including the complete row state before and/or after a change in CDC messages. This is useful when you need the full context of a row, not just the columns that were modified.
+
+#### Configuration Options
+
+| Property            | Default | Values | Description |
+|---------------------|---------|--------|-------------|
+| `cdc.include.before` | `none`  | `none`, `full`, `only-updated` | Specifies whether to include the 'before' state of the row in CDC messages. Requires the Scylla table to have preimage enabled (`WITH cdc = {'preimage': true}`) for `full` or `only-updated` modes. |
+| `cdc.include.after`  | `none`  | `none`, `full`, `only-updated` | Specifies whether to include the 'after' state of the row in CDC messages. Requires the Scylla table to have postimage enabled (`WITH cdc = {'postimage': true}`) for `full` or `only-updated` modes. |
+| `cdc.include.primary-key.placement` | `kafka-key,payload-after,payload-before` | Comma-separated list of: `kafka-key`, `payload-after`, `payload-before`, `payload-key`, `kafka-headers` | Specifies where primary key (PK) and clustering key (CK) columns should be included in the output. See [Primary Key Placement](#primary-key-placement) for details. |
+| `cdc.include.primary-key.payload-key-name` | `key` | Any valid field name | Specifies the field name for the primary key object in the message payload when `payload-key` is included in `cdc.include.primary-key.placement`. |
+
+#### Mode Descriptions
+
+| Mode | Description |
+|------|-------------|
+| `none` | The field (`before` or `after`) will be `null`. No preimage/postimage data is fetched from Scylla. |
+| `full` | The field will contain the complete row state with all columns. For `before`, this shows the full row before the change. For `after`, this shows the full row after the change. |
+| `only-updated` | The field will contain only the columns that were modified by the operation (plus primary key columns based on `cdc.include.primary-key.placement`). This reduces message size when you only care about what changed. |
+
+#### Behavior by Operation Type
+
+| Operation | `before` field | `after` field |
+|-----------|----------------|---------------|
+| **INSERT** | Always `null` (no previous state) | Full image regardless of mode (all columns with values) |
+| **UPDATE** | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null |
+| **DELETE** | Full preimage regardless of mode (all columns) | Always `null` (row was deleted) |
+
+#### Scylla Table Configuration
+
+To use preimage/postimage support, you must enable the corresponding CDC options on your Scylla table:
+
+```sql
+-- Enable preimage only
+CREATE TABLE ks.my_table (
+    pk int, ck int, v text, PRIMARY KEY(pk, ck)
+) WITH cdc = {'enabled': true, 'preimage': true};
+
+-- Enable postimage only
+CREATE TABLE ks.my_table (
+    pk int, ck int, v text, PRIMARY KEY(pk, ck)
+) WITH cdc = {'enabled': true, 'postimage': true};
+
+-- Enable both preimage and postimage
+CREATE TABLE ks.my_table (
+    pk int, ck int, v text, PRIMARY KEY(pk, ck)
+) WITH cdc = {'enabled': true, 'preimage': true, 'postimage': true};
+```
+
+#### Connector Configuration Examples
+
+```properties
+# Include full row state before and after changes
+cdc.include.before=full
+cdc.include.after=full
+
+# Include only modified columns (reduces message size for UPDATE operations)
+cdc.include.before=only-updated
+cdc.include.after=only-updated
+
+# Mixed mode: full before state, only modified columns after
+cdc.include.before=full
+cdc.include.after=only-updated
+```
+
+#### Use Cases for `only-updated` Mode
+
+The `only-updated` mode is particularly useful when:
+- **Reducing message size**: When tables have many columns but updates typically modify only a few, `only-updated` significantly reduces Kafka message sizes.
+- **Change-focused consumers**: When downstream consumers only need to know what changed rather than the complete row state.
+- **Audit trails**: When combined with `cdc.include.before=full`, you get complete "before" state for auditing while keeping "after" minimal.
+
+#### Validation
+
+The connector validates that the Scylla table's CDC options match the connector configuration:
+- If you configure `cdc.include.before=full` or `cdc.include.before=only-updated` but the table does not have preimage enabled, the connector will report a configuration error at startup.
+- If you configure `cdc.include.after=full` or `cdc.include.after=only-updated` but the table does not have postimage enabled, the connector will report a configuration error at startup.
+
+#### Primary Key Placement
+
+The `cdc.include.primary-key.placement` option controls where the primary key (partition key and clustering key) columns appear in the generated Kafka messages. This provides flexibility for different consumption patterns and downstream system requirements.
+
+##### Available Locations
+
+| Location | Description |
+|----------|-------------|
+| `kafka-key` | Include PK/CK columns in the Kafka record key. This is essential for proper message partitioning, ordering, and log compaction. |
+| `payload-after` | Include PK/CK columns inside the `after` field in the message value. Useful when consumers need complete row data in the after image. |
+| `payload-before` | Include PK/CK columns inside the `before` field in the message value. Useful when consumers need complete row data in the before image. |
+| `payload-key` | Include PK/CK columns as a top-level `key` object in the message value. The field name can be customized using `cdc.include.primary-key.payload-key-name`. |
+| `kafka-headers` | Include PK/CK columns as Kafka message headers. Useful for routing or filtering without parsing the message body. |
+
+##### Configuration Examples
+
+```properties
+# Default: PK in Kafka key and both before/after payloads
+cdc.include.primary-key.placement=kafka-key,payload-after,payload-before
+
+# Minimal: Only in Kafka key (for partitioning/compaction)
+cdc.include.primary-key.placement=kafka-key
+
+# Include PK as separate top-level field named "primaryKey"
+cdc.include.primary-key.placement=kafka-key,payload-key
+cdc.include.primary-key.payload-key-name=primaryKey
+
+# Include PK in headers for routing without message parsing
+cdc.include.primary-key.placement=kafka-key,kafka-headers
+```
+
+##### Use Cases
+
+- **Log compaction**: Always include `kafka-key` to ensure proper compaction behavior based on the row's primary key.
+- **Simplified consumers**: Use `payload-key` to provide a dedicated key object separate from the before/after images.
+- **Header-based routing**: Use `kafka-headers` when downstream systems need to route or filter messages based on PK values without deserializing the message body.
+- **Minimal message size**: Remove `payload-after` and `payload-before` if PK columns are only needed in the Kafka key.
+
+### Partition Delete Support
+
+The connector's handling of partition deletes (`DELETE FROM table WHERE pk = ?`) depends on the table schema and Scylla version.
+
+#### Tables with Clustering Keys
+
+For tables that have clustering keys, partition deletes are **not supported** and are ignored by the connector. This is because a partition delete in such tables can affect multiple rows, and Scylla CDC does not provide individual row-level information for these operations.
+
+```sql
+-- Table with clustering key - partition deletes are IGNORED
+CREATE TABLE ks.with_ck (
+    pk int,
+    ck int,
+    v text,
+    PRIMARY KEY(pk, ck)
+) WITH cdc = {'enabled': true};
+
+DELETE FROM ks.with_ck WHERE pk = 1;  -- This delete is IGNORED by the connector
+```
+
+#### Tables without Clustering Keys (Scylla 2026.1.0+)
+
+For tables that have **only a partition key** (no clustering key), partition deletes are effectively single-row deletes. Starting with **Scylla 2026.1.0**, these operations are fully supported:
+
+- The connector emits a `DELETE` event (`op: "d"`) for the operation
+- When preimage is enabled on the table and `cdc.include.before` is set to `full` or `only-updated`, the `before` field will be populated with the row state before deletion
+- Scylla generates a `PRE_IMAGE` record for these operations, allowing the connector to include the complete row data
+
+```sql
+-- Table without clustering key - partition deletes ARE SUPPORTED (Scylla 2026.1.0+)
+CREATE TABLE ks.without_ck (
+    pk int PRIMARY KEY,
+    v text
+) WITH cdc = {'enabled': true, 'preimage': true};
+
+DELETE FROM ks.without_ck WHERE pk = 1;  -- This delete IS captured with preimage data
+```
+
+**Connector configuration for partition delete preimage:**
+```properties
+cdc.include.before=full
+# or
+cdc.include.before=only-updated
+```
+
+#### Version Compatibility
+
+| Scylla Version | Table Type | Partition Delete Support |
+|----------------|------------|-------------------------|
+| All versions | With clustering key | Not supported (ignored) |
+| < 2026.1.0 | Without clustering key | Supported, but no preimage data |
+| >= 2026.1.0 | Without clustering key | Fully supported with preimage data |
 
 ### Configuration for large Scylla clusters
 #### Offset (progress) storage

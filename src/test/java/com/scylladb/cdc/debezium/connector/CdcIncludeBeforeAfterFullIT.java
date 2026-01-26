@@ -113,7 +113,9 @@ public class CdcIncludeBeforeAfterFullIT extends CdcIncludeBeforeAfterBase<Strin
           "source": %s
         }
         """
-          .formatted(pk, expectedSource())
+          .formatted(pk, expectedSource()),
+      // Tombstone record (null value) for Kafka log compaction
+      null
     };
   }
 
