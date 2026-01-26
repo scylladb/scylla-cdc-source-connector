@@ -1,11 +1,13 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcIncludePkLocation;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.txmetadata.TransactionMonitor;
 import io.debezium.schema.DataCollectionSchema;
 import io.debezium.schema.DatabaseSchema;
 import io.debezium.schema.SchemaNameAdjuster;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.connect.data.Date;
@@ -17,17 +19,26 @@ import org.slf4j.LoggerFactory;
 
 public class ScyllaSchema implements DatabaseSchema<CollectionId> {
   private static final Logger LOGGER = LoggerFactory.getLogger(ScyllaSchema.class);
-  public static final String CELL_VALUE = "value";
+  public static final String FIELD_DIFF = "diff";
+
+  private final String payloadKeyFieldName;
 
   private final Schema sourceSchema;
   private final ScyllaConnectorConfig configuration;
   private final SchemaNameAdjuster adjuster = SchemaNameAdjuster.create();
   private final Map<CollectionId, ScyllaCollectionSchema> dataCollectionSchemas = new HashMap<>();
-  private final Map<CollectionId, ChangeSchema> changeSchemas = new HashMap<>();
+  private final Map<CollectionId, ChangeSchema> cdcRowSchemas = new HashMap<>();
+  private final Map<CollectionId, Schema> keySchemaCache = new HashMap<>();
 
   public ScyllaSchema(ScyllaConnectorConfig configuration, Schema sourceSchema) {
     this.sourceSchema = sourceSchema;
     this.configuration = configuration;
+    this.payloadKeyFieldName = configuration.getCdcIncludePkPayloadKeyName();
+  }
+
+  /** Returns the configured payload key field name. */
+  public String getPayloadKeyFieldName() {
+    return payloadKeyFieldName;
   }
 
   @Override
@@ -39,18 +50,21 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
   }
 
   private ScyllaCollectionSchema computeDataCollectionSchema(CollectionId collectionId) {
-    ChangeSchema changeSchema = changeSchemas.get(collectionId);
+    ChangeSchema rowSchema = cdcRowSchemas.get(collectionId);
 
-    if (changeSchema == null) {
+    if (rowSchema == null) {
       return null;
     }
 
-    Map<String, Schema> cellSchemas = computeCellSchemas(changeSchema, collectionId);
-    Schema keySchema = computeKeySchema(changeSchema, collectionId);
-    Schema beforeSchema = computeBeforeSchema(changeSchema, cellSchemas, collectionId);
-    Schema afterSchema = computeAfterSchema(changeSchema, cellSchemas, collectionId);
+    EnumSet<CdcIncludePkLocation> pkLocations = configuration.getCdcIncludePk();
+    boolean includePayloadKey = pkLocations.contains(CdcIncludePkLocation.PAYLOAD_KEY);
 
-    final Schema valueSchema =
+    Map<String, Schema> cellSchemas = computeCellSchemas(rowSchema, collectionId);
+    Schema keySchema = computeKeySchema(rowSchema, collectionId);
+    Schema beforeSchema = computeRowSchema(rowSchema, cellSchemas, collectionId, "Before");
+    Schema afterSchema = computeRowSchema(rowSchema, cellSchemas, collectionId, "After");
+
+    SchemaBuilder valueSchemaBuilder =
         SchemaBuilder.struct()
             .name(
                 adjuster.adjust(
@@ -62,50 +76,57 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                             + collectionId.getTableName().name)))
             .field(Envelope.FieldName.SOURCE, sourceSchema)
             .field(Envelope.FieldName.BEFORE, beforeSchema)
-            .field(Envelope.FieldName.AFTER, afterSchema)
-            .field(Envelope.FieldName.OPERATION, Schema.OPTIONAL_STRING_SCHEMA)
-            .field(Envelope.FieldName.TIMESTAMP, Schema.OPTIONAL_INT64_SCHEMA)
-            .field(Envelope.FieldName.TRANSACTION, TransactionMonitor.TRANSACTION_BLOCK_SCHEMA)
-            .field(Envelope.FieldName.TIMESTAMP_US, Schema.OPTIONAL_INT64_SCHEMA)
-            .field(Envelope.FieldName.TIMESTAMP_NS, Schema.OPTIONAL_INT64_SCHEMA)
-            .build();
+            .field(Envelope.FieldName.AFTER, afterSchema);
 
+    // Add optional key field in payload if configured
+    if (includePayloadKey) {
+      valueSchemaBuilder.field(payloadKeyFieldName, keySchema);
+    }
+
+    valueSchemaBuilder
+        .field(Envelope.FieldName.OPERATION, Schema.OPTIONAL_STRING_SCHEMA)
+        .field(Envelope.FieldName.TIMESTAMP, Schema.OPTIONAL_INT64_SCHEMA)
+        .field(Envelope.FieldName.TRANSACTION, TransactionMonitor.TRANSACTION_BLOCK_SCHEMA)
+        .field(Envelope.FieldName.TIMESTAMP_US, Schema.OPTIONAL_INT64_SCHEMA)
+        .field(Envelope.FieldName.TIMESTAMP_NS, Schema.OPTIONAL_INT64_SCHEMA);
+
+    final Schema valueSchema = valueSchemaBuilder.build();
     final Envelope envelope = Envelope.fromSchema(valueSchema);
 
     return new ScyllaCollectionSchema(
-        collectionId, keySchema, valueSchema, beforeSchema, afterSchema, cellSchemas, envelope);
+        collectionId,
+        keySchema,
+        valueSchema,
+        beforeSchema,
+        afterSchema,
+        null,
+        cellSchemas,
+        null,
+        envelope);
   }
 
   private Map<String, Schema> computeCellSchemas(
       ChangeSchema changeSchema, CollectionId collectionId) {
     Map<String, Schema> cellSchemas = new HashMap<>();
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY
-          || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
+      ChangeSchema.ColumnType colType = cdef.getBaseTableColumnType();
+      if (colType == ChangeSchema.ColumnType.PARTITION_KEY
+          || colType == ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
       if (!isSupportedColumnSchema(cdef)) continue;
 
       Schema columnSchema = computeColumnSchema(cdef);
-      Schema cellSchema =
-          SchemaBuilder.struct()
-              .name(
-                  adjuster.adjust(
-                      configuration.getLogicalName()
-                          + "."
-                          + collectionId.getTableName().keyspace
-                          + "."
-                          + collectionId.getTableName().name
-                          + "."
-                          + cdef.getColumnName()
-                          + ".Cell"))
-              .field(CELL_VALUE, columnSchema)
-              .optional()
-              .build();
-      cellSchemas.put(cdef.getColumnName(), cellSchema);
+      cellSchemas.put(cdef.getColumnName(), columnSchema);
     }
     return cellSchemas;
   }
 
   private Schema computeKeySchema(ChangeSchema changeSchema, CollectionId collectionId) {
+    // Return cached key schema if available for this keyspace.table
+    Schema cachedKeySchema = keySchemaCache.get(collectionId);
+    if (cachedKeySchema != null) {
+      return cachedKeySchema;
+    }
+
     SchemaBuilder keySchemaBuilder =
         SchemaBuilder.struct()
             .name(
@@ -116,70 +137,61 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
                         + "."
                         + collectionId.getTableName().name
                         + ".Key"));
+
+    // Add partition key columns first to ensure proper primary key ordering
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
-          && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
+      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY) continue;
       if (!isSupportedColumnSchema(cdef)) continue;
 
       Schema columnSchema = computeColumnSchema(cdef);
       keySchemaBuilder = keySchemaBuilder.field(cdef.getColumnName(), columnSchema);
     }
 
-    return keySchemaBuilder.build();
+    // Add clustering key columns second
+    for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
+      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
+      if (!isSupportedColumnSchema(cdef)) continue;
+
+      Schema columnSchema = computeColumnSchema(cdef);
+      keySchemaBuilder = keySchemaBuilder.field(cdef.getColumnName(), columnSchema);
+    }
+
+    Schema keySchema = keySchemaBuilder.build();
+    keySchemaCache.put(collectionId, keySchema);
+    return keySchema;
   }
 
-  private Schema computeAfterSchema(
-      ChangeSchema changeSchema, Map<String, Schema> cellSchemas, CollectionId collectionId) {
-    SchemaBuilder afterSchemaBuilder =
-        SchemaBuilder.struct()
-            .name(
-                adjuster.adjust(
-                    configuration.getLogicalName()
-                        + "."
-                        + collectionId.getTableName().keyspace
-                        + "."
-                        + collectionId.getTableName().name
-                        + ".After"));
+  private String generateSchemaName(CollectionId collectionId, String suffix) {
+    return adjuster.adjust(
+        configuration.getLogicalName()
+            + "."
+            + collectionId.getTableName().keyspace
+            + "."
+            + collectionId.getTableName().name
+            + "."
+            + suffix);
+  }
+
+  private Schema computeRowSchema(
+      ChangeSchema changeSchema,
+      Map<String, Schema> cellSchemas,
+      CollectionId collectionId,
+      String suffix) {
+    SchemaBuilder schemaBuilder =
+        SchemaBuilder.struct().name(generateSchemaName(collectionId, suffix));
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
       if (!isSupportedColumnSchema(cdef)) continue;
 
       if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
           && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
-        afterSchemaBuilder =
-            afterSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
+        schemaBuilder =
+            schemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
       } else {
         Schema columnSchema = computeColumnSchema(cdef);
-        afterSchemaBuilder = afterSchemaBuilder.field(cdef.getColumnName(), columnSchema);
+        schemaBuilder = schemaBuilder.field(cdef.getColumnName(), columnSchema);
       }
     }
-    return afterSchemaBuilder.optional().build();
-  }
-
-  private Schema computeBeforeSchema(
-      ChangeSchema changeSchema, Map<String, Schema> cellSchemas, CollectionId collectionId) {
-    SchemaBuilder beforeSchemaBuilder =
-        SchemaBuilder.struct()
-            .name(
-                adjuster.adjust(
-                    configuration.getLogicalName()
-                        + "."
-                        + collectionId.getTableName().keyspace
-                        + "."
-                        + collectionId.getTableName().name
-                        + ".Before"));
-    for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (!isSupportedColumnSchema(cdef)) continue;
-
-      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
-          && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
-        beforeSchemaBuilder =
-            beforeSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
-      } else {
-        Schema columnSchema = computeColumnSchema(cdef);
-        beforeSchemaBuilder = beforeSchemaBuilder.field(cdef.getColumnName(), columnSchema);
-      }
-    }
-    return beforeSchemaBuilder.optional().build();
+    return schemaBuilder.optional().build();
   }
 
   private Schema computeColumnSchema(ChangeSchema.ColumnDefinition cdef) {
@@ -251,10 +263,20 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
   }
 
   public ScyllaCollectionSchema updateChangeSchema(
-      CollectionId collectionId, ChangeSchema changeSchema) {
-    changeSchemas.put(collectionId, changeSchema);
+      CollectionId collectionId, ChangeSchema cdcRowSchema) {
+    cdcRowSchemas.put(collectionId, cdcRowSchema);
     dataCollectionSchemas.put(collectionId, computeDataCollectionSchema(collectionId));
     return dataCollectionSchemas.get(collectionId);
+  }
+
+  /**
+   * Returns the cached key schema for the given keyspace.table, or null if not cached.
+   *
+   * @param collectionId the collection ID (keyspace.table)
+   * @return the cached key schema, or null if not yet computed
+   */
+  public Schema getKeySchema(CollectionId collectionId) {
+    return keySchemaCache.get(collectionId);
   }
 
   @Override
