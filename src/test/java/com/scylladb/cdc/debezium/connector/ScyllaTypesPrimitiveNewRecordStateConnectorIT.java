@@ -1,5 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromJson;
 import static com.scylladb.cdc.debezium.connector.KafkaConnectUtils.buildScyllaExtractNewRecordStateConnector;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -19,30 +20,6 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
   @Override
   protected int extractPkFromKey(String key) {
     return extractIdFromJson(key);
-  }
-
-  private int extractIdFromJson(String json) {
-    // Parse JSON to extract "id" from the root level (flattened by NewRecordState transform)
-    if (json == null) {
-      return -1;
-    }
-    int idIndex = json.indexOf("\"id\":");
-    if (idIndex == -1) {
-      return -1;
-    }
-    int start = idIndex + 5;
-    while (start < json.length() && Character.isWhitespace(json.charAt(start))) {
-      start++;
-    }
-    int end = start;
-    while (end < json.length()
-        && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-')) {
-      end++;
-    }
-    if (end > start) {
-      return Integer.parseInt(json.substring(start, end));
-    }
-    return -1;
   }
 
   @Override
@@ -89,12 +66,44 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
   @Override
   String[] expectedDelete(int pk) {
     return new String[] {
+      // INSERT record: NewRecordState extracts just the "after" value, flattened
       """
         {
-          "id": %d
+          "id": %d,
+          "ascii_col": "ascii",
+          "bigint_col": 1234567890123,
+          "blob_col": "yv66vg==",
+          "boolean_col": true,
+          "date_col": 19884,
+          "decimal_col": "12345.67",
+          "double_col": 3.14159,
+          "duration_col": "1d12h30m",
+          "float_col": 2.71828,
+          "inet_col": "127.0.0.1",
+          "int_col": 42,
+          "smallint_col": 7,
+          "text_col": "delete me",
+          "time_col": 45296789000000,
+          "timestamp_col": 1718022896789,
+          "timeuuid_col": "81d4a030-4632-11f0-9484-409dd8f36eba",
+          "tinyint_col": 5,
+          "uuid_col": "453662fa-db4b-4938-9033-d8523c0a371c",
+          "varchar_col": "varchar text",
+          "varint_col": "999999999",
+          "untouched_text": "%s",
+          "untouched_int": %d,
+          "untouched_boolean": %s,
+          "untouched_uuid": "%s"
         }
         """
-          .formatted(pk)
+          .formatted(
+              pk,
+              UNTOUCHED_TEXT_VALUE,
+              UNTOUCHED_INT_VALUE,
+              UNTOUCHED_BOOLEAN_VALUE,
+              UNTOUCHED_UUID_VALUE),
+      // DELETE record: NewRecordState produces null (tombstone) when after is null
+      null
     };
   }
 
@@ -336,7 +345,7 @@ public class ScyllaTypesPrimitiveNewRecordStateConnectorIT
           "inet_col": "127.0.0.2",
           "int_col": 43,
           "smallint_col": 8,
-          "text_col": "value",
+          "text_col": "value2",
           "time_col": 3723456000000,
           "timestamp_col": 1718067723456,
           "timeuuid_col": "81d4a031-4632-11f0-9484-409dd8f36eba",

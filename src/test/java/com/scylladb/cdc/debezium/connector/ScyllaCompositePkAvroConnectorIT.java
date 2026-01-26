@@ -30,12 +30,33 @@ public class ScyllaCompositePkAvroConnectorIT
 
   @Override
   protected int extractPkFromValue(GenericRecord value) {
-    return extractPk1FromRecord(value);
+    return extractPk1FromKeyField(value);
   }
 
   @Override
   protected int extractPkFromKey(GenericRecord key) {
     return extractPk1FromRecord(key);
+  }
+
+  private int extractPk1FromKeyField(GenericRecord record) {
+    if (record == null) {
+      return -1;
+    }
+    // Try to get "key" field first (payload-key)
+    if (record.getSchema().getField("key") != null) {
+      Object key = record.get("key");
+      if (key instanceof GenericRecord) {
+        GenericRecord keyRecord = (GenericRecord) key;
+        if (keyRecord.getSchema().getField("pk1") != null) {
+          Object pk1 = keyRecord.get("pk1");
+          if (pk1 instanceof Number) {
+            return ((Number) pk1).intValue();
+          }
+        }
+      }
+    }
+    // Fallback to after/before/direct for backwards compatibility
+    return extractPk1FromRecord(record);
   }
 
   private int extractPk1FromRecord(GenericRecord record) {
@@ -90,20 +111,28 @@ public class ScyllaCompositePkAvroConnectorIT
               "pk2": "%s",
               "pk3": "%s",
               "pk4": %d,
-              "value_text": {"value": "first"},
-              "value_int": {"value": 100}
+              "value_text": "first",
+              "value_int": 100
             }
             """
-              .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE))
+              .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE),
+          expectedCompositeKey(pk1))
     };
+  }
+
+  private String expectedCompositeKey(int pk1) {
+    return """
+        {"pk1": %d, "pk2": "%s", "pk3": "%s", "pk4": %d}
+        """
+        .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE);
   }
 
   @Override
   String[] expectedUpdate(int pk1) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      // INSERT record: before is null, after has full postimage
       expectedRecord(
-          "u",
+          "c",
           "null",
           """
             {
@@ -111,18 +140,61 @@ public class ScyllaCompositePkAvroConnectorIT
               "pk2": "%s",
               "pk3": "%s",
               "pk4": %d,
-              "value_text": {"value": "second"},
-              "value_int": {"value": 200}
+              "value_text": "first",
+              "value_int": 100
             }
             """
-              .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE))
+              .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE),
+          expectedCompositeKey(pk1)),
+      // UPDATE record: before has preimage, after has postimage
+      expectedRecord(
+          "u",
+          """
+            {
+              "pk1": %d,
+              "pk2": "%s",
+              "pk3": "%s",
+              "pk4": %d,
+              "value_text": "first",
+              "value_int": 100
+            }
+            """
+              .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE),
+          """
+            {
+              "pk1": %d,
+              "pk2": "%s",
+              "pk3": "%s",
+              "pk4": %d,
+              "value_text": "second",
+              "value_int": 200
+            }
+            """
+              .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE),
+          expectedCompositeKey(pk1))
     };
   }
 
   @Override
   String[] expectedDelete(int pk1) {
     return new String[] {
-      expectedRecord("c", "null", "{}"),
+      // INSERT record: before is null, after has full postimage
+      expectedRecord(
+          "c",
+          "null",
+          """
+            {
+              "pk1": %d,
+              "pk2": "%s",
+              "pk3": "%s",
+              "pk4": %d,
+              "value_text": "first",
+              "value_int": 100
+            }
+            """
+              .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE),
+          expectedCompositeKey(pk1)),
+      // DELETE record: before has preimage, after is null
       expectedRecord(
           "d",
           """
@@ -130,11 +202,14 @@ public class ScyllaCompositePkAvroConnectorIT
               "pk1": %d,
               "pk2": "%s",
               "pk3": "%s",
-              "pk4": %d
+              "pk4": %d,
+              "value_text": "first",
+              "value_int": 100
             }
             """
               .formatted(pk1, PK2_VALUE, PK3_VALUE, PK4_VALUE),
-          "null"),
+          "null",
+          expectedCompositeKey(pk1)),
       null
     };
   }

@@ -39,13 +39,18 @@ public class StartConnectorIT extends AbstractContainerBaseIT {
       session.execute(
           "CREATE TABLE IF NOT EXISTS "
               + "connectortest.test_table"
-              + " (id int PRIMARY KEY, name text) WITH cdc = {'enabled':true}");
+              + " (id int PRIMARY KEY, name text) WITH cdc = {'enabled':true, 'preimage':true, 'postimage':true}");
       session.execute("INSERT INTO connectortest.test_table (id, name) VALUES (1, 'test_text');");
       session.close();
       Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
       connectorConfiguration.put("topic.prefix", connectorName);
       connectorConfiguration.put("scylla.table.names", "connectortest.test_table");
       connectorConfiguration.put("name", connectorName);
+      connectorConfiguration.put("cdc.include.before", "full");
+      connectorConfiguration.put("cdc.include.after", "full");
+      connectorConfiguration.put(
+          "cdc.include.primary-key.placement",
+          "kafka-key,payload-after,payload-before,payload-diff,payload-key,kafka-headers");
       KafkaConnectUtils.registerConnector(connectorConfiguration, connectorName);
       consumer.subscribe(List.of(connectorName + ".connectortest.test_table"));
       // Wait for at most 65 seconds for the connector to start and generate the message
@@ -58,7 +63,10 @@ public class StartConnectorIT extends AbstractContainerBaseIT {
           messageConsumed = true;
           records.forEach(
               record -> {
-                assert record.value().contains("{\"id\":1,\"name\":{\"value\":\"test_text\"}}");
+                // With cdc.include.primary-key.placement=...payload-after..., the PK should be in
+                // the after field
+                assert record.value().contains("\"id\":1")
+                    && record.value().contains("\"name\":\"test_text\"");
               });
           break;
         }
