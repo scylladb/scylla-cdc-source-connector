@@ -1,13 +1,11 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcIncludePkLocation;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.txmetadata.TransactionMonitor;
 import io.debezium.schema.DataCollectionSchema;
 import io.debezium.schema.DatabaseSchema;
 import io.debezium.schema.SchemaNameAdjuster;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.connect.data.Date;
@@ -56,8 +54,7 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
       return null;
     }
 
-    EnumSet<CdcIncludePkLocation> pkLocations = configuration.getCdcIncludePk();
-    boolean includePayloadKey = pkLocations.contains(CdcIncludePkLocation.PAYLOAD_KEY);
+    boolean includePayloadKey = configuration.getCdcIncludePk().inPayloadKey;
 
     Map<String, Schema> cellSchemas = computeCellSchemas(rowSchema, collectionId);
     Schema keySchema = computeKeySchema(rowSchema, collectionId);

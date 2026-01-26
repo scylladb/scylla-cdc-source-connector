@@ -468,10 +468,37 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   protected static Field.Set EXPOSED_FIELDS = ALL_FIELDS;
 
   private final Configuration config;
+  private final CdcIncludeMode cdcIncludeBefore;
+  private final CdcIncludeMode cdcIncludeAfter;
+  private final PkLocationConfig pkLocationConfig;
+
+  /** Pre-computed boolean flags for PK location configuration to avoid repeated EnumSet lookups. */
+  public static class PkLocationConfig {
+    public final boolean inKafkaKey;
+    public final boolean inPayloadAfter;
+    public final boolean inPayloadBefore;
+    public final boolean inPayloadKey;
+    public final boolean inKafkaHeaders;
+
+    PkLocationConfig(EnumSet<CdcIncludePkLocation> locations) {
+      this.inKafkaKey = locations.contains(CdcIncludePkLocation.KAFKA_KEY);
+      this.inPayloadAfter = locations.contains(CdcIncludePkLocation.PAYLOAD_AFTER);
+      this.inPayloadBefore = locations.contains(CdcIncludePkLocation.PAYLOAD_BEFORE);
+      this.inPayloadKey = locations.contains(CdcIncludePkLocation.PAYLOAD_KEY);
+      this.inKafkaHeaders = locations.contains(CdcIncludePkLocation.KAFKA_HEADERS);
+    }
+  }
 
   protected ScyllaConnectorConfig(Configuration config) {
     super(config, 0);
     this.config = config;
+    this.cdcIncludeBefore =
+        CdcIncludeMode.parse(config.getString(ScyllaConnectorConfig.CDC_INCLUDE_BEFORE));
+    this.cdcIncludeAfter =
+        CdcIncludeMode.parse(config.getString(ScyllaConnectorConfig.CDC_INCLUDE_AFTER));
+    this.pkLocationConfig =
+        new PkLocationConfig(
+            CdcIncludePkLocation.parseList(config.getList(ScyllaConnectorConfig.CDC_INCLUDE_PK)));
   }
 
   public static ConfigDef configDef() {
@@ -562,18 +589,15 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   }
 
   public CdcIncludeMode getCdcIncludeBefore() {
-    String value = config.getString(ScyllaConnectorConfig.CDC_INCLUDE_BEFORE);
-    return CdcIncludeMode.parse(value);
+    return cdcIncludeBefore;
   }
 
   public CdcIncludeMode getCdcIncludeAfter() {
-    String value = config.getString(ScyllaConnectorConfig.CDC_INCLUDE_AFTER);
-    return CdcIncludeMode.parse(value);
+    return cdcIncludeAfter;
   }
 
-  public EnumSet<CdcIncludePkLocation> getCdcIncludePk() {
-    List<String> values = config.getList(ScyllaConnectorConfig.CDC_INCLUDE_PK);
-    return CdcIncludePkLocation.parseList(values);
+  public PkLocationConfig getCdcIncludePk() {
+    return pkLocationConfig;
   }
 
   public String getCdcIncludePkPayloadKeyName() {
