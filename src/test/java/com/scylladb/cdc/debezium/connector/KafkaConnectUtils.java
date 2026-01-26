@@ -13,8 +13,6 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Assertions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Utility class for Kafka Connect operations. */
 public final class KafkaConnectUtils {
@@ -26,10 +24,60 @@ public final class KafkaConnectUtils {
   private static final int MAX_RETRIES = 10;
   private static final long INITIAL_BACKOFF_MS = 500; // 0.5 seconds
   private static final long MAX_BACKOFF_MS = 60000; // 1 minute
-  private static final Logger log = LoggerFactory.getLogger(KafkaConnectUtils.class);
 
   private KafkaConnectUtils() {
     throw new UnsupportedOperationException("This utility class cannot be instantiated");
+  }
+
+  /** Result of an HTTP request containing response code and body. */
+  private static class HttpResult {
+    final int code;
+    final String body;
+
+    HttpResult(int code, String body) {
+      this.code = code;
+      this.body = body;
+    }
+  }
+
+  /**
+   * Executes an HTTP request to the Kafka Connect REST API.
+   *
+   * @param method The HTTP method (GET, POST, PUT, DELETE)
+   * @param path The URL path (e.g., "/connectors" or "/connectors/name/status")
+   * @param requestBody The request body (null for GET/DELETE)
+   * @return HttpResult containing response code and body
+   * @throws Exception if the request fails or Kafka Connect is not running
+   */
+  private static HttpResult httpRequest(String method, String path, String requestBody)
+      throws Exception {
+    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
+    if (connectUrl == null) {
+      throw new IllegalStateException("Kafka Connect is not running");
+    }
+
+    URL url = new URL(connectUrl + path);
+    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+    conn.setRequestMethod(method);
+
+    if (requestBody != null) {
+      conn.setRequestProperty("Content-Type", "application/json");
+      conn.setDoOutput(true);
+      try (OutputStream os = conn.getOutputStream()) {
+        os.write(requestBody.getBytes());
+        os.flush();
+      }
+    } else {
+      conn.setRequestProperty("Accept", "application/json");
+    }
+
+    String responseBody = readResponse(conn);
+    int responseCode = conn.getResponseCode();
+    logger.atFinest().log(
+        "%s %s - Response code: %d, Body: %s", method, url, responseCode, responseBody);
+    conn.disconnect();
+
+    return new HttpResult(responseCode, responseBody);
   }
 
   /**
@@ -287,21 +335,8 @@ public final class KafkaConnectUtils {
    * @throws Exception if the request fails or Kafka Connect is not running
    */
   public static int pauseConnector(String connectorName) throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
-    }
-
-    URL url = new URL(connectUrl + "/connectors/" + connectorName + "/pause");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("PUT");
-    conn.setRequestProperty("Content-Type", "application/json");
-
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("PUT %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-    conn.disconnect();
-    return responseCode;
+    HttpResult result = httpRequest("PUT", "/connectors/" + connectorName + "/pause", "");
+    return result.code;
   }
 
   /**
@@ -312,21 +347,8 @@ public final class KafkaConnectUtils {
    * @throws Exception if the request fails or Kafka Connect is not running
    */
   public static int resumeConnector(String connectorName) throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
-    }
-
-    URL url = new URL(connectUrl + "/connectors/" + connectorName + "/resume");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("PUT");
-    conn.setRequestProperty("Content-Type", "application/json");
-
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("PUT %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-    conn.disconnect();
-    return responseCode;
+    HttpResult result = httpRequest("PUT", "/connectors/" + connectorName + "/resume", "");
+    return result.code;
   }
 
   /**
@@ -368,21 +390,8 @@ public final class KafkaConnectUtils {
    * @throws Exception if the request fails or Kafka Connect is not running
    */
   public static int deleteConnector(String connectorName) throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
-    }
-
-    URL url = new URL(connectUrl + "/connectors/" + connectorName);
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("DELETE");
-
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log(
-        "DELETE %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-    conn.disconnect();
-    return responseCode;
+    HttpResult result = httpRequest("DELETE", "/connectors/" + connectorName, null);
+    return result.code;
   }
 
   /**
@@ -403,27 +412,11 @@ public final class KafkaConnectUtils {
    * @throws Exception if the request fails or Kafka Connect is not running
    */
   public static String getAllConnectors() throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
+    HttpResult result = httpRequest("GET", "/connectors", null);
+    if (result.code != 200) {
+      throw new RuntimeException("Failed to get connectors. HTTP error code: " + result.code);
     }
-
-    URL url = new URL(connectUrl + "/connectors");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("GET");
-    conn.setRequestProperty("Accept", "application/json");
-
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("GET %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-
-    if (responseCode != 200) {
-      conn.disconnect();
-      throw new RuntimeException("Failed to get connectors. HTTP error code: " + responseCode);
-    }
-
-    conn.disconnect();
-    return responseBody;
+    return result.body;
   }
 
   /**
@@ -434,33 +427,14 @@ public final class KafkaConnectUtils {
    * @throws Exception if the request fails or Kafka Connect is not running
    */
   public static String getConnectorConfig(String connectorName) throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
-    }
-
-    URL url = new URL(connectUrl + "/connectors/" + connectorName + "/config");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("GET");
-    conn.setRequestProperty("Accept", "application/json");
-
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("GET %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-
-    if (responseCode == 404) {
-      conn.disconnect();
+    HttpResult result = httpRequest("GET", "/connectors/" + connectorName + "/config", null);
+    if (result.code == 404) {
       return null; // Connector doesn't exist
     }
-
-    if (responseCode != 200) {
-      conn.disconnect();
-      throw new RuntimeException(
-          "Failed to get connector config. HTTP error code: " + responseCode);
+    if (result.code != 200) {
+      throw new RuntimeException("Failed to get connector config. HTTP error code: " + result.code);
     }
-
-    conn.disconnect();
-    return responseBody;
+    return result.body;
   }
 
   /**
@@ -473,26 +447,9 @@ public final class KafkaConnectUtils {
    */
   public static int updateConnectorConfig(String connectorName, String connectorConfigJson)
       throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
-    }
-
-    URL url = new URL(connectUrl + "/connectors/" + connectorName + "/config");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("PUT");
-    conn.setRequestProperty("Content-Type", "application/json");
-    conn.setDoOutput(true);
-    try (OutputStream os = conn.getOutputStream()) {
-      os.write(connectorConfigJson.getBytes());
-      os.flush();
-    }
-
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("PUT %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-    conn.disconnect();
-    return responseCode;
+    HttpResult result =
+        httpRequest("PUT", "/connectors/" + connectorName + "/config", connectorConfigJson);
+    return result.code;
   }
 
   /**
@@ -503,21 +460,8 @@ public final class KafkaConnectUtils {
    * @throws Exception if the request fails or Kafka Connect is not running
    */
   public static int restartConnector(String connectorName) throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
-    }
-
-    URL url = new URL(connectUrl + "/connectors/" + connectorName + "/restart");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setRequestMethod("POST");
-    conn.setRequestProperty("Content-Type", "application/json");
-
-    String responseBody = readResponse(conn);
-    int responseCode = conn.getResponseCode();
-    logger.atFinest().log("POST %s - Response code: %d, Body: %s", url, responseCode, responseBody);
-    conn.disconnect();
-    return responseCode;
+    HttpResult result = httpRequest("POST", "/connectors/" + connectorName + "/restart", "");
+    return result.code;
   }
 
   /**
@@ -528,12 +472,7 @@ public final class KafkaConnectUtils {
    * @throws Exception if the request fails or Kafka Connect is not running
    */
   public static int removeAllConnectors() throws Exception {
-    String connectUrl = AbstractContainerBaseIT.getKafkaConnectUrl();
-    if (connectUrl == null) {
-      throw new IllegalStateException("Kafka Connect is not running");
-    }
-
-    // First, get the list of all connectors
+    // First, get the list of all connectors (this will check if Kafka Connect is running)
     String connectorsJson = getAllConnectors();
 
     // Parse the JSON array to extract connector names
@@ -692,15 +631,47 @@ public final class KafkaConnectUtils {
     return "http://schema-registry:" + AbstractContainerBaseIT.SCHEMA_REGISTRY_PORT;
   }
 
+  /** Default primary key placement configuration for all locations. */
+  static final String DEFAULT_PK_PLACEMENT =
+      "kafka-key,payload-after,payload-before,payload-diff,payload-key,kafka-headers";
+
+  /**
+   * Applies common CDC configuration to connector properties.
+   *
+   * @param props the properties to configure
+   * @param connectorName the connector name
+   * @param tableName the table name
+   */
+  private static void applyCommonCdcConfig(
+      Properties props, String connectorName, String tableName) {
+    props.put("topic.prefix", connectorName);
+    props.put("scylla.table.names", tableName);
+    props.put("name", connectorName);
+    props.put("cdc.include.before", "full");
+    props.put("cdc.include.after", "full");
+    props.put("cdc.include.primary-key.placement", DEFAULT_PK_PLACEMENT);
+  }
+
+  /**
+   * Registers a connector and subscribes the consumer to its topic.
+   *
+   * @param consumer the Kafka consumer
+   * @param connectorName the connector name
+   * @param tableName the table name
+   * @param props the connector properties
+   */
+  private static <K, V> void registerAndSubscribe(
+      KafkaConsumer<K, V> consumer, String connectorName, String tableName, Properties props) {
+    registerConnector(props, connectorName);
+    consumer.subscribe(List.of(connectorName + "." + tableName));
+  }
+
   static KafkaConsumer<GenericRecord, GenericRecord> buildAvroConnector(
       String connectorConfigName, String tableName) {
     KafkaConsumer<GenericRecord, GenericRecord> consumer = KafkaUtils.createAvroConsumer();
     Properties connectorConfiguration = KafkaConnectUtils.createAvroConnectorProperties();
-    connectorConfiguration.put("topic.prefix", connectorConfigName);
-    connectorConfiguration.put("scylla.table.names", tableName);
-    connectorConfiguration.put("name", connectorConfigName);
-    registerConnector(connectorConfiguration, connectorConfigName);
-    consumer.subscribe(List.of(connectorConfigName + "." + tableName));
+    applyCommonCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
     return consumer;
   }
 
@@ -708,15 +679,14 @@ public final class KafkaConnectUtils {
       String connectorConfigName, String tableName) {
     KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
     Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
-    connectorConfiguration.put("topic.prefix", connectorConfigName);
-    connectorConfiguration.put("scylla.table.names", tableName);
-    connectorConfiguration.put("name", connectorConfigName);
+    applyCommonCdcConfig(connectorConfiguration, connectorConfigName, tableName);
     connectorConfiguration.put("transforms", "extractNewRecordState");
     connectorConfiguration.put(
         "transforms.extractNewRecordState.type",
         "com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState");
-    registerConnector(connectorConfiguration, connectorConfigName);
-    consumer.subscribe(List.of(connectorConfigName + "." + tableName));
+    // Keep tombstone records for DELETE events (default is to drop them)
+    connectorConfiguration.put("transforms.extractNewRecordState.drop.tombstones", "false");
+    registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
     return consumer;
   }
 
@@ -724,11 +694,8 @@ public final class KafkaConnectUtils {
       String connectorConfigName, String tableName) {
     KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
     Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
-    connectorConfiguration.put("topic.prefix", connectorConfigName);
-    connectorConfiguration.put("scylla.table.names", tableName);
-    connectorConfiguration.put("name", connectorConfigName);
-    registerConnector(connectorConfiguration, connectorConfigName);
-    consumer.subscribe(List.of(connectorConfigName + "." + tableName));
+    applyCommonCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
     return consumer;
   }
 
