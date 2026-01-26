@@ -285,6 +285,19 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "when 'payload-key' is included in cdc.include.primary-key.placement. "
                   + "Default is 'key'.");
 
+  public static final Field CDC_INCOMPLETE_TASK_TIMEOUT_MS =
+      Field.create("cdc.incomplete.task.timeout.ms")
+          .withDisplayName("Incomplete Task Timeout (ms)")
+          .withType(ConfigDef.Type.LONG)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDescription(
+              "Timeout in milliseconds for incomplete CDC tasks waiting for preimage/postimage events. "
+                  + "Tasks that remain incomplete longer than this duration will be dropped and logged as errors. "
+                  + "Default is 15000 (15 seconds).")
+          .withValidation(Field::isPositiveLong)
+          .withDefault(15000L);
+
   /*
    * Scylla CDC Source Connector relies on heartbeats to move the offset,
    * because the offset determines if the generation ended, therefore HEARTBEAT_INTERVAL
@@ -441,6 +454,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               CDC_INCLUDE_AFTER,
               CDC_INCLUDE_PK,
               CDC_INCLUDE_PK_PAYLOAD_KEY_NAME,
+              CDC_INCOMPLETE_TASK_TIMEOUT_MS,
               RETRY_BACKOFF_BASE_MS,
               RETRY_MAX_BACKOFF_MS,
               RETRY_BACKOFF_JITTER_PERCENTAGE,
@@ -602,6 +616,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public String getCdcIncludePkPayloadKeyName() {
     return config.getString(ScyllaConnectorConfig.CDC_INCLUDE_PK_PAYLOAD_KEY_NAME);
+  }
+
+  public long getIncompleteTaskTimeoutMs() {
+    return config.getLong(ScyllaConnectorConfig.CDC_INCOMPLETE_TASK_TIMEOUT_MS);
   }
 
   public int getQueryOptionsFetchSize() {

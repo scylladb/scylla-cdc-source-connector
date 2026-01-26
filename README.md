@@ -727,6 +727,7 @@ The connector supports including the complete row state before and/or after a ch
 | `cdc.include.after`  | `none`  | `none`, `full`, `only-updated` | Specifies whether to include the 'after' state of the row in CDC messages. Requires the Scylla table to have postimage enabled (`WITH cdc = {'postimage': true}`) for `full` or `only-updated` modes. |
 | `cdc.include.primary-key.placement` | `kafka-key,payload-after,payload-before` | Comma-separated list of: `kafka-key`, `payload-after`, `payload-before`, `payload-key`, `kafka-headers` | Specifies where primary key (PK) and clustering key (CK) columns should be included in the output. See [Primary Key Placement](#primary-key-placement) for details. |
 | `cdc.include.primary-key.payload-key-name` | `key` | Any valid field name | Specifies the field name for the primary key object in the message payload when `payload-key` is included in `cdc.include.primary-key.placement`. |
+| `cdc.incomplete.task.timeout.ms` | `15000` | Positive integer (milliseconds) | Timeout for incomplete CDC tasks waiting for preimage/postimage events. Tasks that remain incomplete longer than this duration are dropped and logged as errors. |
 
 #### Mode Descriptions
 

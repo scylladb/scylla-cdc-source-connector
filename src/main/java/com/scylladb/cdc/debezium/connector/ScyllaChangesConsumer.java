@@ -1,6 +1,5 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcIncludeMode;
 import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.ChangeId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
@@ -27,12 +26,6 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   private final Logger logger = LoggerFactory.getLogger(getClass());
 
   /**
-   * Default timeout for incomplete tasks in milliseconds. Tasks that remain incomplete longer than
-   * this duration will be cleaned up to prevent memory leaks.
-   */
-  private static final long DEFAULT_INCOMPLETE_TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-  /**
    * Interval between cleanup checks in terms of number of events processed. Cleanup runs
    * approximately every N events to avoid checking on every single event.
    */
@@ -44,8 +37,6 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   private final Clock clock;
   private final boolean usePreimages;
   private final boolean usePostimages;
-  private final CdcIncludeMode cdcIncludeBefore;
-  private final CdcIncludeMode cdcIncludeAfter;
   private final Map<TaskId, TaskInfo> taskInfoMap;
   private final ScyllaConnectorConfig connectorConfig;
   private final long incompleteTaskTimeoutMs;
@@ -63,7 +54,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
         schema,
         clock,
         connectorConfig,
-        DEFAULT_INCOMPLETE_TASK_TIMEOUT_MS);
+        connectorConfig.getIncompleteTaskTimeoutMs());
   }
 
   /**
@@ -89,12 +80,10 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     this.clock = clock;
     this.connectorConfig = connectorConfig;
     this.incompleteTaskTimeoutMs = incompleteTaskTimeoutMs;
-    this.cdcIncludeBefore = connectorConfig.getCdcIncludeBefore();
-    this.cdcIncludeAfter = connectorConfig.getCdcIncludeAfter();
 
-    this.usePreimages = cdcIncludeBefore.requiresImage();
+    this.usePreimages = connectorConfig.getCdcIncludeBefore().requiresImage();
     // Use postimages if the new config requires image data
-    this.usePostimages = cdcIncludeAfter.requiresImage();
+    this.usePostimages = connectorConfig.getCdcIncludeAfter().requiresImage();
 
     if (usePreimages || usePostimages) {
       // Use ConcurrentHashMap for thread safety
@@ -153,8 +142,8 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
       long age = now - taskInfo.getCreatedAtMillis();
 
       if (age > incompleteTaskTimeoutMs) {
-        logger.warn(
-            "Removing stale incomplete task {} after {}ms. "
+        logger.error(
+            "Dropping stale incomplete task {} after {}ms. "
                 + "This may indicate missing preimage/postimage events. "
                 + "Task state: change={}, preImage={}, postImage={}",
             entry.getKey(),
