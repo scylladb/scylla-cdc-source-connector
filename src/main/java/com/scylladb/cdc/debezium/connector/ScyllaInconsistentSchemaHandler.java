@@ -1,6 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.model.worker.RawChange;
+import com.scylladb.cdc.model.worker.ChangeSchema;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.spi.ChangeRecordEmitter;
 import io.debezium.schema.DataCollectionSchema;
@@ -15,10 +15,13 @@ public class ScyllaInconsistentSchemaHandler
       ChangeRecordEmitter changeRecordEmitter) {
     ScyllaChangeRecordEmitter scyllaChangeRecordEmitter =
         (ScyllaChangeRecordEmitter) changeRecordEmitter;
-    RawChange change = scyllaChangeRecordEmitter.getChange();
     ScyllaSchema scyllaSchema = scyllaChangeRecordEmitter.getSchema();
+    ChangeSchema changeSchema = scyllaChangeRecordEmitter.getChangeSchema();
+    if (changeSchema == null) {
+      return Optional.empty();
+    }
     ScyllaCollectionSchema scyllaCollectionSchema =
-        scyllaSchema.updateChangeSchema(collectionId, change.getSchema());
+        scyllaSchema.updateChangeSchema(collectionId, changeSchema);
 
     if (scyllaCollectionSchema == null) {
       return Optional.empty();

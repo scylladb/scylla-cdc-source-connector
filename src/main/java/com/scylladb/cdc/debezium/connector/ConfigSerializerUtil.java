@@ -197,4 +197,44 @@ public class ConfigSerializerUtil {
     }
     return count;
   }
+
+  /**
+   * Validates the cdc.include.primary-key.placement configuration value.
+   *
+   * @param config the configuration
+   * @param field the field being validated
+   * @param problems output for validation problems
+   * @return the number of validation errors found
+   */
+  public static int validateCdcIncludePk(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String value = config.getString(field);
+    if (value == null || value.trim().isEmpty()) {
+      problems.accept(field, value, "cdc.include.primary-key.placement must be specified");
+      return 1;
+    }
+
+    String[] locations = COMMA_WITH_WHITESPACE.split(value);
+    int count = 0;
+
+    for (String location : locations) {
+      String trimmed = location.trim();
+      if (trimmed.isEmpty()) {
+        continue;
+      }
+      ScyllaConnectorConfig.CdcIncludePkLocation parsed =
+          ScyllaConnectorConfig.CdcIncludePkLocation.parse(trimmed);
+      if (parsed == null) {
+        problems.accept(
+            field,
+            trimmed,
+            "Invalid cdc.include.primary-key.placement location: '"
+                + trimmed
+                + "'. Valid values are: kafka-key, payload-after, payload-before, "
+                + "payload-diff (reserved), payload-key, kafka-headers");
+        count++;
+      }
+    }
+    return count;
+  }
 }

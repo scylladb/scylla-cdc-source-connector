@@ -56,6 +56,9 @@ public class ScyllaStreamingChangeEventSource
       ScyllaPartition partition,
       ScyllaOffsetContext offsetContext)
       throws InterruptedException {
+    // Detect Scylla version for feature compatibility checks
+    ScyllaVersion scyllaVersion = new ScyllaVersionChecker(configuration).getVersion();
+
     Driver3Session session = new ScyllaSessionBuilder(configuration).build();
     Driver3WorkerCQL cql = new Driver3WorkerCQL(session);
     RetryBackoff retryBackoff = configuration.createCDCWorkerRetryBackoff();
@@ -63,7 +66,8 @@ public class ScyllaStreamingChangeEventSource
         new ScyllaWorkerTransport(
             context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
     ScyllaChangesConsumer changeConsumer =
-        new ScyllaChangesConsumer(dispatcher, offsetContext, schema, clock, configuration);
+        new ScyllaChangesConsumer(
+            dispatcher, offsetContext, schema, clock, configuration, scyllaVersion);
     WorkerConfiguration workerConfiguration =
         WorkerConfiguration.builder()
             .withTransport(workerTransport)

@@ -64,8 +64,7 @@ CONNECTOR_CONFIG_ONLY=$(cat <<'JSON'
   "key.converter": "org.apache.kafka.connect.json.JsonConverter",
   "value.converter": "org.apache.kafka.connect.json.JsonConverter",
   "key.converter.schemas.enable": "false",
-  "value.converter.schemas.enable": "false",
-  "experimental.preimages.enabled": "false"
+  "value.converter.schemas.enable": "false"
 }
 JSON
 )
