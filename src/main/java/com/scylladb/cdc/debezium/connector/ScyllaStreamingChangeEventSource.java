@@ -5,11 +5,13 @@ import com.scylladb.cdc.cql.driver3.Driver3Session;
 import com.scylladb.cdc.cql.driver3.Driver3WorkerCQL;
 import com.scylladb.cdc.model.RetryBackoff;
 import com.scylladb.cdc.model.master.GenerationMetadata;
+import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
 import com.scylladb.cdc.model.worker.Worker;
 import com.scylladb.cdc.model.worker.WorkerConfiguration;
 import com.scylladb.cdc.transport.GroupedTasks;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
+import io.debezium.schema.DatabaseSchema;
 import io.debezium.util.Clock;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -31,7 +33,7 @@ public class ScyllaStreamingChangeEventSource
 
   private final ScyllaConnectorConfig configuration;
   private ScyllaTaskContext taskContext;
-  private final ScyllaSchema schema;
+  private final DatabaseSchema<CollectionId> schema;
   private final EventDispatcher<ScyllaPartition, CollectionId> dispatcher;
   private final Clock clock;
   private final Duration pollInterval;
@@ -39,7 +41,7 @@ public class ScyllaStreamingChangeEventSource
   public ScyllaStreamingChangeEventSource(
       ScyllaConnectorConfig configuration,
       ScyllaTaskContext taskContext,
-      ScyllaSchema schema,
+      DatabaseSchema<CollectionId> schema,
       EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
       Clock clock) {
     this.configuration = configuration;
@@ -65,9 +67,10 @@ public class ScyllaStreamingChangeEventSource
     ScyllaWorkerTransport workerTransport =
         new ScyllaWorkerTransport(
             context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
-    ScyllaChangesConsumer changeConsumer =
-        new ScyllaChangesConsumer(
-            dispatcher, offsetContext, schema, clock, configuration, scyllaVersion);
+
+    // Create the appropriate consumer based on output format configuration
+    TaskAndRawChangeConsumer changeConsumer = createChangeConsumer(offsetContext, scyllaVersion);
+
     WorkerConfiguration workerConfiguration =
         WorkerConfiguration.builder()
             .withTransport(workerTransport)
@@ -80,6 +83,24 @@ public class ScyllaStreamingChangeEventSource
             .build();
     var worker = new Worker(workerConfiguration);
     runWorker(session, taskContext, worker);
+  }
+
+  /**
+   * Creates the appropriate change consumer based on the output format configuration.
+   *
+   * @param offsetContext the offset context
+   * @param scyllaVersion the detected Scylla version, may be null
+   * @return the appropriate consumer implementation
+   */
+  private TaskAndRawChangeConsumer createChangeConsumer(
+      ScyllaOffsetContext offsetContext, ScyllaVersion scyllaVersion) {
+    if (configuration.getCdcOutputFormat() == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
+      return new ScyllaChangesConsumerLegacy(
+          dispatcher, offsetContext, (ScyllaSchemaLegacy) schema, clock, configuration);
+    } else {
+      return new ScyllaChangesConsumer(
+          dispatcher, offsetContext, (ScyllaSchema) schema, clock, configuration, scyllaVersion);
+    }
   }
 
   /**

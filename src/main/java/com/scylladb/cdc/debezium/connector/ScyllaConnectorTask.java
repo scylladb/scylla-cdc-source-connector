@@ -22,6 +22,7 @@ import io.debezium.pipeline.notification.NotificationService;
 import io.debezium.pipeline.signal.SignalProcessor;
 import io.debezium.pipeline.spi.Offsets;
 import io.debezium.pipeline.txmetadata.TransactionContext;
+import io.debezium.schema.DatabaseSchema;
 import io.debezium.schema.DefaultTopicNamingStrategy;
 import io.debezium.schema.SchemaFactory;
 import io.debezium.schema.SchemaNameAdjuster;
@@ -48,7 +49,7 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
   private static final String CONTEXT_NAME = "scylla-connector-task";
 
   private final Logger logger = LoggerFactory.getLogger(getClass());
-  private volatile ScyllaSchema schema;
+  private volatile DatabaseSchema<CollectionId> schema;
   private volatile ScyllaTaskContext taskContext;
   private volatile ChangeEventQueue<DataChangeEvent> queue;
   private volatile ErrorHandler errorHandler;
@@ -61,7 +62,12 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
         DefaultTopicNamingStrategy.create(connectorConfig);
 
     final Schema structSchema = connectorConfig.getSourceInfoStructMaker().schema();
-    this.schema = new ScyllaSchema(connectorConfig, structSchema);
+    // Create schema based on output format configuration
+    if (connectorConfig.getCdcOutputFormat() == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
+      this.schema = new ScyllaSchemaLegacy(connectorConfig, structSchema);
+    } else {
+      this.schema = new ScyllaSchema(connectorConfig, structSchema);
+    }
 
     List<Pair<TaskId, SortedSet<StreamId>>> tasks = getTasks(configuration);
 

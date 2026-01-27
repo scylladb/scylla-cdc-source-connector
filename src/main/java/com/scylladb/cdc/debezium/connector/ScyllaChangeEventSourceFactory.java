@@ -6,6 +6,7 @@ import io.debezium.pipeline.source.spi.ChangeEventSourceFactory;
 import io.debezium.pipeline.source.spi.SnapshotChangeEventSource;
 import io.debezium.pipeline.source.spi.SnapshotProgressListener;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
+import io.debezium.schema.DatabaseSchema;
 import io.debezium.util.Clock;
 
 public class ScyllaChangeEventSourceFactory
@@ -13,14 +14,14 @@ public class ScyllaChangeEventSourceFactory
 
   private final ScyllaConnectorConfig configuration;
   private final ScyllaTaskContext taskContext;
-  private final ScyllaSchema schema;
+  private final DatabaseSchema<CollectionId> schema;
   private final EventDispatcher<ScyllaPartition, CollectionId> dispatcher;
   private final Clock clock;
 
   public ScyllaChangeEventSourceFactory(
       ScyllaConnectorConfig configuration,
       ScyllaTaskContext context,
-      ScyllaSchema schema,
+      DatabaseSchema<CollectionId> schema,
       EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
       Clock clock) {
     this.configuration = configuration;

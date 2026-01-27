@@ -54,6 +54,14 @@ public class ScyllaConnector extends SourceConnector {
     final ScyllaConnectorConfig connectorConfig = new ScyllaConnectorConfig(config);
     this.config = config;
 
+    // Warn about legacy format deprecation
+    if (connectorConfig.getCdcOutputFormat() == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
+      logger.warn(
+          "The legacy CDC output format is DEPRECATED and will be removed in version 3.0.0. "
+              + "Please migrate to the advanced format by setting 'cdc.output.format=advanced'. "
+              + "See the connector documentation for migration instructions.");
+    }
+
     // Start master, which will watch for
     // new generations.
     this.startMaster(connectorConfig);
@@ -143,6 +151,17 @@ public class ScyllaConnector extends SourceConnector {
     boolean noErrors = results.values().stream().allMatch(c -> c.errorMessages().isEmpty());
     if (noErrors) {
       final ScyllaConnectorConfig connectorConfig = new ScyllaConnectorConfig(config);
+
+      // Warn about legacy format deprecation during validation
+      if (connectorConfig.getCdcOutputFormat() == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
+        ConfigValue cdcOutputFormatConfig =
+            results.get(ScyllaConnectorConfig.CDC_OUTPUT_FORMAT.name());
+        if (cdcOutputFormatConfig != null) {
+          logger.warn(
+              "The legacy CDC output format is DEPRECATED and will be removed in version 3.0.0. "
+                  + "Please migrate to the advanced format by setting 'cdc.output.format=advanced'.");
+        }
+      }
 
       if (connectorConfig.getUser() == null && connectorConfig.getPassword() != null) {
         userConfig.addErrorMessage("Username is not set while password was set.");

@@ -23,6 +23,9 @@ import org.apache.kafka.common.config.ConfigDef;
 public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   // Configuration key constants
+  /** Configuration key for CDC output format. */
+  public static final String CDC_OUTPUT_FORMAT_KEY = "cdc.output.format";
+
   /** Configuration key for CDC include before mode. */
   public static final String CDC_INCLUDE_BEFORE_KEY = "cdc.include.before";
 
@@ -235,12 +238,13 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withEnum(CdcIncludeMode.class, CdcIncludeMode.NONE)
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.MEDIUM)
+          .withValidation(ConfigSerializerUtil::validateCdcIncludeBefore)
           .withDescription(
               "Specifies whether to include the 'before' state of the row in CDC messages. "
                   + "Set to 'full' to include the complete row before the change. "
                   + "Set to 'only-updated' to include only the columns that were modified by the operation. "
                   + "Requires the table to have preimage enabled (WITH cdc = {'preimage': true}). "
-                  + "Default is 'none'.");
+                  + "Only applicable when cdc.output.format=advanced. Default is 'none'.");
 
   public static final Field CDC_INCLUDE_AFTER =
       Field.create(CDC_INCLUDE_AFTER_KEY)
@@ -248,12 +252,13 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withEnum(CdcIncludeMode.class, CdcIncludeMode.NONE)
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.MEDIUM)
+          .withValidation(ConfigSerializerUtil::validateCdcIncludeAfter)
           .withDescription(
               "Specifies whether to include the 'after' state of the row in CDC messages. "
                   + "Set to 'full' to include the complete row after the change. "
                   + "Set to 'only-updated' to include only the columns that were modified by the operation. "
                   + "Requires the table to have postimage enabled (WITH cdc = {'postimage': true}). "
-                  + "Default is 'none'.");
+                  + "Only applicable when cdc.output.format=advanced. Default is 'none'.");
 
   public static final Field CDC_INCLUDE_PK =
       Field.create(CDC_INCLUDE_PK_KEY)
@@ -297,6 +302,34 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Default is 15000 (15 seconds).")
           .withValidation(Field::isPositiveLong)
           .withDefault(15000L);
+
+  public static final Field CDC_OUTPUT_FORMAT =
+      Field.create(CDC_OUTPUT_FORMAT_KEY)
+          .withDisplayName("CDC Output Format")
+          .withEnum(CdcOutputFormat.class, CdcOutputFormat.LEGACY)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.HIGH)
+          .withDescription(
+              "Output format for CDC messages. "
+                  + "'legacy' uses the v1 format with Cell wrapper (e.g., {\"value\": <actual_value>}) "
+                  + "for non-PK columns, and simple preimage handling with experimental.preimages.enabled. "
+                  + "'advanced' uses direct values (no Cell wrapper) for non-PK columns, "
+                  + "and supports cdc.include.before/after modes with preimage AND postimage. "
+                  + "Default is 'legacy'.");
+
+  public static final Field PREIMAGES_ENABLED =
+      Field.create("experimental.preimages.enabled")
+          .withDisplayName("Enable experimental preimages support (legacy mode only)")
+          .withType(ConfigDef.Type.BOOLEAN)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDefault(false)
+          .withValidation(ConfigSerializerUtil::validatePreimagesEnabled)
+          .withDescription(
+              "If enabled, connector will use PRE_IMAGE CDC entries to populate 'before' field of the "
+                  + "Debezium Envelope. Only applicable when cdc.output.format=legacy. "
+                  + "For the 'advanced' format, use cdc.include.before and cdc.include.after instead. "
+                  + "See Scylla docs for more information about CDC preimages limitations.");
 
   /*
    * Scylla CDC Source Connector relies on heartbeats to move the offset,
@@ -450,6 +483,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               QUERY_TIME_WINDOW_SIZE,
               CONFIDENCE_WINDOW_SIZE,
               MINIMAL_WAIT_FOR_WINDOW_MS,
+              CDC_OUTPUT_FORMAT,
+              PREIMAGES_ENABLED,
               CDC_INCLUDE_BEFORE,
               CDC_INCLUDE_AFTER,
               CDC_INCLUDE_PK,
@@ -482,6 +517,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   protected static Field.Set EXPOSED_FIELDS = ALL_FIELDS;
 
   private final Configuration config;
+  private final CdcOutputFormat cdcOutputFormat;
   private final CdcIncludeMode cdcIncludeBefore;
   private final CdcIncludeMode cdcIncludeAfter;
   private final PkLocationConfig pkLocationConfig;
@@ -506,6 +542,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   protected ScyllaConnectorConfig(Configuration config) {
     super(config, 0);
     this.config = config;
+    this.cdcOutputFormat =
+        CdcOutputFormat.parse(config.getString(ScyllaConnectorConfig.CDC_OUTPUT_FORMAT));
     this.cdcIncludeBefore =
         CdcIncludeMode.parse(config.getString(ScyllaConnectorConfig.CDC_INCLUDE_BEFORE));
     this.cdcIncludeAfter =
@@ -602,6 +640,14 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
   }
 
+  public CdcOutputFormat getCdcOutputFormat() {
+    return cdcOutputFormat;
+  }
+
+  public boolean getPreimagesEnabled() {
+    return config.getBoolean(ScyllaConnectorConfig.PREIMAGES_ENABLED);
+  }
+
   public CdcIncludeMode getCdcIncludeBefore() {
     return cdcIncludeBefore;
   }
@@ -696,6 +742,45 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     @Override
     public String getValue() {
       return value;
+    }
+  }
+
+  /**
+   * Enum representing the output format for CDC messages.
+   *
+   * <ul>
+   *   <li>{@code LEGACY} - v1 format with Cell wrapper for non-PK columns ({@code {"value":
+   *       <actual_value>}}), simple preimage handling via {@code experimental.preimages.enabled}
+   *   <li>{@code ADVANCED} - v2 format with direct values (no Cell wrapper), supports {@code
+   *       cdc.include.before/after} modes with both preimage and postimage
+   * </ul>
+   */
+  public enum CdcOutputFormat implements EnumeratedValue {
+    LEGACY("legacy"),
+    ADVANCED("advanced");
+
+    private final String value;
+
+    CdcOutputFormat(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public String getValue() {
+      return value;
+    }
+
+    public static CdcOutputFormat parse(String value) {
+      if (value == null) {
+        return LEGACY;
+      }
+      String normalized = value.trim().toLowerCase(Locale.ROOT);
+      for (CdcOutputFormat format : values()) {
+        if (format.getValue().equals(normalized)) {
+          return format;
+        }
+      }
+      return LEGACY;
     }
   }
 
