@@ -63,8 +63,8 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
   abstract KafkaConsumer<K, V> buildConsumer(String connectorName, String tableName);
 
   /**
-   * Called before table creation to allow subclasses to create custom types (UDTs, etc.).
-   * Override this method to create any types needed by the table definition.
+   * Called before table creation to allow subclasses to create custom types (UDTs, etc.). Override
+   * this method to create any types needed by the table definition.
    *
    * @param keyspaceName the keyspace name where types should be created
    */
@@ -242,7 +242,7 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
               + suiteKeyspaceTableName
               + " "
               + createTableCql(suiteKeyspaceTableName)
-              + " WITH cdc = {'enabled':true}");
+              + " WITH cdc = {'enabled':true, 'preimage':true, 'postimage':true}");
     }
 
     consumer = buildConsumer(suiteConnectorName, suiteKeyspaceTableName);
@@ -294,7 +294,7 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     }
 
     synchronized (DDL_LOCK) {
-      if (session != null && !session.isClosed()) {
+      if (session != null && !session.isClosed() && suiteKeyspaceTableName != null) {
         session.execute("DROP TABLE IF EXISTS " + suiteKeyspaceTableName);
       }
     }
@@ -320,29 +320,46 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     return pk;
   }
 
-  public String expectedRecord(String op, String beforeJson, String afterJson) {
+  /** Returns the expected source JSON object for use in test expectations. */
+  public String expectedSource() {
     return """
         {
-          "before": %s,
-          "after": %s,
-          "op": "%s",
-          "source": {
-            "connector": "scylla",
-            "name": "%s",
-            "snapshot": "false",
-            "db": "%s",
-            "keyspace_name": "%s",
-            "table_name": "%s"
-          }
-        }
-        """
+          "connector": "scylla",
+          "name": "%s",
+          "snapshot": "false",
+          "db": "%s",
+          "keyspace_name": "%s",
+          "table_name": "%s"
+        }"""
         .formatted(
-            beforeJson,
-            afterJson,
-            op,
             suiteConnectorName,
             getSuiteKeyspaceName(),
             getSuiteKeyspaceName(),
             getSuiteTableName());
+  }
+
+  public String expectedRecord(String op, String beforeJson, String afterJson) {
+    return expectedRecord(op, beforeJson, afterJson, expectedKey());
+  }
+
+  public String expectedRecord(String op, String beforeJson, String afterJson, String keyJson) {
+    return """
+        {
+          "before": %s,
+          "after": %s,
+          "key": %s,
+          "op": "%s",
+          "source": %s
+        }
+        """
+        .formatted(beforeJson, afterJson, keyJson, op, expectedSource());
+  }
+
+  /**
+   * Returns the expected key JSON for the current test's primary key. Subclasses should override
+   * this to provide the appropriate key structure.
+   */
+  protected String expectedKey() {
+    return "null";
   }
 }

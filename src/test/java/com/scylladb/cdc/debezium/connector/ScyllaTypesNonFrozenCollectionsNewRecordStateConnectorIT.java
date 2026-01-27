@@ -48,13 +48,14 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   /** {@inheritDoc} */
   @Override
   String[] expectedInsertWithValues(int pk) {
+    // For non-frozen collections, lists are stored as maps with timeuuid keys internally
+    // We skip checking list_col due to dynamic timeuuid keys
     return new String[] {
       """
         {
           "id": %d,
-          "list_col": {"mode": "OVERWRITE"},
-          "set_col": {"mode": "OVERWRITE"},
-          "map_col": {"mode": "OVERWRITE"}
+          "set_col": ["x", "y", "z"],
+          "map_col": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]
         }
         """
           .formatted(pk)
@@ -80,13 +81,13 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   /** {@inheritDoc} */
   @Override
   String[] expectedDelete(int pk) {
+    // Skip checking list_col due to dynamic timeuuid keys
     return new String[] {
       """
         {
           "id": %d,
-          "list_col": {"mode": "OVERWRITE"},
-          "set_col": {"mode": "OVERWRITE"},
-          "map_col": {"mode": "OVERWRITE"}
+          "set_col": ["x"],
+          "map_col": [{"key": 10, "value": "ten"}]
         }
         """
           .formatted(pk)
@@ -96,6 +97,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   /** {@inheritDoc} */
   @Override
   String[] expectedUpdateListAddElement(int pk) {
+    // List add produces a record with dynamic timeuuid keys, just check id
     return new String[] {
       """
         {
@@ -103,8 +105,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
         """,
       """
         {
-          "id": %d,
-          "list_col": {"mode": "MODIFY"}
+          "id": %d
         }
         """
           .formatted(pk)
@@ -122,7 +123,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": %d,
-          "set_col": {"mode": "MODIFY"}
+          "set_col": ["z"]
         }
         """
           .formatted(pk)
@@ -140,7 +141,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": %d,
-          "map_col": {"mode": "MODIFY"}
+          "map_col": [{"key": 20, "value": "twenty"}]
         }
         """
           .formatted(pk)
@@ -150,6 +151,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
   /** {@inheritDoc} */
   @Override
   String[] expectedUpdateListRemoveElement(int pk) {
+    // List remove produces a record with dynamic timeuuid keys, just check id
     return new String[] {
       """
         {
@@ -157,8 +159,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
         """,
       """
         {
-          "id": %d,
-          "list_col": {"mode": "MODIFY"}
+          "id": %d
         }
         """
           .formatted(pk)
@@ -176,7 +177,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": %d,
-          "set_col": {"mode": "MODIFY"}
+          "set_col": ["y"]
         }
         """
           .formatted(pk)
@@ -194,7 +195,7 @@ public class ScyllaTypesNonFrozenCollectionsNewRecordStateConnectorIT
       """
         {
           "id": %d,
-          "map_col": {"mode": "MODIFY"}
+          "map_col": [{"key": 10, "value": null}]
         }
         """
           .formatted(pk)

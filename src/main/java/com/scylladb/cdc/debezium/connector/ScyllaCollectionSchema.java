@@ -11,7 +11,9 @@ public class ScyllaCollectionSchema implements DataCollectionSchema {
   private final Schema valueSchema;
   private final Schema beforeSchema;
   private final Schema afterSchema;
+  private final Schema diffSchema;
   private final Map<String, Schema> cellSchemas;
+  private final Map<String, Schema> diffCellSchemas;
   private final Envelope envelopeSchema;
 
   public ScyllaCollectionSchema(
@@ -20,14 +22,18 @@ public class ScyllaCollectionSchema implements DataCollectionSchema {
       Schema valueSchema,
       Schema beforeSchema,
       Schema afterSchema,
+      Schema diffSchema,
       Map<String, Schema> cellSchemas,
+      Map<String, Schema> diffCellSchemas,
       Envelope envelopeSchema) {
     this.id = id;
     this.keySchema = keySchema;
     this.valueSchema = valueSchema;
     this.beforeSchema = beforeSchema;
     this.afterSchema = afterSchema;
+    this.diffSchema = diffSchema;
     this.cellSchemas = cellSchemas;
+    this.diffCellSchemas = diffCellSchemas;
     this.envelopeSchema = envelopeSchema;
   }
 
@@ -49,12 +55,20 @@ public class ScyllaCollectionSchema implements DataCollectionSchema {
     return afterSchema;
   }
 
+  public Schema diffSchema() {
+    return diffSchema;
+  }
+
   public Schema valueSchema() {
     return valueSchema;
   }
 
   public Schema cellSchema(String columnName) {
     return cellSchemas.get(columnName);
+  }
+
+  public Schema diffCellSchema(String columnName) {
+    return diffCellSchemas != null ? diffCellSchemas.get(columnName) : null;
   }
 
   @Override

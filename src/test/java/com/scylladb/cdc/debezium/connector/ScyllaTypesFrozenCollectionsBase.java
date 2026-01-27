@@ -25,7 +25,8 @@ public abstract class ScyllaTypesFrozenCollectionsBase<K, V> extends ScyllaTypes
           + "frozen_map_tuple_key_col, frozen_map_udt_key_col";
 
   private static String valuesWithValues(int pk) {
-    return pk + ", [1, 2, 3], {'a', 'b', 'c'}, {1: 'one', 2: 'two'}, (42, 'foo'), "
+    return pk
+        + ", [1, 2, 3], {'a', 'b', 'c'}, {1: 'one', 2: 'two'}, (42, 'foo'), "
         + "{'ascii_key': 'ascii_value'}, {1234567890123: 'bigint_value'}, "
         + "{true: 'boolean_value'}, {'2024-06-10': 'date_value'}, "
         + "{12345.67: 'decimal_value'}, {3.14159: 'double_value'}, "
@@ -40,12 +41,14 @@ public abstract class ScyllaTypesFrozenCollectionsBase<K, V> extends ScyllaTypes
   }
 
   private static String valuesWithEmpty(int pk) {
-    return pk + ", [], {}, {}, (null, null), "
+    return pk
+        + ", [], {}, {}, (null, null), "
         + "{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}";
   }
 
   private static String valuesWithNull(int pk) {
-    return pk + ", null, null, null, (null, null), "
+    return pk
+        + ", null, null, null, (null, null), "
         + "null, null, null, null, null, null, null, null, null, null, null, null, "
         + "null, null, null, null, null, null, null, null";
   }
@@ -156,8 +159,7 @@ public abstract class ScyllaTypesFrozenCollectionsBase<K, V> extends ScyllaTypes
   /** {@inheritDoc} */
   @Override
   protected void createTypesBeforeTable(String keyspaceName) {
-    session.execute(
-        "CREATE TYPE IF NOT EXISTS " + keyspaceName + ".map_key_udt (a int, b text);");
+    session.execute("CREATE TYPE IF NOT EXISTS " + keyspaceName + ".map_key_udt (a int, b text);");
   }
 
   /** {@inheritDoc} */
@@ -357,8 +359,7 @@ public abstract class ScyllaTypesFrozenCollectionsBase<K, V> extends ScyllaTypes
   @Test
   void testUpdateFromNullToValue() {
     int pk = reservePk();
-    session.execute(
-        "INSERT INTO " + getSuiteKeyspaceTableName() + " (id) VALUES (" + pk + ");");
+    session.execute("INSERT INTO " + getSuiteKeyspaceTableName() + " (id) VALUES (" + pk + ");");
     session.execute(
         "UPDATE "
             + getSuiteKeyspaceTableName()

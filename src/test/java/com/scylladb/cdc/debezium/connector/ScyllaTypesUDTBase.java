@@ -69,11 +69,9 @@ public abstract class ScyllaTypesUDTBase<K, V> extends ScyllaTypesIT<K, V> {
   /** {@inheritDoc} */
   @Override
   protected void createTypesBeforeTable(String keyspaceName) {
-    session.execute(
-        "CREATE TYPE IF NOT EXISTS " + keyspaceName + ".simple_udt (a int, b text);");
+    session.execute("CREATE TYPE IF NOT EXISTS " + keyspaceName + ".simple_udt (a int, b text);");
     // Inner UDT for nested UDT test
-    session.execute(
-        "CREATE TYPE IF NOT EXISTS " + keyspaceName + ".inner_udt (x int, y text);");
+    session.execute("CREATE TYPE IF NOT EXISTS " + keyspaceName + ".inner_udt (x int, y text);");
     // Nested UDT containing another UDT
     session.execute(
         "CREATE TYPE IF NOT EXISTS "
@@ -81,19 +79,13 @@ public abstract class ScyllaTypesUDTBase<K, V> extends ScyllaTypesIT<K, V> {
             + ".nested_udt (inner frozen<inner_udt>, z int);");
     // UDT with map
     session.execute(
-        "CREATE TYPE IF NOT EXISTS "
-            + keyspaceName
-            + ".udt_with_map (m frozen<map<text, int>>);");
+        "CREATE TYPE IF NOT EXISTS " + keyspaceName + ".udt_with_map (m frozen<map<text, int>>);");
     // UDT with list
     session.execute(
-        "CREATE TYPE IF NOT EXISTS "
-            + keyspaceName
-            + ".udt_with_list (l frozen<list<int>>);");
+        "CREATE TYPE IF NOT EXISTS " + keyspaceName + ".udt_with_list (l frozen<list<int>>);");
     // UDT with set
     session.execute(
-        "CREATE TYPE IF NOT EXISTS "
-            + keyspaceName
-            + ".udt_with_set (s frozen<set<text>>);");
+        "CREATE TYPE IF NOT EXISTS " + keyspaceName + ".udt_with_set (s frozen<set<text>>);");
   }
 
   /** {@inheritDoc} */

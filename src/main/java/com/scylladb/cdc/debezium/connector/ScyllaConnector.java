@@ -1,7 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.datastax.driver.core.Cluster;
 import com.scylladb.cdc.cql.driver3.Driver3MasterCQL;
 import com.scylladb.cdc.cql.driver3.Driver3Session;
+import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcIncludeMode;
 import com.scylladb.cdc.model.StreamId;
 import com.scylladb.cdc.model.TableName;
 import com.scylladb.cdc.model.TaskId;
@@ -9,6 +11,7 @@ import com.scylladb.cdc.model.master.Master;
 import com.scylladb.cdc.model.master.MasterConfiguration;
 import io.debezium.config.Configuration;
 import io.debezium.util.Threads;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,9 +54,32 @@ public class ScyllaConnector extends SourceConnector {
     final ScyllaConnectorConfig connectorConfig = new ScyllaConnectorConfig(config);
     this.config = config;
 
+    // Validate that ONLY_UPDATED mode is not configured (not yet implemented)
+    validateOnlyUpdatedNotConfigured(connectorConfig);
+
     // Start master, which will watch for
     // new generations.
     this.startMaster(connectorConfig);
+  }
+
+  /**
+   * Validates that the ONLY_UPDATED mode is not configured. This mode is reserved for future
+   * implementation and will throw an exception if used.
+   *
+   * @param connectorConfig the connector configuration to validate
+   * @throws IllegalArgumentException if ONLY_UPDATED mode is configured
+   */
+  private void validateOnlyUpdatedNotConfigured(ScyllaConnectorConfig connectorConfig) {
+    if (connectorConfig.getCdcIncludeBefore() == CdcIncludeMode.ONLY_UPDATED) {
+      throw new IllegalArgumentException(
+          "cdc.include.before=only-updated is not yet implemented. "
+              + "Please use 'none' or 'full' instead.");
+    }
+    if (connectorConfig.getCdcIncludeAfter() == CdcIncludeMode.ONLY_UPDATED) {
+      throw new IllegalArgumentException(
+          "cdc.include.after=only-updated is not yet implemented. "
+              + "Please use 'none' or 'full' instead.");
+    }
   }
 
   private Master buildMaster(ScyllaConnectorConfig connectorConfig) {
@@ -128,9 +154,13 @@ public class ScyllaConnector extends SourceConnector {
 
     ConfigValue clusterIpAddressesConfig =
         results.get(ScyllaConnectorConfig.CLUSTER_IP_ADDRESSES.name());
+    ConfigValue tableNamesConfig = results.get(ScyllaConnectorConfig.TABLE_NAMES.name());
 
     ConfigValue userConfig = results.get(ScyllaConnectorConfig.USER.name());
     ConfigValue passwordConfig = results.get(ScyllaConnectorConfig.PASSWORD.name());
+    ConfigValue cdcIncludeBeforeConfig =
+        results.get(ScyllaConnectorConfig.CDC_INCLUDE_BEFORE.name());
+    ConfigValue cdcIncludeAfterConfig = results.get(ScyllaConnectorConfig.CDC_INCLUDE_AFTER.name());
 
     // Do a trial connection, if no errors:
     boolean noErrors = results.values().stream().allMatch(c -> c.errorMessages().isEmpty());
@@ -148,6 +178,10 @@ public class ScyllaConnector extends SourceConnector {
 
         Optional<Throwable> validation = master.validate();
         validation.ifPresent(error -> clusterIpAddressesConfig.addErrorMessage(error.getMessage()));
+
+        // Validate CDC table options (preimage/postimage) if required by config
+        validateCdcTableOptions(
+            connectorConfig, tableNamesConfig, cdcIncludeBeforeConfig, cdcIncludeAfterConfig);
       } catch (Exception ex) {
         // TODO - catch specific exceptions, for example authentication error
         // should add error message to user, password fields instead of
@@ -161,6 +195,71 @@ public class ScyllaConnector extends SourceConnector {
     }
 
     return new Config(new ArrayList<>(results.values()));
+  }
+
+  /**
+   * Validates that table CDC options match the connector configuration requirements.
+   *
+   * <p>If cdc.include.before=full, tables must have preimage enabled. If cdc.include.after=full,
+   * tables must have postimage enabled. Missing tables are logged but don't cause validation
+   * failure (connector will wait for them).
+   */
+  private void validateCdcTableOptions(
+      ScyllaConnectorConfig connectorConfig,
+      ConfigValue tableNamesConfig,
+      ConfigValue cdcIncludeBeforeConfig,
+      ConfigValue cdcIncludeAfterConfig) {
+
+    CdcIncludeMode includeBefore = connectorConfig.getCdcIncludeBefore();
+    CdcIncludeMode includeAfter = connectorConfig.getCdcIncludeAfter();
+
+    // Skip validation if both are 'none'
+    if (includeBefore == CdcIncludeMode.NONE && includeAfter == CdcIncludeMode.NONE) {
+      return;
+    }
+
+    Set<TableName> tableNames = connectorConfig.getTableNames();
+    if (tableNames == null || tableNames.isEmpty()) {
+      return;
+    }
+
+    // Build a separate cluster connection for metadata queries
+    Cluster.Builder clusterBuilder = Cluster.builder();
+    for (InetSocketAddress contactPoint : connectorConfig.getContactPoints()) {
+      clusterBuilder.addContactPoint(contactPoint.getHostString()).withPort(contactPoint.getPort());
+    }
+    if (connectorConfig.getUser() != null && connectorConfig.getPassword() != null) {
+      clusterBuilder.withCredentials(connectorConfig.getUser(), connectorConfig.getPassword());
+    }
+
+    try (Cluster cluster = clusterBuilder.build()) {
+      CdcTableOptionsValidator validator =
+          new CdcTableOptionsValidator(includeBefore, includeAfter);
+      CdcTableOptionsValidator.ValidationResult result = validator.validate(cluster, tableNames);
+
+      // Report errors for tables with wrong CDC configuration
+      if (result.hasErrors()) {
+        for (String error : result.getErrors()) {
+          // Add errors to the most relevant config field
+          if (error.contains("preimage") && includeBefore == CdcIncludeMode.FULL) {
+            cdcIncludeBeforeConfig.addErrorMessage(error);
+          } else if (error.contains("postimage") && includeAfter == CdcIncludeMode.FULL) {
+            cdcIncludeAfterConfig.addErrorMessage(error);
+          } else {
+            tableNamesConfig.addErrorMessage(error);
+          }
+        }
+      }
+
+      // Log missing tables (they don't cause validation failure - connector will wait for them)
+      if (result.hasMissingTables()) {
+        logger.warn(
+            "The following tables do not exist yet and will be waited for: {}",
+            result.getMissingTables());
+      }
+    } catch (Exception ex) {
+      logger.warn("Failed to validate CDC table options: {}", ex.getMessage());
+    }
   }
 
   @Override

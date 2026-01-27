@@ -87,9 +87,14 @@ public class SourceInfo extends BaseSourceInfo {
     return taskState.getLastConsumedChangeId().get().getChangeTime().getTimestamp();
   }
 
+  /**
+   * Returns the database name for Debezium.
+   *
+   * <p>Scylla/Cassandra use "keyspace" instead of "database". Since Debezium requires a database
+   * name, we return the keyspace name to satisfy this requirement.
+   */
   @Override
   protected String database() {
-    // TODO - database() is required by Debezium. Currently returning the keyspace name.
     return getTableName().keyspace;
   }
 }

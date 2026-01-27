@@ -48,15 +48,17 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   /** {@inheritDoc} */
   @Override
   String[] expectedInsertWithValues(int pk) {
+    // For non-frozen collections, lists are serialized as arrays of values (timeuuid keys are
+    // discarded)
     return new String[] {
       """
         {
           "before": null,
           "after": {
             "id": %d,
-            "list_col": {"value": {"mode": "OVERWRITE"}},
-            "set_col": {"value": {"mode": "OVERWRITE"}},
-            "map_col": {"value": {"mode": "OVERWRITE"}}
+            "list_col": [10, 20, 30],
+            "set_col": ["x", "y", "z"],
+            "map_col": [{"key": 10, "value": "ten"}, {"key": 20, "value": "twenty"}]
           },
           "op": "c",
           "source": {
@@ -121,9 +123,9 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           "before": null,
           "after": {
             "id": %d,
-            "list_col": {"value": {"mode": "OVERWRITE"}},
-            "set_col": {"value": {"mode": "OVERWRITE"}},
-            "map_col": {"value": {"mode": "OVERWRITE"}}
+            "list_col": [10],
+            "set_col": ["x"],
+            "map_col": [{"key": 10, "value": "ten"}]
           },
           "op": "c",
           "source": {
@@ -163,6 +165,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   /** {@inheritDoc} */
   @Override
   String[] expectedUpdateListAddElement(int pk) {
+    // List add produces a record with the added element value (timeuuid keys are discarded)
     return new String[] {
       expectedRecord("c", "null", "{}"),
       expectedRecord(
@@ -171,7 +174,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           """
             {
               "id": %d,
-              "list_col": {"value": {"mode": "MODIFY"}}
+              "list_col": [30]
             }
             """
               .formatted(pk))
@@ -189,7 +192,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           """
             {
               "id": %d,
-              "set_col": {"value": {"mode": "MODIFY", "elements": [{"element": "z", "added": true}]}}
+              "set_col": ["z"]
             }
             """
               .formatted(pk))
@@ -207,7 +210,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           """
             {
               "id": %d,
-              "map_col": {"value": {"mode": "MODIFY", "elements": [{"key": 20, "value": "twenty"}]}}
+              "map_col": [{"key": 20, "value": "twenty"}]
             }
             """
               .formatted(pk))
@@ -217,6 +220,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
   /** {@inheritDoc} */
   @Override
   String[] expectedUpdateListRemoveElement(int pk) {
+    // List remove produces a record with a null value representing the deleted element
     return new String[] {
       expectedRecord("c", "null", "{}"),
       expectedRecord(
@@ -225,7 +229,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           """
             {
               "id": %d,
-              "list_col": {"value": {"mode": "MODIFY"}}
+              "list_col": [null]
             }
             """
               .formatted(pk))
@@ -243,7 +247,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           """
             {
               "id": %d,
-              "set_col": {"value": {"mode": "MODIFY", "elements": [{"element": "y", "added": false}]}}
+              "set_col": ["y"]
             }
             """
               .formatted(pk))
@@ -261,7 +265,7 @@ public class ScyllaTypesNonFrozenCollectionsPlainConnectorIT
           """
             {
               "id": %d,
-              "map_col": {"value": {"mode": "MODIFY", "elements": [{"key": 10, "value": null}]}}
+              "map_col": [{"key": 10, "value": null}]
             }
             """
               .formatted(pk))
