@@ -87,6 +87,23 @@ Scylla CDC Source Connector exposes many configuration properties. These are the
 | `scylla.user`                                              | No | The username to connect to Scylla with. If not set, no authorization is done. |
 | `scylla.password`                                          | No | The password to connect to Scylla with. If not set, no authorization is done. |
 
+### Choosing an Output Format
+
+> **⚠️ Deprecation Warning:** The legacy output format is deprecated and will be removed in version 3.0.0. New deployments should use the advanced format (`cdc.output.format=advanced`). Existing deployments using legacy format should plan to migrate before upgrading to 3.0.0.
+
+The connector supports two output formats. Choose based on your requirements:
+
+| Feature | Legacy Format (Default) | Advanced Format |
+|---------|------------------------|-----------------|
+| Configuration | `cdc.output.format=legacy` | `cdc.output.format=advanced` |
+| Column value representation | Wrapped in Cell structs (`{"value": ...}`) | Direct values |
+| Preimage support | `experimental.preimages.enabled=true` | `cdc.include.before=full\|only-updated` |
+| Postimage support | **Not supported** | `cdc.include.after=full\|only-updated` |
+| Primary key placement options | Fixed | Configurable via `cdc.include.primary-key.placement` |
+| Recommended for | Existing deployments, backward compatibility | New deployments, cleaner message structure |
+
+See [Legacy Format Details](#legacy-format-details) and [Advanced Format Details](#advanced-format-details) for complete documentation.
+
 See additional configuration properties in the ["Advanced administration"](#advanced-administration) section.
 
 Example configuration (as `.properties` file):
@@ -119,6 +136,8 @@ Scylla CDC Source Connector writes events to a separate Kafka topic for each sou
 Scylla CDC Source Connector generates a data change event for each row-level `INSERT`, `UPDATE` or `DELETE` operation. Each event consists of key and value.
 
 Debezium and Kafka Connect are designed around continuous streams of event messages, and the structure of these events may change over time. This could be difficult for consumers to deal with, so to make it easy Kafka Connect makes each event self-contained. Every message key and value has two parts: a schema and payload. The schema describes the structure of the payload, while the payload contains the actual data.
+
+> **Important:** The connector supports two output formats: **Legacy** (default) and **Advanced**. The format affects the structure of messages, particularly how non-primary-key column values are represented. See [Output Format Configuration](#output-format-configuration) for details on choosing a format.
 
 ### Data change event key
 The data change event's key will contain a field for each column in the primary key (partition key and clustering key).
@@ -172,8 +191,17 @@ Data change event's value consists of a schema and a payload section. The payloa
     - `ts_us`: the time that the change was made in the database (in microseconds).
     - `keyspace_name`, `table_name`: the name of keyspace and table this data change event originated from. 
 
-#### Cell representation
-Operations in Scylla, such as `INSERT` or `UPDATE`, do not have to modify all columns of a row. To differentiate between non-modification of column and inserting/updating `NULL`, all non-primary-key columns are wrapped with structure containing a single `value` field. For example, given this Scylla table and `UPDATE` operation:
+---
+
+## Legacy Format Details
+
+> **⚠️ Deprecation Warning:** The legacy output format is deprecated and will be removed in version 3.0.0. Please migrate to the advanced format. See [Migrating from Legacy to Advanced Format](#migrating-from-legacy-to-advanced-format).
+
+This section describes the message structure and behavior specific to the **legacy output format** (`cdc.output.format=legacy`, the default). For advanced format, see [Advanced Format Details](#advanced-format-details).
+
+### Cell Representation
+
+Operations in Scylla, such as `INSERT` or `UPDATE`, do not have to modify all columns of a row. In the legacy output format, to differentiate between non-modification of column and inserting/updating `NULL`, all non-primary-key columns are wrapped with structure containing a single `value` field. For example, given this Scylla table and `UPDATE` operation:
 
 ```
 CREATE TABLE ks.t(
@@ -214,14 +242,28 @@ If the operation did not modify the `v` column, the data event will contain the 
 ...
 ```
 
-See `UPDATE` example for full  data change event's value.
+See `UPDATE` example for full data change event's value.
 
-#### Single Message Transformations (SMTs)
-The connector provides two single message transformations (SMTs): `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) and `ScyllaFlattenColumns` (`com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`).
+### Legacy Format Preimage Support
 
-##### `ScyllaExtractNewRecordState`
-`ScyllaExtractNewRecordState` works like exactly like `io.debezium.transforms.ExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from the aforementioned single-field structures.
-Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but it makes it impossible to differentiate between NULL value and non-modification.
+To enable preimage support in legacy format, use the `experimental.preimages.enabled` configuration option:
+
+```properties
+experimental.preimages.enabled=true
+```
+
+> **Note:** Legacy format does not support postimages. For postimage support, use the [advanced format](#advanced-format-details) with `cdc.include.after` configuration.
+
+### Single Message Transformations (SMTs) for Legacy Format
+
+The connector provides two single message transformations (SMTs) that are primarily useful for the legacy format: `ScyllaExtractNewRecordState` and `ScyllaFlattenColumns`.
+
+#### `ScyllaExtractNewRecordState`
+`ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) works exactly like `io.debezium.transforms.ExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from Cell structs (the `{"value": ...}` wrapper used in legacy format).
+
+> **Note:** This transform works with both output formats. For legacy format (the default), it unwraps Cell structs. For advanced format (where values are already direct), it is effectively a pass-through for the value extraction part.
+
+Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but when used with legacy format, it makes it impossible to differentiate between NULL value and non-modification.
 If the message is as following:
 ```json
 {
@@ -298,8 +340,9 @@ then the same message transformed by `ScyllaExtractNewRecordState` would be:
 ```
 Notice how `v` field is no longer packed in `value`.
 
-##### `ScyllaFlattenColumns`
-`ScyllaFlattenColumns` flattens columns that are wrapped in `value` structure, such as:
+#### `ScyllaFlattenColumns`
+
+`ScyllaFlattenColumns` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`) flattens columns that are wrapped in Cell structures (the `{"value": ...}` wrapper used in legacy format), such as:
 ```json
 "v": {
   "value": 3
@@ -389,7 +432,11 @@ while `ScyllaExtractNewRecordState` would produce:
 }
 ```
 
-### `INSERT` example
+### Legacy Format Examples
+
+The following examples show data change events in **legacy format** (the default). Notice how non-primary-key columns like `v` are wrapped in Cell structs (`{"value": ...}`).
+
+#### `INSERT` example (Legacy Format)
 Given this Scylla table and `INSERT` operation:
 ```
 CREATE TABLE ks.t(
@@ -589,7 +636,7 @@ The connector will generate the following data change event's value (with JSON s
 }
 ```
 
-### `UPDATE` example
+#### `UPDATE` example (Legacy Format)
 Given this Scylla table and `UPDATE` operations:
 ```
 CREATE TABLE ks.t(
@@ -662,7 +709,7 @@ Data change event's value for the second `UPDATE`:
 }
 ```
 
-### `DELETE` example
+#### `DELETE` example (Legacy Format)
 Given this Scylla table and `DELETE` operation:
 ```
 CREATE TABLE ks.t(
@@ -701,6 +748,168 @@ The connector will generate the following data change event's value (with JSON s
 }
 ```
 
+---
+
+## Advanced Format Details
+
+This section describes the message structure and behavior specific to the **advanced output format** (`cdc.output.format=advanced`). For legacy format details, see [Legacy Format Details](#legacy-format-details).
+
+### Message Structure
+
+In the advanced format, non-primary-key column values are emitted **directly** without the Cell struct wrapper. This results in cleaner, more compact messages.
+
+### Advanced Format Examples
+
+The following examples show data change events in **advanced format**. Notice how non-primary-key columns like `v` contain values directly (no `{"value": ...}` wrapper).
+
+#### `INSERT` example (Advanced Format)
+
+Given this Scylla table and `INSERT` operation:
+```sql
+CREATE TABLE ks.t(
+    pk int, ck int, v text, PRIMARY KEY(pk, ck)
+) WITH cdc = {'enabled': true};
+
+INSERT INTO ks.t(pk, ck, v) VALUES (1, 1, 'example row');
+```
+
+The connector will generate the following data change event's value (payload only, schema omitted for brevity):
+```json
+{
+  "payload": {
+    "source": {
+      "version": "1.0.1-SNAPSHOT",
+      "connector": "scylla",
+      "name": "MyScyllaCluster",
+      "ts_ms": 1611578778701,
+      "ts_us": 1611578778701813,
+      "snapshot": "false",
+      "db": "ks",
+      "keyspace_name": "ks",
+      "table_name": "my_table"
+    },
+    "before": null,
+    "after": {
+      "ck": 1,
+      "pk": 1,
+      "v": "example row"
+    },
+    "op": "c",
+    "ts_ms": 1611578838754,
+    "transaction": null
+  }
+}
+```
+
+Note: The `v` column value is `"example row"` directly, not `{"value": "example row"}` as in legacy format.
+
+#### `UPDATE` example (Advanced Format)
+
+Given an `UPDATE` operation:
+```sql
+UPDATE ks.t SET v = 'new value' WHERE pk = 1 AND ck = 1;
+```
+
+The connector will generate:
+```json
+{
+  "payload": {
+    "source": {
+      "version": "1.0.1-SNAPSHOT",
+      "connector": "scylla",
+      "name": "MyScyllaCluster",
+      "ts_ms": 1611578808701,
+      "ts_us": 1611578808701321,
+      "snapshot": "false",
+      "db": "ks",
+      "keyspace_name": "ks",
+      "table_name": "my_table"
+    },
+    "before": null,
+    "after": {
+      "ck": 1,
+      "pk": 1,
+      "v": "new value"
+    },
+    "op": "u",
+    "ts_ms": 1611578868758,
+    "transaction": null
+  }
+}
+```
+
+#### `DELETE` example (Advanced Format)
+
+Given a `DELETE` operation:
+```sql
+DELETE FROM ks.t WHERE pk = 1 AND ck = 1;
+```
+
+The connector will generate:
+```json
+{
+  "payload": {
+    "source": {
+      "version": "1.0.1-SNAPSHOT",
+      "connector": "scylla",
+      "name": "MyScyllaCluster",
+      "ts_ms": 1611578808701,
+      "ts_us": 1611578808701919,
+      "snapshot": "false",
+      "db": "ks",
+      "keyspace_name": "ks",
+      "table_name": "my_table"
+    },
+    "before": {
+      "ck": 1,
+      "pk": 1,
+      "v": null
+    },
+    "after": null,
+    "op": "d",
+    "ts_ms": 1611578868759,
+    "transaction": null
+  }
+}
+```
+
+### Advanced Format Preimage/Postimage Support
+
+The advanced format supports flexible preimage and postimage configuration through the `cdc.include.before` and `cdc.include.after` options. See [Preimage/Postimage Configuration](#preimagepostimage-configuration) for detailed documentation.
+
+Example configuration:
+```properties
+cdc.output.format=advanced
+cdc.include.before=full
+cdc.include.after=full
+```
+
+#### `UPDATE` with Preimage/Postimage (Advanced Format)
+
+With `cdc.include.before=full` and `cdc.include.after=full`, an `UPDATE` will include complete row state:
+```json
+{
+  "payload": {
+    "source": { ... },
+    "before": {
+      "ck": 1,
+      "pk": 1,
+      "v": "old value"
+    },
+    "after": {
+      "ck": 1,
+      "pk": 1,
+      "v": "new value"
+    },
+    "op": "u",
+    "ts_ms": 1611578868758,
+    "transaction": null
+  }
+}
+```
+
+---
+
 ## Advanced administration
 
 ### Advanced configuration parameters
@@ -715,7 +924,94 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | `scylla.local.dc`                | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.                                                                                                                                                                                                                                                                         |
 
 
-### Preimage/Postimage Configuration
+### Output Format Configuration
+
+The connector supports two output formats for CDC messages, controlled by the `cdc.output.format` configuration option.
+
+For detailed documentation with examples, see:
+- [Legacy Format Details](#legacy-format-details) - Default format with Cell struct wrappers
+- [Advanced Format Details](#advanced-format-details) - Direct values, advanced preimage/postimage support
+
+#### Configuration Options
+
+| Property            | Default | Values | Description |
+|---------------------|---------|--------|-------------|
+| `cdc.output.format` | `legacy` | `legacy`, `advanced` | Specifies the output format for CDC messages. See format descriptions below. |
+| `experimental.preimages.enabled` | `false` | `true`, `false` | Enable preimage support in legacy mode only. For advanced mode, use `cdc.include.before` instead. |
+
+#### Format Descriptions
+
+| Format | Description |
+|--------|-------------|
+| `legacy` | **Default.** V1 format where non-PK column values are wrapped in Cell structs (`{"value": <actual_value>}`). Uses `experimental.preimages.enabled` for simple preimage support. Does not support postimages or advanced configuration options. |
+| `advanced` | Non-PK column values are emitted directly without wrapping. Supports advanced preimage/postimage configuration via `cdc.include.before` and `cdc.include.after`. Supports flexible primary key placement via `cdc.include.primary-key.placement`. |
+
+#### Legacy Format (Default) - Deprecated
+
+> **⚠️ Deprecated:** Will be removed in version 3.0.0. Use advanced format for new deployments.
+
+The legacy format wraps non-PK column values in Cell structs:
+```json
+{
+  "after": {
+    "pk": 1,
+    "ck": 1,
+    "v": {
+      "value": "example value"
+    }
+  }
+}
+```
+
+Key characteristics:
+- Non-PK columns are wrapped in `{"value": <actual_value>}` structs
+- Use `experimental.preimages.enabled=true` for preimage support (not `cdc.include.before`)
+- **Postimages are not supported** in legacy mode
+- The `cdc.include.*` configuration options do not apply in legacy mode
+
+#### Advanced Format
+
+The advanced format emits column values directly:
+```json
+{
+  "after": {
+    "pk": 1,
+    "ck": 1,
+    "v": "example value"
+  }
+}
+```
+
+This format supports:
+- Preimage and postimage configuration via `cdc.include.before` and `cdc.include.after`
+- Flexible primary key placement via `cdc.include.primary-key.placement`
+- Cleaner message structure without Cell wrappers
+
+#### Migrating from Legacy to Advanced Format
+
+If you want to migrate from the legacy format to the advanced format:
+
+1. **Schema changes**: The advanced format has a different message schema (no Cell wrappers). Downstream consumers may need updates.
+2. **Configuration changes**:
+   - Add `cdc.output.format=advanced`
+   - Remove `experimental.preimages.enabled=true`
+   - Add `cdc.include.before=full` (or `only-updated`) if you need preimages
+   - Optionally configure `cdc.include.after` for postimage support
+3. **SMT changes**: If using `ScyllaExtractNewRecordState` or `ScyllaFlattenColumns` transforms, they will work with both formats (they are no-ops for advanced format since values aren't wrapped).
+
+#### Advanced Format Example Configuration
+
+```properties
+# Use advanced output format
+cdc.output.format=advanced
+
+# Enable preimage support (advanced mode)
+cdc.include.before=full
+```
+
+### Preimage/Postimage Configuration (Advanced Format Only)
+
+> **Note:** This section applies to the **advanced output format** (`cdc.output.format=advanced`). For legacy format (the default), use `experimental.preimages.enabled` instead. See [Legacy Format Details](#legacy-format-details).
 
 The connector supports including the complete row state before and/or after a change in CDC messages. This is useful when you need the full context of a row, not just the columns that were modified.
 
@@ -795,9 +1091,11 @@ The connector validates that the Scylla table's CDC options match the connector 
 - If you configure `cdc.include.before=full` or `cdc.include.before=only-updated` but the table does not have preimage enabled, the connector will report a configuration error at startup.
 - If you configure `cdc.include.after=full` or `cdc.include.after=only-updated` but the table does not have postimage enabled, the connector will report a configuration error at startup.
 
-#### Primary Key Placement
+#### Primary Key Placement (Advanced Format Only)
 
 The `cdc.include.primary-key.placement` option controls where the primary key (partition key and clustering key) columns appear in the generated Kafka messages. This provides flexibility for different consumption patterns and downstream system requirements.
+
+> **Note:** This option only applies to the advanced output format (`cdc.output.format=advanced`).
 
 ##### Available Locations
 
