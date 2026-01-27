@@ -27,7 +27,6 @@ The connector has the following limitations:
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
     - Partition deletes - those changes are ignored
     - Row range deletes - those changes are ignored
-- No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
 - No support for postimage, preimage needs to be enabled - By default changes only contain those columns that were modified, not the entire row before/after change. More information [here](#cell-representation)
 
 ### Compatibility
@@ -215,6 +214,41 @@ If the operation did not modify the `v` column, the data event will contain the 
 ```
 
 See `UPDATE` example for full  data change event's value.
+
+#### Collections
+
+Connector supports both frozen and non-frozen collections.
+
+**Frozen collections:**
+- `List` and `Set` of type T are represented as `Schema.array(T)`. In the JSON format, this is also an array.
+- `Map` with key type K and value type V is represented as an array of structs with fields `{ "key": K, "value": V }`. In JSON, this is an array of objects with `key` and `value`.
+- `UDT` is represented as a struct. In JSON, this is an object.
+
+**Non-frozen collections:**
+Non-frozen collections always use delta semantics. Each non-frozen collection column is represented inside the `value` of the "Cell" struct as the delta payload (there is no separate `mode` field). The payload shape depends on the collection type:
+- `Set<T>` is an array of elements touched by the change. The CDC log does not include per-element add/remove flags, so additions and removals are represented the same way.
+- `List<T>` is an array of structs with a single field `{ "value": T }`. Added elements are represented as `{ "value": <element> }`, removed elements as `{ "value": null }`. The list element keys/timeuuid values are not included in the emitted payload.
+- `Map<K,V>` is an array of structs with fields `{ "key": K, "value": V }`. Removed entries are marked by `"value": null`.
+- `UDT` is a struct with only modified fields present; removed fields are represented as `null` values.
+
+There is no separate `removed_elements` field in the emitted schema. Per-element removals are encoded in the delta payload itself (for example, map entries with `value: null` or list elements with `value: null`).
+
+Delta semantics apply only to **top-level collection and UDT columns** on the base table, that is, columns for which Scylla CDC exposes `cdc$deleted_elements_<column>` metadata. Collections or UDTs that appear inside another type (for example, as fields of a UDT, or as collection element/value types) are always treated as **frozen** by the connector and use the frozen formats described above, even if their CQL definition does not explicitly use `frozen<...>`.
+
+###### Limitations for empty vs NULL on non-frozen collections
+
+For non-frozen collections, Scylla CDC exposes element-level additions and removals via the `cdc$deleted_elements_` columns and a single top-level `cdc$deleted_` flag per collection column. For some write patterns (in particular, `INSERT` with empty collections such as `[], {}, {}`), the CDC log does not contain enough information to distinguish between "explicit empty" and "explicit NULL" for non-frozen collections without performing an additional read from the base table.
+
+To avoid guessing, the connector treats INSERTs of non-frozen collections that have no element-level deltas (no added or deleted elements in CDC) as **ambiguous** and may represent them as a top-level `null` in the Kafka record. In practice this means:
+
+- On INSERT:
+  - If there are concrete element deltas, the connector emits the delta payload in the Cell `value` (see the collection type rules above).
+  - If CDC provides no element deltas, the connector cannot distinguish explicit empty from explicit `NULL`; in that case it may emit the collection column as `null` in the Debezium `after` struct. When CDC only supplies the top-level deleted flag without any element payload, the connector emits a Cell with `value = null`.
+- On UPDATE/DELETE where the whole non-frozen collection is removed, the connector emits a Cell with `value = null` (consistent with other column types).
+
+Consumers that need to distinguish between empty and NULL collections should either use frozen collections (which preserve this distinction) or perform their own lookups against the base table.
+
+When `experimental.preimages.enabled` is turned on, the connector also uses these non-frozen collection representations in the `before` field. The exact shape and semantics for collections in preimages are considered experimental and may change between connector versions; see the note under [Advanced configuration parameters](#advanced-configuration-parameters).
 
 #### Single Message Transformations (SMTs)
 The connector provides two single message transformations (SMTs): `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) and `ScyllaFlattenColumns` (`com.scylladb.cdc.debezium.connector.transforms.ScyllaFlattenColumns`).
@@ -691,7 +725,9 @@ The connector will generate the following data change event's value (with JSON s
     "before": {
       "ck": 1,
       "pk": 1,
-      "v": null
+      "v": {
+        "value": null
+      }
     },
     "after": null,
     "op": "d",
@@ -714,6 +750,9 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | `scylla.consistency.level`       | The consistency level of CDC table read queries. This consistency level is used only for read queries to the CDC log table. By default, `QUORUM` level is used.                                                                                                                                                                                                                                                                                                                                                       |
 | `scylla.local.dc`                | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.                                                                                                                                                                                                                                                                         |
 | `experimental.preimages.enabled` | False by default. If enabled connector will use `PRE_IMAGE` CDC entries to populate 'before' field of the debezium Envelope of the next kafka message. This may change some expected behaviours (e.g. ROW_DELETE will use preimage instead of its own information). Relies on correct ordering of rows within same stream in CDC tables.                                                                                                                                                                              |
+
+
+Note: The exact payload shape and semantics of collection-typed columns in the `before` field when `experimental.preimages.enabled` is `true` follow the same Cell/collection rules described earlier, but are considered experimental and may change between connector versions.
 
 
 ### Configuration for large Scylla clusters
