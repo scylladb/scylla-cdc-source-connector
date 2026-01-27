@@ -46,6 +46,7 @@ public class StartConnectorIT extends AbstractContainerBaseIT {
       connectorConfiguration.put("topic.prefix", connectorName);
       connectorConfiguration.put("scylla.table.names", "connectortest.test_table");
       connectorConfiguration.put("name", connectorName);
+      connectorConfiguration.put("cdc.output.format", "advanced");
       connectorConfiguration.put("cdc.include.before", "full");
       connectorConfiguration.put("cdc.include.after", "full");
       connectorConfiguration.put(

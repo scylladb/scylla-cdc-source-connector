@@ -82,6 +82,65 @@ public class CdcTableOptionsValidatorIT extends AbstractContainerBaseIT {
             + "."
             + TABLE_NO_CDC
             + " (id int PRIMARY KEY, name text)");
+
+    // Wait for schema metadata to propagate - poll until all tables are visible
+    waitForTablesVisible(
+        KEYSPACE,
+        TABLE_NO_PREIMAGE,
+        TABLE_WITH_PREIMAGE,
+        TABLE_WITH_POSTIMAGE,
+        TABLE_WITH_BOTH,
+        TABLE_NO_CDC);
+  }
+
+  /**
+   * Waits for all specified tables to be visible in the cluster metadata. This handles the eventual
+   * consistency of schema propagation in distributed environments.
+   */
+  private static void waitForTablesVisible(String keyspace, String... tables) {
+    int maxAttempts = 30;
+    int delayMs = 500;
+
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      boolean allTablesVisible = true;
+      for (String table : tables) {
+        // Query system_schema.tables directly to check if the table exists
+        // This is more reliable than relying on cached cluster metadata
+        com.datastax.driver.core.ResultSet rs =
+            session.execute(
+                "SELECT table_name FROM system_schema.tables WHERE keyspace_name = ? AND table_name = ?",
+                keyspace,
+                table);
+        if (rs.one() == null) {
+          allTablesVisible = false;
+          break;
+        }
+      }
+
+      if (allTablesVisible) {
+        // Force metadata refresh by closing and reopening the cluster connection
+        cluster.close();
+        cluster =
+            Cluster.builder()
+                .addContactPoint(scyllaDBContainer.getContactPoint().getHostName())
+                .withPort(scyllaDBContainer.getMappedPort(9042))
+                .build();
+        session = cluster.connect();
+        return;
+      }
+
+      try {
+        Thread.sleep(delayMs);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException("Interrupted while waiting for schema propagation", e);
+      }
+    }
+
+    throw new RuntimeException(
+        "Timeout waiting for tables to be visible in cluster metadata after "
+            + (maxAttempts * delayMs / 1000)
+            + " seconds");
   }
 
   @AfterAll

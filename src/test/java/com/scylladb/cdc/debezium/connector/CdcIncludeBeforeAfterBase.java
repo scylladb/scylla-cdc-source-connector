@@ -79,6 +79,7 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
     props.put("topic.prefix", connectorName);
     props.put("scylla.table.names", tableName);
     props.put("name", connectorName);
+    props.put("cdc.output.format", "advanced");
     props.put("cdc.include.before", beforeMode);
     props.put("cdc.include.after", afterMode);
     // Include PK in all locations for easier test verification.

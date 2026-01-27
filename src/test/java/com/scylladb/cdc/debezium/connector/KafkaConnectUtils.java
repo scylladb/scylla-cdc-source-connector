@@ -636,20 +636,41 @@ public final class KafkaConnectUtils {
       "kafka-key,payload-after,payload-before,payload-diff,payload-key,kafka-headers";
 
   /**
-   * Applies common CDC configuration to connector properties.
+   * Applies advanced CDC configuration to connector properties. Use this for tests that need
+   * cdc.include.* configurations (before, after, primary-key.placement).
    *
    * @param props the properties to configure
    * @param connectorName the connector name
    * @param tableName the table name
    */
-  private static void applyCommonCdcConfig(
+  private static void applyAdvancedCdcConfig(
       Properties props, String connectorName, String tableName) {
     props.put("topic.prefix", connectorName);
     props.put("scylla.table.names", tableName);
     props.put("name", connectorName);
+    props.put("cdc.output.format", "advanced");
     props.put("cdc.include.before", "full");
     props.put("cdc.include.after", "full");
     props.put("cdc.include.primary-key.placement", DEFAULT_PK_PLACEMENT);
+  }
+
+  /**
+   * Applies legacy CDC configuration to connector properties. Legacy mode does NOT support
+   * cdc.include.* configurations - use experimental.preimages.enabled instead for preimage data.
+   *
+   * @param props the properties to configure
+   * @param connectorName the connector name
+   * @param tableName the table name
+   */
+  private static void applyLegacyCdcConfig(
+      Properties props, String connectorName, String tableName) {
+    props.put("topic.prefix", connectorName);
+    props.put("scylla.table.names", tableName);
+    props.put("name", connectorName);
+    // Legacy format is the default, but we explicitly set it for clarity
+    props.put("cdc.output.format", "legacy");
+    // Note: cdc.include.* configurations are NOT supported in legacy mode
+    // Use experimental.preimages.enabled for preimage data in legacy mode
   }
 
   /**
@@ -670,7 +691,7 @@ public final class KafkaConnectUtils {
       String connectorConfigName, String tableName) {
     KafkaConsumer<GenericRecord, GenericRecord> consumer = KafkaUtils.createAvroConsumer();
     Properties connectorConfiguration = KafkaConnectUtils.createAvroConnectorProperties();
-    applyCommonCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    applyAdvancedCdcConfig(connectorConfiguration, connectorConfigName, tableName);
     registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
     return consumer;
   }
@@ -679,7 +700,7 @@ public final class KafkaConnectUtils {
       String connectorConfigName, String tableName) {
     KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
     Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
-    applyCommonCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    applyAdvancedCdcConfig(connectorConfiguration, connectorConfigName, tableName);
     connectorConfiguration.put("transforms", "extractNewRecordState");
     connectorConfiguration.put(
         "transforms.extractNewRecordState.type",
@@ -694,7 +715,34 @@ public final class KafkaConnectUtils {
       String connectorConfigName, String tableName) {
     KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
     Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
-    applyCommonCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    applyAdvancedCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
+    return consumer;
+  }
+
+  static KafkaConsumer<String, String> buildLegacyPlainConnector(
+      String connectorConfigName, String tableName, boolean preimagesEnabled) {
+    KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    applyLegacyCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    // Legacy mode uses experimental.preimages.enabled instead of cdc.include.before/after
+    connectorConfiguration.put("experimental.preimages.enabled", String.valueOf(preimagesEnabled));
+    registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
+    return consumer;
+  }
+
+  static KafkaConsumer<String, String> buildLegacyScyllaExtractNewRecordStateConnector(
+      String connectorConfigName, String tableName) {
+    KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
+    Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
+    applyLegacyCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    // Legacy mode uses experimental.preimages.enabled instead of cdc.include.before/after
+    connectorConfiguration.put("transforms", "extractNewRecordState");
+    connectorConfiguration.put(
+        "transforms.extractNewRecordState.type",
+        "com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState");
+    // Keep tombstone records for DELETE events (default is to drop them)
+    connectorConfiguration.put("transforms.extractNewRecordState.drop.tombstones", "false");
     registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
     return consumer;
   }
