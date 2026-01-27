@@ -2,6 +2,7 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
+import com.scylladb.cdc.model.worker.ChangeSchema.ColumnKind;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.Task;
 import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
@@ -24,6 +25,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   private final Map<TaskId, RawChange> lastPreImage;
   private final ScyllaConnectorConfig connectorConfig;
 
+  /** Creates a consumer that dispatches CDC changes into Debezium events. */
   public ScyllaChangesConsumer(
       EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
       ScyllaOffsetContext offsetContext,
@@ -43,6 +45,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     }
   }
 
+  /** Consumes a change event, handling preimages and dispatching Debezium records. */
   @Override
   public CompletableFuture<Void> consume(Task task, RawChange change) {
     try {
@@ -69,9 +72,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
         // as a "standard" ROW_DELETE.
         boolean hasClusteringColumn =
             changeSchema.getNonCdcColumnDefinitions().stream()
-                .anyMatch(
-                    column ->
-                        column.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY);
+                .anyMatch(column -> column.getBaseTableColumnKind() == ColumnKind.CLUSTERING_KEY);
         if (hasClusteringColumn) {
           return CompletableFuture.completedFuture(null);
         }
