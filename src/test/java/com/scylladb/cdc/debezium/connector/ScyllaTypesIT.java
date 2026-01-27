@@ -63,6 +63,16 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
   abstract KafkaConsumer<K, V> buildConsumer(String connectorName, String tableName);
 
   /**
+   * Called before table creation to allow subclasses to create custom types (UDTs, etc.).
+   * Override this method to create any types needed by the table definition.
+   *
+   * @param keyspaceName the keyspace name where types should be created
+   */
+  protected void createTypesBeforeTable(String keyspaceName) {
+    // Default implementation does nothing
+  }
+
+  /**
    * Extracts the primary key (id) from a Kafka record value. Subclasses must implement this to
    * support PK-based filtering.
    */
@@ -222,6 +232,9 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
         "CREATE KEYSPACE IF NOT EXISTS "
             + getSuiteKeyspaceName()
             + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+
+    // Allow subclasses to create custom types (UDTs) before table creation
+    createTypesBeforeTable(getSuiteKeyspaceName());
 
     synchronized (DDL_LOCK) {
       session.execute(
