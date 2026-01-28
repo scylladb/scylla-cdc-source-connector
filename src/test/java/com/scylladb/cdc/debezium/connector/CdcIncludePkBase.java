@@ -63,6 +63,7 @@ public abstract class CdcIncludePkBase<K, V> extends ScyllaTypesIT<K, V> {
     props.put("topic.prefix", connectorName);
     props.put("scylla.table.names", tableName);
     props.put("name", connectorName);
+    props.put("cdc.output.format", "advanced");
     props.put("cdc.include.before", "full");
     props.put("cdc.include.after", "full");
     props.put("cdc.include.primary-key.placement", pkPlacement);

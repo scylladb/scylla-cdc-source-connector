@@ -14,6 +14,23 @@ import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.transforms.Transformation;
 import org.apache.kafka.connect.transforms.util.SchemaUtil;
 
+/**
+ * Flattens Cell-wrapped column values in CDC messages.
+ *
+ * <p>This transform handles the legacy output format where non-PK column values are wrapped in Cell
+ * structs ({@code {"value": <actual_value>}}). It extracts the inner value from these Cell structs.
+ *
+ * <p>When used with the basic output format (where values are direct, not wrapped), this transform
+ * is a no-op since there are no Cell structs to unwrap.
+ *
+ * <p>A field is considered a Cell struct if:
+ *
+ * <ul>
+ *   <li>It is a STRUCT type
+ *   <li>It has exactly one field named "value"
+ *   <li>Its schema name ends with ".Cell" (optional but typical for legacy format)
+ * </ul>
+ */
 public class ScyllaFlattenColumns<R extends ConnectRecord<R>> implements Transformation<R> {
   private Cache<Schema, Schema> schemaUpdateCache = new SynchronizedCache<>(new LRUCache<>(16));
   private Cache<Schema, Schema> subSchemaUpdateCache = new SynchronizedCache<>(new LRUCache<>(16));

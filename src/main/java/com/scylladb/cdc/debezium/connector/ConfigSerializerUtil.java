@@ -199,7 +199,111 @@ public class ConfigSerializerUtil {
   }
 
   /**
+   * Validates that experimental.preimages.enabled is not set to true when
+   * cdc.output.format=advanced.
+   *
+   * <p>The experimental.preimages.enabled option is only applicable for legacy mode. When using
+   * advanced mode, users should use cdc.include.before and cdc.include.after instead.
+   *
+   * @param config the configuration
+   * @param field the field being validated
+   * @param problems output for validation problems
+   * @return the number of validation errors found
+   */
+  public static int validatePreimagesEnabled(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    boolean preimagesEnabled = config.getBoolean(field);
+    String outputFormat = config.getString(ScyllaConnectorConfig.CDC_OUTPUT_FORMAT);
+
+    if (preimagesEnabled
+        && outputFormat != null
+        && ScyllaConnectorConfig.CdcOutputFormat.parse(outputFormat)
+            == ScyllaConnectorConfig.CdcOutputFormat.ADVANCED) {
+      problems.accept(
+          field,
+          String.valueOf(preimagesEnabled),
+          "experimental.preimages.enabled=true is not compatible with cdc.output.format=advanced. "
+              + "For advanced mode, use cdc.include.before and cdc.include.after instead.");
+      return 1;
+    }
+    return 0;
+  }
+
+  /**
+   * Validates the cdc.include.before configuration value.
+   *
+   * <p>The cdc.include.before option is only applicable for advanced mode. When using legacy mode,
+   * this setting must be unset or set to the default value ('none').
+   *
+   * @param config the configuration
+   * @param field the field being validated
+   * @param problems output for validation problems
+   * @return the number of validation errors found
+   */
+  public static int validateCdcIncludeBefore(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String outputFormat = config.getString(ScyllaConnectorConfig.CDC_OUTPUT_FORMAT);
+    if (outputFormat != null
+        && ScyllaConnectorConfig.CdcOutputFormat.parse(outputFormat)
+            == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
+      String value = config.getString(field);
+      ScyllaConnectorConfig.CdcIncludeMode mode = ScyllaConnectorConfig.CdcIncludeMode.parse(value);
+      if (mode != ScyllaConnectorConfig.CdcIncludeMode.NONE) {
+        problems.accept(
+            field,
+            value,
+            "cdc.include.before must be 'none' (default) when using cdc.output.format=legacy. "
+                + "For preimage support in legacy mode, use experimental.preimages.enabled instead.");
+        return 1;
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Validates the cdc.include.after configuration value.
+   *
+   * <p>The cdc.include.after option is only applicable for advanced mode. When using legacy mode,
+   * this setting must be unset or set to the default value ('none').
+   *
+   * @param config the configuration
+   * @param field the field being validated
+   * @param problems output for validation problems
+   * @return the number of validation errors found
+   */
+  public static int validateCdcIncludeAfter(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String outputFormat = config.getString(ScyllaConnectorConfig.CDC_OUTPUT_FORMAT);
+    if (outputFormat != null
+        && ScyllaConnectorConfig.CdcOutputFormat.parse(outputFormat)
+            == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
+      String value = config.getString(field);
+      ScyllaConnectorConfig.CdcIncludeMode mode = ScyllaConnectorConfig.CdcIncludeMode.parse(value);
+      if (mode != ScyllaConnectorConfig.CdcIncludeMode.NONE) {
+        problems.accept(
+            field,
+            value,
+            "cdc.include.after must be 'none' (default) when using cdc.output.format=legacy. "
+                + "Legacy mode does not support postimages.");
+        return 1;
+      }
+    }
+    return 0;
+  }
+
+  /** Default locations for CDC_INCLUDE_PK as an EnumSet for validation comparison. */
+  private static final java.util.EnumSet<ScyllaConnectorConfig.CdcIncludePkLocation>
+      CDC_INCLUDE_PK_DEFAULT_LOCATIONS =
+          java.util.EnumSet.of(
+              ScyllaConnectorConfig.CdcIncludePkLocation.KAFKA_KEY,
+              ScyllaConnectorConfig.CdcIncludePkLocation.PAYLOAD_AFTER,
+              ScyllaConnectorConfig.CdcIncludePkLocation.PAYLOAD_BEFORE);
+
+  /**
    * Validates the cdc.include.primary-key.placement configuration value.
+   *
+   * <p>For legacy mode, this configuration must be unset or set to the default value. For advanced
+   * mode, validates that all specified locations are valid.
    *
    * @param config the configuration
    * @param field the field being validated
@@ -208,7 +312,33 @@ public class ConfigSerializerUtil {
    */
   public static int validateCdcIncludePk(
       Configuration config, Field field, Field.ValidationOutput problems) {
+    String outputFormat = config.getString(ScyllaConnectorConfig.CDC_OUTPUT_FORMAT);
+    boolean isLegacyMode =
+        outputFormat != null
+            && ScyllaConnectorConfig.CdcOutputFormat.parse(outputFormat)
+                == ScyllaConnectorConfig.CdcOutputFormat.LEGACY;
+
     String value = config.getString(field);
+
+    // For legacy mode, validate that value is at default
+    if (isLegacyMode) {
+      if (value != null && !value.trim().isEmpty()) {
+        java.util.EnumSet<ScyllaConnectorConfig.CdcIncludePkLocation> parsedLocations =
+            ScyllaConnectorConfig.CdcIncludePkLocation.parseList(
+                Arrays.asList(COMMA_WITH_WHITESPACE.split(value)));
+        if (!parsedLocations.equals(CDC_INCLUDE_PK_DEFAULT_LOCATIONS)) {
+          problems.accept(
+              field,
+              value,
+              "cdc.include.primary-key.placement must be at default value "
+                  + "('kafka-key,payload-after,payload-before') when using cdc.output.format=legacy.");
+          return 1;
+        }
+      }
+      return 0;
+    }
+
+    // Advanced mode validation
     if (value == null || value.trim().isEmpty()) {
       problems.accept(field, value, "cdc.include.primary-key.placement must be specified");
       return 1;
