@@ -21,13 +21,13 @@ The connector has the following capabilities:
 - Metadata about CDC events - each generated Kafka message contains information about source, such as timestamp and table name
 - Seamless handling of schema changes and topology changes (adding, removing nodes from Scylla cluster)
 - Preimage and postimage support ([optional](#preimagepostimage-configuration)) - messages generated for row-level changes can have their [`before`](#data-change-event-value) and/or [`after`](#data-change-event-value) fields filled with complete row state from corresponding preimage/postimage rows.
+- Full support for collection types (`LIST`, `SET`, `MAP`) and User Defined Types (`UDT`) - see [Collection and UDT Type Support](#collection-and-udt-type-support)
 
 The connector has the following limitations:
 - Only Kafka 2.6.0+ is supported
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
     - Row range deletes - those changes are ignored
     - Partition deletes - see [Partition Delete Support](#partition-delete-support) section below
-- No support for collection types (`LIST`, `SET`, `MAP`) and `UDT` - columns with those types are omitted from generated messages
 - By default, changes only contain those columns that were modified, not the entire row before/after change. To include full row state, configure [preimage/postimage support](#preimagepostimage-configuration). More information [here](#cell-representation)
 
 ### Compatibility
@@ -906,6 +906,127 @@ With `cdc.include.before=full` and `cdc.include.after=full`, an `UPDATE` will in
     "transaction": null
   }
 }
+```
+
+---
+
+## Collection and UDT Type Support
+
+The connector fully supports Scylla collection types (`LIST`, `SET`, `MAP`) and User Defined Types (`UDT`). Both frozen and non-frozen collections are supported, with different CDC behavior for each.
+
+### Frozen vs Non-Frozen Collections
+
+| Type | Frozen | Non-Frozen |
+|------|--------|------------|
+| **CDC Behavior** | Entire collection is replaced atomically | Element-level changes (add, remove, update) |
+| **Message Content** | Complete collection value | Only the modified elements |
+| **Use Case** | Small, rarely modified collections | Large collections with frequent element updates |
+
+### Collection Type Representations
+
+#### LIST
+
+Lists are represented as JSON arrays:
+
+```json
+{
+  "after": {
+    "pk": 1,
+    "my_list": ["item1", "item2", "item3"]
+  }
+}
+```
+
+For non-frozen lists, Scylla CDC tracks element-level changes. The connector reconstructs the list from the CDC log entries.
+
+#### SET
+
+Sets are represented as JSON arrays (order is not guaranteed):
+
+```json
+{
+  "after": {
+    "pk": 1,
+    "my_set": ["value1", "value2", "value3"]
+  }
+}
+```
+
+#### MAP
+
+Maps are represented as arrays of key-value structs:
+
+```json
+{
+  "after": {
+    "pk": 1,
+    "my_map": [
+      {"key": "key1", "value": "value1"},
+      {"key": "key2", "value": "value2"}
+    ]
+  }
+}
+```
+
+This representation is used instead of a JSON object to support non-string key types.
+
+### User Defined Types (UDT)
+
+UDTs are represented as structs with fields matching the UDT definition:
+
+```sql
+CREATE TYPE ks.address (
+    street text,
+    city text,
+    zip int
+);
+
+CREATE TABLE ks.users (
+    id int PRIMARY KEY,
+    home_address frozen<address>
+) WITH cdc = {'enabled': true};
+```
+
+The resulting message:
+
+```json
+{
+  "after": {
+    "id": 1,
+    "home_address": {
+      "street": "123 Main St",
+      "city": "Springfield",
+      "zip": 12345
+    }
+  }
+}
+```
+
+### Nested Collections and UDTs
+
+The connector supports nested structures such as:
+- `LIST<frozen<UDT>>`
+- `MAP<text, frozen<LIST<int>>>`
+- UDTs containing collection fields
+
+Nested types are represented using the same conventions as top-level types.
+
+### Scylla Table Configuration
+
+To enable CDC for tables with collections:
+
+```sql
+-- Frozen collection (atomic updates only)
+CREATE TABLE ks.with_frozen (
+    pk int PRIMARY KEY,
+    data frozen<list<text>>
+) WITH cdc = {'enabled': true};
+
+-- Non-frozen collection (element-level tracking)
+CREATE TABLE ks.with_non_frozen (
+    pk int PRIMARY KEY,
+    data list<text>
+) WITH cdc = {'enabled': true};
 ```
 
 ---

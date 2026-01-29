@@ -4,7 +4,6 @@ import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromAft
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromBefore;
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromJson;
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromKeyField;
-import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractPkFromNameField;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 
@@ -42,24 +41,17 @@ public class CdcIncludeBeforeAfterOnlyUpdatedIT extends CdcIncludeBeforeAfterBas
 
   @Override
   protected int extractPkFromValue(String value) {
-    // First try to extract from "after" field
     int pk = extractIdFromAfter(value);
     if (pk != -1) {
       return pk;
     }
-    // Then try "before" field (for DELETE records)
     pk = extractIdFromBefore(value);
     if (pk != -1) {
       return pk;
     }
     // For DELETE on partition-key-only tables, before/after are null.
     // Extract from the "key" field instead.
-    pk = extractIdFromKeyField(value);
-    if (pk != -1) {
-      return pk;
-    }
-    // Fallback to name field parsing
-    return extractPkFromNameField(value);
+    return extractIdFromKeyField(value);
   }
 
   @Override
@@ -68,28 +60,18 @@ public class CdcIncludeBeforeAfterOnlyUpdatedIT extends CdcIncludeBeforeAfterBas
   }
 
   /**
-   * INSERT: before=null, after=full image.
+   * INSERT: before=null, after=full image with all columns.
    *
    * <p>For INSERT operations, the "only-updated" mode has no effect because there is no previous
    * state. The after struct contains all columns with their values.
    */
   @Override
   String[] expectedInsert(int pk) {
-    return new String[] {
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, insertNameValue(pk), insertValueValue(pk), expectedSource())
-    };
+    return new String[] {buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())};
   }
 
   /**
-   * DELETE: before=null, after=null.
+   * DELETE: before=null (partition delete has no preimage), after=null.
    *
    * <p>This table has only a partition key (no clustering key), so DELETE operations are
    * represented as PARTITION_DELETE by Scylla CDC. Scylla doesn't send preimage for partition
@@ -98,101 +80,45 @@ public class CdcIncludeBeforeAfterOnlyUpdatedIT extends CdcIncludeBeforeAfterBas
   @Override
   String[] expectedDelete(int pk) {
     return new String[] {
-      // INSERT record (CREATE operation)
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, deleteNameValue(pk), deleteValueValue(pk), expectedSource()),
+      // INSERT record with full image
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
       // DELETE record: before=null because Scylla doesn't send preimage for PARTITION_DELETE
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "d",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource()),
+      buildDeleteRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
       // Tombstone record (null value) for Kafka log compaction
       null
     };
   }
 
   /**
-   * UPDATE (single column): before and after contain only modified column + PK.
+   * UPDATE (partial - only some primitives modified): before and after contain only modified
+   * columns + PK.
    *
-   * <p>When only the "name" column is updated, the "value" column should NOT appear in either the
-   * before or after structs. Only the modified "name" column (plus PK) should be present.
+   * <p>In "only-updated" mode, only the columns that were actually modified appear in before/after.
+   * Untouched columns are excluded.
    */
   @Override
   String[] expectedUpdate(int pk) {
     return new String[] {
-      // INSERT record (CREATE operation)
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, updateBeforeNameValue(pk), updateBeforeValueValue(pk), expectedSource()),
-      // UPDATE record - only modified column (name) + PK in before/after
-      // The "value" column should NOT be present since it was not modified
-      """
-        {
-          "before": {"id": %d, "name": "%s"},
-          "after": {"id": %d, "name": "%s"},
-          "op": "u",
-          "source": %s
-        }
-        """
-          .formatted(pk, updateBeforeNameValue(pk), pk, updateAfterNameValue(pk), expectedSource())
+      // INSERT record with full image
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      // UPDATE record - only modified columns in before/after
+      buildUpdateRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())
     };
   }
 
   /**
-   * UPDATE (multiple columns): before and after contain all modified columns + PK.
+   * UPDATE (all active columns modified): before and after contain all modified columns + PK.
    *
-   * <p>When both "name" and "value" columns are updated, both should appear in the before and after
-   * structs (along with PK).
+   * <p>When all active columns are modified, they all appear in before/after, but untouched columns
+   * are still excluded.
    */
   @Override
   String[] expectedUpdateMultiColumn(int pk) {
     return new String[] {
-      // INSERT record (CREATE operation)
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, updateBeforeNameValue(pk), updateBeforeValueValue(pk), expectedSource()),
-      // UPDATE record - both modified columns (name, value) + PK in before/after
-      """
-        {
-          "before": {"id": %d, "name": "%s", "value": %d},
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "u",
-          "source": %s
-        }
-        """
-          .formatted(
-              pk,
-              updateBeforeNameValue(pk),
-              updateBeforeValueValue(pk),
-              pk,
-              updateAfterNameValue(pk),
-              updateAfterValueValue(pk),
-              expectedSource())
+      // INSERT record with full image
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      // UPDATE record - all active columns in before/after (untouched excluded)
+      buildUpdateMultiColumnRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())
     };
   }
 }

@@ -12,6 +12,8 @@
 pom.xml.releaseBackup
 release.properties
 
+TODO.md
+
 # Codex
 .codex/
 .codex-cache/

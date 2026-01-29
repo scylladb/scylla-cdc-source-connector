@@ -138,13 +138,35 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // DELETE record: This table has only partition key (no clustering key), so DELETE
-      // becomes PARTITION_DELETE. For PARTITION_DELETE in legacy format, only the PK is
-      // captured in "before" as the preimage doesn't include all columns.
+      // DELETE record: "before" contains all columns with null values for non-key columns
       """
         {
           "before": {
-            "id": %d
+            "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": null,
           "op": "d",
@@ -202,8 +224,8 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: before has preimage (only columns being changed), after has postimage
-      // Note: untouched_* columns are NOT in preimage because they're not being changed
+      // UPDATE record: before has preimage, after has postimage
+      // untouched_* columns appear as null since they weren't part of the change
       """
         {
           "before": {
@@ -227,7 +249,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 5},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371c"},
             "varchar_col": {"value": "varchar text"},
-            "varint_col": {"value": "999999999"}
+            "varint_col": {"value": "999999999"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -250,7 +276,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": null},
             "uuid_col": {"value": null},
             "varchar_col": {"value": null},
-            "varint_col": {"value": null}
+            "varint_col": {"value": null},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -305,7 +335,7 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed
+      // UPDATE record: preimage and postimage with untouched columns as null
       """
         {
           "before": {
@@ -329,7 +359,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 5},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371c"},
             "varchar_col": {"value": "varchar text"},
-            "varint_col": {"value": "999999999"}
+            "varint_col": {"value": "999999999"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -352,7 +386,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 6},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371d"},
             "varchar_col": {"value": ""},
-            "varint_col": {"value": "888888888"}
+            "varint_col": {"value": "888888888"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -407,7 +445,7 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed
+      // UPDATE record: preimage and postimage with untouched columns as null
       """
         {
           "before": {
@@ -431,7 +469,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 5},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371c"},
             "varchar_col": {"value": "varchar text"},
-            "varint_col": {"value": "999999999"}
+            "varint_col": {"value": "999999999"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -454,7 +496,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 6},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371d"},
             "varchar_col": {"value": "varchar text 2"},
-            "varint_col": {"value": "888888888"}
+            "varint_col": {"value": "888888888"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -467,12 +513,32 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
   @Override
   String[] expectedUpdateFromNilToValue(int pk) {
     return new String[] {
-      // INSERT record: before is null, after has only untouched_* columns
+      // INSERT record: before is null, after has all columns (most are null)
       """
         {
           "before": null,
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": {"value": "%s"},
             "untouched_int": {"value": %d},
             "untouched_boolean": {"value": %s},
@@ -489,11 +555,35 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed (not untouched_*)
+      // UPDATE record: preimage has all columns as null, postimage has new values
       """
         {
           "before": {
-            "id": %d
+            "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -516,7 +606,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 5},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371c"},
             "varchar_col": {"value": "varchar text"},
-            "varint_col": {"value": "999999999"}
+            "varint_col": {"value": "999999999"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -529,12 +623,32 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
   @Override
   String[] expectedUpdateFromNilToEmpty(int pk) {
     return new String[] {
-      // INSERT record
+      // INSERT record: before is null, after has all columns (most are null)
       """
         {
           "before": null,
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": {"value": "%s"},
             "untouched_int": {"value": %d},
             "untouched_boolean": {"value": %s},
@@ -551,11 +665,35 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed (not untouched_*)
+      // UPDATE record: preimage has all columns as null, postimage has new values
       """
         {
           "before": {
-            "id": %d
+            "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -578,7 +716,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 6},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371d"},
             "varchar_col": {"value": ""},
-            "varint_col": {"value": "888888888"}
+            "varint_col": {"value": "888888888"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -591,12 +733,32 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
   @Override
   String[] expectedUpdateFromNilToNil(int pk) {
     return new String[] {
-      // INSERT record
+      // INSERT record: before is null, after has all columns (most are null)
       """
         {
           "before": null,
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": {"value": "%s"},
             "untouched_int": {"value": %d},
             "untouched_boolean": {"value": %s},
@@ -613,11 +775,35 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed (not untouched_*)
+      // UPDATE record: preimage has all columns with {"value": null}, postimage has null values
       """
         {
           "before": {
-            "id": %d
+            "id": %d,
+            "ascii_col": {"value": null},
+            "bigint_col": {"value": null},
+            "blob_col": {"value": null},
+            "boolean_col": {"value": null},
+            "date_col": {"value": null},
+            "decimal_col": {"value": null},
+            "double_col": {"value": null},
+            "duration_col": {"value": null},
+            "float_col": {"value": null},
+            "inet_col": {"value": null},
+            "int_col": {"value": null},
+            "smallint_col": {"value": null},
+            "text_col": {"value": null},
+            "time_col": {"value": null},
+            "timestamp_col": {"value": null},
+            "timeuuid_col": {"value": null},
+            "tinyint_col": {"value": null},
+            "uuid_col": {"value": null},
+            "varchar_col": {"value": null},
+            "varint_col": {"value": null},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -640,7 +826,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": null},
             "uuid_col": {"value": null},
             "varchar_col": {"value": null},
-            "varint_col": {"value": null}
+            "varint_col": {"value": null},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -695,7 +885,7 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed (not untouched_*)
+      // UPDATE record: preimage and postimage with untouched columns as null
       """
         {
           "before": {
@@ -719,7 +909,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 5},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371c"},
             "varchar_col": {"value": ""},
-            "varint_col": {"value": "999999999"}
+            "varint_col": {"value": "999999999"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -742,7 +936,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 6},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371d"},
             "varchar_col": {"value": "varchar text 2"},
-            "varint_col": {"value": "888888888"}
+            "varint_col": {"value": "888888888"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -797,7 +995,7 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed (not untouched_*)
+      // UPDATE record: preimage and postimage with untouched columns as null
       """
         {
           "before": {
@@ -821,7 +1019,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 5},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371c"},
             "varchar_col": {"value": ""},
-            "varint_col": {"value": "999999999"}
+            "varint_col": {"value": "999999999"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -844,7 +1046,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": null},
             "uuid_col": {"value": null},
             "varchar_col": {"value": null},
-            "varint_col": {"value": null}
+            "varint_col": {"value": null},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s
@@ -899,7 +1105,7 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
               UNTOUCHED_BOOLEAN_VALUE,
               UNTOUCHED_UUID_VALUE,
               expectedSource()),
-      // UPDATE record: preimage only contains columns being changed (not untouched_*)
+      // UPDATE record: preimage and postimage with untouched columns as null
       """
         {
           "before": {
@@ -923,7 +1129,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 5},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371c"},
             "varchar_col": {"value": ""},
-            "varint_col": {"value": "999999999"}
+            "varint_col": {"value": "999999999"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "after": {
             "id": %d,
@@ -946,7 +1156,11 @@ public class ScyllaTypesPrimitiveLegacyPreimageEnabledIT
             "tinyint_col": {"value": 6},
             "uuid_col": {"value": "453662fa-db4b-4938-9033-d8523c0a371d"},
             "varchar_col": {"value": ""},
-            "varint_col": {"value": "888888888"}
+            "varint_col": {"value": "888888888"},
+            "untouched_text": null,
+            "untouched_int": null,
+            "untouched_boolean": null,
+            "untouched_uuid": null
           },
           "op": "u",
           "source": %s

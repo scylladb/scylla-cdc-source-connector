@@ -26,6 +26,12 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   private final Logger logger = LoggerFactory.getLogger(getClass());
 
   /**
+   * Error marker prefix used in log messages for connector errors during message handling. This
+   * marker can be searched for in logs to identify connector-level errors.
+   */
+  public static final String CONNECTOR_ERROR_MARKER = "[SCYLLA-CDC-CONNECTOR-ERROR]";
+
+  /**
    * Interval between cleanup checks in terms of number of events processed. Cleanup runs
    * approximately every N events to avoid checking on every single event.
    */
@@ -154,9 +160,10 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
 
       if (age > incompleteTaskTimeoutMs) {
         logger.error(
-            "Dropping stale incomplete task {} after {}ms. "
+            "{} Dropping stale incomplete task {} after {}ms. "
                 + "This may indicate missing preimage/postimage events. "
                 + "Task state: change={}, preImage={}, postImage={}",
+            CONNECTOR_ERROR_MARKER,
             entry.getKey(),
             age,
             taskInfo.getChange() != null,
@@ -242,7 +249,8 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
       }
     } catch (InterruptedException e) {
       logger.error(
-          "InterruptedException in consume for change {}: {}",
+          "{} InterruptedException in consume for change {}: {}",
+          CONNECTOR_ERROR_MARKER,
           change.getId().toString(),
           e.getMessage(),
           e);
@@ -250,7 +258,11 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
       throw new RuntimeException(e);
     } catch (RuntimeException e) {
       logger.error(
-          "Exception in consume for change {}: {}", change.getId().toString(), e.getMessage(), e);
+          "{} Exception in consume for change {}: {}",
+          CONNECTOR_ERROR_MARKER,
+          change.getId().toString(),
+          e.getMessage(),
+          e);
       throw e;
     }
     return CompletableFuture.completedFuture(null);

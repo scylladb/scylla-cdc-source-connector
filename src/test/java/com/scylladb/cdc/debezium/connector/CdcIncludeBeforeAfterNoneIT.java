@@ -3,7 +3,6 @@ package com.scylladb.cdc.debezium.connector;
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromAfter;
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromJson;
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromKeyField;
-import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractPkFromNameField;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 
@@ -38,17 +37,13 @@ public class CdcIncludeBeforeAfterNoneIT extends CdcIncludeBeforeAfterBase<Strin
   @Override
   protected int extractPkFromValue(String value) {
     // With none mode, we can only rely on the kafka key for PK extraction
-    // But try after/before first in case they're present due to other configs
+    // But try after first in case it's present due to other configs
     int pk = extractIdFromAfter(value);
     if (pk != -1) {
       return pk;
     }
     // For none mode, extract from the "key" field
-    pk = extractIdFromKeyField(value);
-    if (pk != -1) {
-      return pk;
-    }
-    return extractPkFromNameField(value);
+    return extractIdFromKeyField(value);
   }
 
   @Override
@@ -64,18 +59,7 @@ public class CdcIncludeBeforeAfterNoneIT extends CdcIncludeBeforeAfterBase<Strin
    */
   @Override
   String[] expectedInsert(int pk) {
-    return new String[] {
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource())
-    };
+    return new String[] {buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())};
   }
 
   /**
@@ -87,35 +71,17 @@ public class CdcIncludeBeforeAfterNoneIT extends CdcIncludeBeforeAfterBase<Strin
   @Override
   String[] expectedDelete(int pk) {
     return new String[] {
-      // INSERT record
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource()),
-      // DELETE record
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "d",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource()),
+      // INSERT record (none mode)
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      // DELETE record (none mode)
+      buildDeleteRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
       // Tombstone record (null value) for Kafka log compaction
       null
     };
   }
 
   /**
-   * UPDATE (single column): before=null, after=null.
+   * UPDATE (partial): before=null, after=null.
    *
    * <p>With mode=none, no data is included for UPDATE operations. The "key" field contains the PK
    * values for identification.
@@ -123,33 +89,15 @@ public class CdcIncludeBeforeAfterNoneIT extends CdcIncludeBeforeAfterBase<Strin
   @Override
   String[] expectedUpdate(int pk) {
     return new String[] {
-      // INSERT record
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource()),
-      // UPDATE record
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "u",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource())
+      // INSERT record (none mode)
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      // UPDATE record (none mode)
+      buildUpdateRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())
     };
   }
 
   /**
-   * UPDATE (multiple columns): before=null, after=null.
+   * UPDATE (all active columns): before=null, after=null.
    *
    * <p>With mode=none, no data is included regardless of how many columns were modified. The "key"
    * field contains the PK values for identification.
@@ -157,28 +105,10 @@ public class CdcIncludeBeforeAfterNoneIT extends CdcIncludeBeforeAfterBase<Strin
   @Override
   String[] expectedUpdateMultiColumn(int pk) {
     return new String[] {
-      // INSERT record
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource()),
-      // UPDATE record
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "u",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource())
+      // INSERT record (none mode)
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      // UPDATE record (none mode)
+      buildUpdateMultiColumnRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())
     };
   }
 }

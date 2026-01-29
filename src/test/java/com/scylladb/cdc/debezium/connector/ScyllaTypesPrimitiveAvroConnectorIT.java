@@ -260,6 +260,7 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               pk,
               expectedSource()),
       // UPDATE record with preimage and postimage
+      // Note: Avro format includes all schema fields, so null fields appear in the output
       """
         {
           "before": {
@@ -291,6 +292,26 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
           },
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -570,12 +591,33 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
   @Override
   String[] expectedUpdateFromNilToValue(int pk) {
     return new String[] {
-      // INSERT record: before is null, after has only untouched_* columns (other cols were nil)
+      // INSERT record: before is null, after has untouched_* columns (other cols were nil)
+      // Note: Avro format includes all schema fields, so null fields appear in the output
       """
         {
           "before": null,
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -594,11 +636,32 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               UNTOUCHED_UUID_VALUE,
               pk,
               expectedSource()),
-      // UPDATE record: before has only untouched_* columns, after has all values
+      // UPDATE record: "before" correctly shows NULL for columns that were NULL before the update
+      // Note: Avro format includes all schema fields
       """
         {
           "before": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -655,12 +718,33 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
   @Override
   String[] expectedUpdateFromNilToEmpty(int pk) {
     return new String[] {
-      // INSERT record: before is null, after has only untouched_* columns
+      // INSERT record: before is null, after has untouched_* columns
+      // Note: Avro format includes all schema fields, so null fields appear in the output
       """
         {
           "before": null,
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -679,11 +763,32 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               UNTOUCHED_UUID_VALUE,
               pk,
               expectedSource()),
-      // UPDATE record: before has only untouched_* columns, after has new values
+      // UPDATE record: "before" correctly shows NULL for columns that were NULL before the update
+      // Note: Avro format includes all schema fields
       """
         {
           "before": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -740,12 +845,33 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
   @Override
   String[] expectedUpdateFromNilToNil(int pk) {
     return new String[] {
-      // INSERT record: before is null, after has only untouched_* columns
+      // INSERT record: before is null, after has untouched_* columns
+      // Note: Avro format includes all schema fields, so null fields appear in the output
       """
         {
           "before": null,
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -764,11 +890,32 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               UNTOUCHED_UUID_VALUE,
               pk,
               expectedSource()),
-      // UPDATE record: before has only untouched_* columns, after also has only untouched_* columns
+      // UPDATE record: before and after both have untouched_* columns (with null fields)
+      // Note: Avro format includes all schema fields, so null fields appear in the output
       """
         {
           "before": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -776,6 +923,26 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
           },
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,
@@ -974,7 +1141,8 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
               UNTOUCHED_UUID_VALUE,
               pk,
               expectedSource()),
-      // UPDATE record: before has values with empty strings, after has only untouched_* columns
+      // UPDATE record: before has values with empty strings, after has untouched_* columns
+      // Note: Avro format includes all schema fields, so null fields appear in the output
       """
         {
           "before": {
@@ -1006,6 +1174,26 @@ public class ScyllaTypesPrimitiveAvroConnectorIT
           },
           "after": {
             "id": %d,
+            "ascii_col": null,
+            "bigint_col": null,
+            "blob_col": null,
+            "boolean_col": null,
+            "date_col": null,
+            "decimal_col": null,
+            "double_col": null,
+            "duration_col": null,
+            "float_col": null,
+            "inet_col": null,
+            "int_col": null,
+            "smallint_col": null,
+            "text_col": null,
+            "time_col": null,
+            "timestamp_col": null,
+            "timeuuid_col": null,
+            "tinyint_col": null,
+            "uuid_col": null,
+            "varchar_col": null,
+            "varint_col": null,
             "untouched_text": "%s",
             "untouched_int": %d,
             "untouched_boolean": %s,

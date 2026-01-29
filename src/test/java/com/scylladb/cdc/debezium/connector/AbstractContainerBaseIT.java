@@ -33,11 +33,57 @@ public abstract class AbstractContainerBaseIT {
 
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
+  /**
+   * Whether to validate connector logs for errors after each test. Defaults to true; disable with
+   * -Dit.connector.log.validation=false.
+   */
+  private static final boolean VALIDATE_CONNECTOR_LOGS =
+      Boolean.parseBoolean(System.getProperty("it.connector.log.validation", "true"));
+
   static class ContainerLogWatcher implements TestWatcher {
     @Override
     public void testFailed(ExtensionContext context, Throwable cause) {
       String testName = context.getDisplayName();
       logContainerDetailsOnFailure(testName, cause);
+    }
+
+    @Override
+    public void testSuccessful(ExtensionContext context) {
+      if (VALIDATE_CONNECTOR_LOGS) {
+        validateConnectorLogsAfterTest(context.getDisplayName());
+      }
+    }
+  }
+
+  /**
+   * Validates that no connector errors occurred during test execution. This method is called after
+   * each successful test to ensure that even if the test passed, there were no connector-level
+   * errors logged.
+   *
+   * @param testName the name of the test that completed
+   * @throws AssertionError if connector errors are found in the logs
+   */
+  protected static void validateConnectorLogsAfterTest(String testName) {
+    try {
+      KafkaConnectUtils.ConnectorLogValidationResult result =
+          KafkaConnectUtils.validateConnectorLogs();
+
+      if (result.hasErrors()) {
+        logger.atSevere().log(
+            "Connector errors detected after test '%s':\n%s", testName, result.toString());
+
+        // Log full container details for debugging
+        logger.atInfo().log("Kafka Connect logs:\n%s", getKafkaConnectLogs());
+
+        throw new AssertionError(
+            "Test '" + testName + "' completed but connector errors were detected:\n" + result);
+      }
+    } catch (AssertionError e) {
+      throw e; // Re-throw assertion errors
+    } catch (Exception e) {
+      logger.atWarning().withCause(e).log(
+          "Failed to validate connector logs after test '%s'", testName);
+      // Don't fail the test if log validation itself fails
     }
   }
 

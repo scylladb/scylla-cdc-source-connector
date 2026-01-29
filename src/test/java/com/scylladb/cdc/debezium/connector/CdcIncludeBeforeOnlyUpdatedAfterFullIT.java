@@ -4,7 +4,6 @@ import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromAft
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromBefore;
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromJson;
 import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractIdFromKeyField;
-import static com.scylladb.cdc.debezium.connector.JsonTestUtils.extractPkFromNameField;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 
@@ -56,11 +55,7 @@ public class CdcIncludeBeforeOnlyUpdatedAfterFullIT
     }
     // For DELETE on partition-key-only tables, before/after are null.
     // Extract from the "key" field instead.
-    pk = extractIdFromKeyField(value);
-    if (pk != -1) {
-      return pk;
-    }
-    return extractPkFromNameField(value);
+    return extractIdFromKeyField(value);
   }
 
   @Override
@@ -69,27 +64,17 @@ public class CdcIncludeBeforeOnlyUpdatedAfterFullIT
   }
 
   /**
-   * INSERT: before=null, after=full image.
+   * INSERT: before=null, after=full image with all columns.
    *
    * <p>INSERT always uses full image for after.
    */
   @Override
   String[] expectedInsert(int pk) {
-    return new String[] {
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, insertNameValue(pk), insertValueValue(pk), expectedSource())
-    };
+    return new String[] {buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())};
   }
 
   /**
-   * DELETE: before=null, after=null.
+   * DELETE: before=null (partition delete has no preimage), after=null.
    *
    * <p>This table has only a partition key (no clustering key), so DELETE operations are
    * represented as PARTITION_DELETE by Scylla CDC. Scylla doesn't send preimage for partition
@@ -98,109 +83,44 @@ public class CdcIncludeBeforeOnlyUpdatedAfterFullIT
   @Override
   String[] expectedDelete(int pk) {
     return new String[] {
-      // INSERT record
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, deleteNameValue(pk), deleteValueValue(pk), expectedSource()),
+      // INSERT record with full image
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
       // DELETE record: before=null because Scylla doesn't send preimage for PARTITION_DELETE
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "d",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource()),
+      buildDeleteRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
       // Tombstone record (null value) for Kafka log compaction
       null
     };
   }
 
   /**
-   * UPDATE (single column): before=only modified column + PK, after=full image.
+   * UPDATE (partial): before=only modified columns + PK, after=full image.
    *
-   * <p>Mixed mode: before contains only the modified "name" column (no "value"), but after contains
-   * ALL columns (full postimage state).
+   * <p>Mixed mode: before contains only the modified columns (untouched excluded), but after
+   * contains ALL columns (full postimage state).
    */
   @Override
   String[] expectedUpdate(int pk) {
     return new String[] {
-      // INSERT record
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, updateBeforeNameValue(pk), updateBeforeValueValue(pk), expectedSource()),
-      // UPDATE record:
-      // - before: ONLY-UPDATED (just "name" + PK, no "value")
-      // - after: FULL (all columns including unchanged "value")
-      """
-        {
-          "before": {"id": %d, "name": "%s"},
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "u",
-          "source": %s
-        }
-        """
-          .formatted(
-              pk,
-              updateBeforeNameValue(pk),
-              pk,
-              updateAfterNameValue(pk),
-              updateBeforeValueValue(pk), // value unchanged
-              expectedSource())
+      // INSERT record with full image
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      // UPDATE record: before=only-updated, after=full
+      buildUpdateRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())
     };
   }
 
   /**
-   * UPDATE (multiple columns): before=all modified columns + PK, after=full image.
+   * UPDATE (all active columns): before=all modified columns + PK, after=full image.
    *
-   * <p>When all non-key columns are modified, the before struct will contain all of them.
+   * <p>When all active columns are modified, they all appear in before, but untouched columns are
+   * still excluded from before.
    */
   @Override
   String[] expectedUpdateMultiColumn(int pk) {
     return new String[] {
-      // INSERT record
-      """
-        {
-          "before": null,
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(pk, updateBeforeNameValue(pk), updateBeforeValueValue(pk), expectedSource()),
-      // UPDATE record:
-      // - before: ONLY-UPDATED (both modified columns + PK)
-      // - after: FULL (all columns)
-      """
-        {
-          "before": {"id": %d, "name": "%s", "value": %d},
-          "after": {"id": %d, "name": "%s", "value": %d},
-          "op": "u",
-          "source": %s
-        }
-        """
-          .formatted(
-              pk,
-              updateBeforeNameValue(pk),
-              updateBeforeValueValue(pk),
-              pk,
-              updateAfterNameValue(pk),
-              updateAfterValueValue(pk),
-              expectedSource())
+      // INSERT record with full image
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      // UPDATE record: before=only-updated (all active), after=full
+      buildUpdateMultiColumnRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource())
     };
   }
 }

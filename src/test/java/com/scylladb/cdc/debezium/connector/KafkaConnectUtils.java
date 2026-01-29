@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import org.apache.avro.generic.GenericRecord;
@@ -758,5 +759,149 @@ public final class KafkaConnectUtils {
           "Consumer did not receive partition assignment within " + CONSUMER_TIMEOUT + " ms.");
     }
     consumer.seekToBeginning(consumer.assignment());
+  }
+
+  // ========== Connector Log Validation Utilities ==========
+
+  /**
+   * The error marker used by the Scylla CDC connector to identify errors during message handling.
+   * This marker is used by both ScyllaChangesConsumer and ScyllaChangeRecordEmitter.
+   */
+  public static final String CONNECTOR_ERROR_MARKER = "[SCYLLA-CDC-CONNECTOR-ERROR]";
+
+  /** Result of connector log validation containing any errors found. */
+  public static class ConnectorLogValidationResult {
+    private final boolean hasErrors;
+    private final List<String> errorLines;
+
+    public ConnectorLogValidationResult(boolean hasErrors, List<String> errorLines) {
+      this.hasErrors = hasErrors;
+      this.errorLines = errorLines != null ? errorLines : List.of();
+    }
+
+    public boolean hasErrors() {
+      return hasErrors;
+    }
+
+    public List<String> getErrorLines() {
+      return errorLines;
+    }
+
+    @Override
+    public String toString() {
+      if (!hasErrors) {
+        return "No connector errors found";
+      }
+      return "Found "
+          + errorLines.size()
+          + " connector error(s):\n"
+          + String.join("\n", errorLines);
+    }
+  }
+
+  /**
+   * Validates connector logs for error messages. Fetches the Kafka Connect logs and searches for
+   * the connector error marker to identify any errors that occurred during message processing.
+   *
+   * @return ConnectorLogValidationResult containing any errors found
+   */
+  public static ConnectorLogValidationResult validateConnectorLogs() {
+    String logs = AbstractContainerBaseIT.getKafkaConnectLogs();
+    return validateConnectorLogs(logs);
+  }
+
+  /**
+   * Validates the provided log content for connector error messages.
+   *
+   * @param logs the log content to validate
+   * @return ConnectorLogValidationResult containing any errors found
+   */
+  public static ConnectorLogValidationResult validateConnectorLogs(String logs) {
+    if (logs == null || logs.isEmpty()) {
+      return new ConnectorLogValidationResult(false, List.of());
+    }
+
+    List<String> errorLines = new ArrayList<>();
+    String[] lines = logs.split("\n");
+
+    for (String line : lines) {
+      if (line.contains(CONNECTOR_ERROR_MARKER)) {
+        errorLines.add(line.trim());
+      }
+    }
+
+    return new ConnectorLogValidationResult(!errorLines.isEmpty(), errorLines);
+  }
+
+  /**
+   * Asserts that no connector errors are present in the Kafka Connect logs. If errors are found,
+   * this method throws an AssertionError with details about the errors.
+   *
+   * @throws AssertionError if connector errors are found in the logs
+   */
+  public static void assertNoConnectorErrors() {
+    ConnectorLogValidationResult result = validateConnectorLogs();
+    if (result.hasErrors()) {
+      Assertions.fail("Connector errors detected during test execution:\n" + result.toString());
+    }
+  }
+
+  /**
+   * Asserts that no connector errors are present in the provided log content. If errors are found,
+   * this method throws an AssertionError with details about the errors.
+   *
+   * @param logs the log content to validate
+   * @throws AssertionError if connector errors are found in the logs
+   */
+  public static void assertNoConnectorErrors(String logs) {
+    ConnectorLogValidationResult result = validateConnectorLogs(logs);
+    if (result.hasErrors()) {
+      Assertions.fail("Connector errors detected during test execution:\n" + result.toString());
+    }
+  }
+
+  /**
+   * Gets the connector logs and checks for any error level log entries (not just connector-marked
+   * errors). This is a more comprehensive check that looks for any ERROR level logs from the
+   * connector.
+   *
+   * @return List of lines containing ERROR level logs, or empty list if none found
+   */
+  public static List<String> getConnectorErrorLogs() {
+    String logs = AbstractContainerBaseIT.getKafkaConnectLogs();
+    if (logs == null || logs.isEmpty()) {
+      return List.of();
+    }
+
+    List<String> errorLines = new ArrayList<>();
+    String[] lines = logs.split("\n");
+
+    for (String line : lines) {
+      // Look for ERROR level logs from the Scylla connector package
+      if ((line.contains(" ERROR ") || line.contains("[ERROR]"))
+          && line.contains("com.scylladb.cdc")) {
+        errorLines.add(line.trim());
+      }
+    }
+
+    return errorLines;
+  }
+
+  /**
+   * Asserts that there are no ERROR level logs from the Scylla connector in the Kafka Connect logs.
+   * This is a more comprehensive check than assertNoConnectorErrors() as it catches all ERROR level
+   * logs, not just those with the specific error marker.
+   *
+   * @throws AssertionError if any ERROR level logs are found from the Scylla connector
+   */
+  public static void assertNoConnectorErrorLogs() {
+    List<String> errorLogs = getConnectorErrorLogs();
+    if (!errorLogs.isEmpty()) {
+      Assertions.fail(
+          "Found "
+              + errorLogs.size()
+              + " ERROR level log(s) from Scylla connector:\n"
+              + String.join("\n", errorLogs));
+    }
   }
 }
