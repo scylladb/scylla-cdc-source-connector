@@ -28,6 +28,21 @@ public class ScyllaChangeRecordEmitterLegacy
   /** CDC column prefix for deleted column indicators. */
   private static final String CDC_DELETED_PREFIX = "cdc$deleted_";
 
+  /**
+   * Safely retrieves a cell from a RawChange, returning null if an exception occurs.
+   *
+   * @param change the RawChange to get the cell from
+   * @param columnName the name of the column
+   * @return the Cell, or null if an exception occurs or the cell doesn't exist
+   */
+  private static Cell getCellSafe(RawChange change, String columnName) {
+    try {
+      return change.getCell(columnName);
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
   private final RawChange change;
   private final ScyllaSchemaLegacy schema;
   private final RawChange preImage;
@@ -209,7 +224,7 @@ public class ScyllaChangeRecordEmitterLegacy
     for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
       if (!ScyllaSchemaLegacy.isSupportedColumnSchema(cdef)) continue;
 
-      Object value = translateCellToKafka(change.getCell(cdef.getColumnName()));
+      Object value = translateCellToKafka(getCellSafe(change, cdef.getColumnName()));
 
       if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY
           || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
@@ -218,8 +233,8 @@ public class ScyllaChangeRecordEmitterLegacy
           keyStruct.put(cdef.getColumnName(), value);
         }
       } else {
-        Boolean isDeleted =
-            this.change.getCell(CDC_DELETED_PREFIX + cdef.getColumnName()).getBoolean();
+        Cell deletedCell = getCellSafe(this.change, CDC_DELETED_PREFIX + cdef.getColumnName());
+        Boolean isDeleted = deletedCell != null ? deletedCell.getBoolean() : null;
         if (value != null || (isDeleted != null && isDeleted)) {
           Struct cell = new Struct(schema.cellSchema(cdef.getColumnName()));
           cell.put(ScyllaSchemaLegacy.CELL_VALUE, value);

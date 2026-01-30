@@ -4,11 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.flogger.FluentLogger;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -38,6 +42,15 @@ import org.skyscreamer.jsonassert.JSONCompareMode;
 public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
   private static final Object DDL_LOCK = new Object();
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+  /** Dynamic fields at the envelope level that should be stripped before comparison. */
+  private static final Set<String> DYNAMIC_ENVELOPE_FIELDS =
+      Set.of("ts_ms", "ts_ns", "ts_us", "transaction");
+
+  /** Dynamic fields in the source object that should be stripped before comparison. */
+  private static final Set<String> DYNAMIC_SOURCE_FIELDS =
+      Set.of("ts_ms", "ts_ns", "ts_us", "sequence", "version");
 
   static Cluster cluster;
   static Session session;
@@ -58,6 +71,16 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
 
   /** Returns the CQL CREATE TABLE statement (without "IF NOT EXISTS" and CDC options). */
   protected abstract String createTableCql(String tableName);
+
+  /**
+   * Hook to create any custom types (UDTs) before the table is created. Subclasses can override
+   * this to create necessary types.
+   *
+   * @param keyspaceName the keyspace name where types should be created
+   */
+  protected void createTypesBeforeTable(String keyspaceName) {
+    // Default implementation does nothing - subclasses can override
+  }
 
   /** Builds and returns a Kafka consumer for the given connector and table. */
   abstract KafkaConsumer<K, V> buildConsumer(String connectorName, String tableName);
@@ -98,12 +121,24 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
 
   /**
    * Waits for and asserts expected Kafka messages for the given PK. Filters received records to
-   * only match records with the specified primary key.
+   * only match records with the specified primary key. Uses NON_EXTENSIBLE comparison mode by
+   * default (exact fields required, but array order flexible).
    *
    * @param pk the primary key to filter records by
    * @param expected the expected JSON records
    */
   void waitAndAssert(int pk, String[] expected) {
+    waitAndAssert(pk, expected, JSONCompareMode.NON_EXTENSIBLE);
+  }
+
+  /**
+   * Waits for and asserts expected Kafka messages for the given PK with specified comparison mode.
+   *
+   * @param pk the primary key to filter records by
+   * @param expected the expected JSON records
+   * @param mode the JSON comparison mode to use
+   */
+  void waitAndAssert(int pk, String[] expected, JSONCompareMode mode) {
     List<ConsumerRecord<K, V>> matchingRecords = new ArrayList<>();
     int startIndex = recordsIndexBeforeTest.get();
 
@@ -166,7 +201,9 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
       }
 
       try {
-        JSONAssert.assertEquals(exp, got, JSONCompareMode.LENIENT);
+        // Strip dynamic Debezium fields from actual JSON before comparison
+        String strippedGot = stripDynamicFields(got);
+        JSONAssert.assertEquals(exp, strippedGot, mode);
       } catch (AssertionError e) {
         errors.add(
             "Record["
@@ -192,6 +229,36 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
 
     if (!errors.isEmpty()) {
       Assertions.fail(String.join("\n\n", errors));
+    }
+  }
+
+  /**
+   * Strips dynamic Debezium fields from the actual JSON before comparison. This allows tests to
+   * specify only the stable fields they care about without having to include timestamp and
+   * transaction metadata fields that vary per record.
+   */
+  private String stripDynamicFields(String json) {
+    try {
+      JsonNode node = OBJECT_MAPPER.readTree(json);
+      if (node.isObject()) {
+        ObjectNode obj = (ObjectNode) node;
+        // Remove dynamic envelope-level fields
+        for (String field : DYNAMIC_ENVELOPE_FIELDS) {
+          obj.remove(field);
+        }
+        // Remove dynamic source-level fields
+        if (obj.has("source") && obj.get("source").isObject()) {
+          ObjectNode source = (ObjectNode) obj.get("source");
+          for (String field : DYNAMIC_SOURCE_FIELDS) {
+            source.remove(field);
+          }
+        }
+        return OBJECT_MAPPER.writeValueAsString(obj);
+      }
+      return json;
+    } catch (Exception e) {
+      logger.atWarning().withCause(e).log("Failed to strip dynamic fields from JSON");
+      return json;
     }
   }
 
@@ -224,6 +291,9 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
             + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
 
     synchronized (DDL_LOCK) {
+      // Create any custom types (UDTs) before the table
+      createTypesBeforeTable(getSuiteKeyspaceName());
+
       session.execute(
           "CREATE TABLE IF NOT EXISTS "
               + suiteKeyspaceTableName
@@ -307,7 +377,11 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     return pk;
   }
 
-  /** Returns the expected source JSON object for use in test expectations. */
+  /**
+   * Returns the expected source JSON object for use in test expectations. Dynamic fields (sequence,
+   * ts_ms, ts_ns, ts_us, version) are stripped from actual JSON before comparison by {@link
+   * #stripDynamicFields}.
+   */
   public String expectedSource() {
     return """
         {
@@ -329,6 +403,11 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     return expectedRecord(op, beforeJson, afterJson, expectedKey());
   }
 
+  /**
+   * Returns expected record JSON with Debezium envelope fields. Dynamic fields (ts_ms, ts_ns,
+   * ts_us, transaction) are stripped from actual JSON before comparison by {@link
+   * #stripDynamicFields}.
+   */
   public String expectedRecord(String op, String beforeJson, String afterJson, String keyJson) {
     return """
         {

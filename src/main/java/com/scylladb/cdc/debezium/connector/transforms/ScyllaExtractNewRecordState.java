@@ -236,7 +236,7 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
       builder.defaultValue(schema.defaultValue());
     }
     if (schema.parameters() != null) {
-      for (java.util.Map.Entry<String, String> entry : schema.parameters().entrySet()) {
+      for (Map.Entry<String, String> entry : schema.parameters().entrySet()) {
         builder.parameter(entry.getKey(), entry.getValue());
       }
     }
