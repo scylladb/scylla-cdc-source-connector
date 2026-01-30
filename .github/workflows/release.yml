@@ -80,7 +80,7 @@ jobs:
           fi
           NEXT_RELEASE=""
           if [[ "${{ inputs.release-version }}" != "" ]]; then
-            NEXT_RELEASE="-DreleaseVersion='${{ inputs.release-version }}'"
+            NEXT_RELEASE="-DreleaseVersion=${{ inputs.release-version }}"
           fi
           export MAVEN_OPTS
           $MVNCMD release:prepare -DpushChanges=false ${NEXT_RELEASE} -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
