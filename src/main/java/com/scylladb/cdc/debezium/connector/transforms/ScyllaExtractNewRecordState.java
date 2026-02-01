@@ -42,13 +42,7 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>> extends Ext
             }
         }
 
-        return ret.newRecord(ret.topic(),
-                              ret.kafkaPartition(),
-                              ret.keySchema(),
-                              ret.key(),
-                              updatedSchema,
-                              updatedValue,
-                              ret.timestamp());
+        return ret.newRecord(ret.topic(), ret.kafkaPartition(), ret.keySchema(), ret.key(), updatedSchema, updatedValue, ret.timestamp());
     }
 
     @Override
@@ -63,7 +57,7 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>> extends Ext
         }
 
         if (field.schema().fields().size() != 1
-                || !field.schema().fields().get(0).name().equals("value")) {
+         || field.schema().fields().get(0).name() != "value") {
             return false;
         }
 

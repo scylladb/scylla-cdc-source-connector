@@ -5,38 +5,17 @@ import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.cql.Cell;
 import com.scylladb.cdc.model.worker.cql.CqlDate;
 import com.scylladb.cdc.model.worker.cql.Field;
-
 import io.debezium.data.Envelope;
 import io.debezium.pipeline.AbstractChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.util.Clock;
-
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.HashMap;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TimeZone;
-import java.util.UUID;
-import java.util.stream.Collectors;
-
-import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.data.Struct;
-import org.apache.kafka.connect.data.SchemaBuilder;
-import org.apache.kafka.connect.header.ConnectHeaders;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.commons.lang3.ObjectUtils;
+import org.apache.kafka.connect.data.Schema;
+import org.apache.kafka.connect.data.SchemaBuilder;
+import org.apache.kafka.connect.data.Struct;
 
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class ScyllaChangeRecordEmitter
     extends AbstractChangeRecordEmitter<ScyllaPartition, ScyllaCollectionSchema> {
@@ -583,596 +562,217 @@ public class ScyllaChangeRecordEmitter
   }
 
     private void fillStructWithChange(ScyllaCollectionSchema schema, Struct keyStruct, Struct valueStruct, RawChange change) {
-      for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
-        if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
+        for (ChangeSchema.ColumnDefinition cdef : change.getSchema().getNonCdcColumnDefinitions()) {
+            if (!ScyllaSchema.isSupportedColumnSchema(change.getSchema(), cdef)) continue;
 
-        if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
-            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), schema.keySchema().field(cdef.getColumnName()).schema());
-            valueStruct.put(cdef.getColumnName(), value);
-            keyStruct.put(cdef.getColumnName(), value);
-            continue;
+            if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) {
+                Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), schema.keySchema().field(cdef.getColumnName()).schema());
+                valueStruct.put(cdef.getColumnName(), value);
+                keyStruct.put(cdef.getColumnName(), value);
+                continue;
+            }
+
+            Schema cellSchema = schema.cellSchema(cdef.getColumnName());
+            if (ScyllaSchema.isNonFrozenCollection(change.getSchema(), cdef)) {
+                Struct value = translateNonFrozenCollectionToKafka(valueStruct, change, cellSchema, cdef);
+                valueStruct.put(cdef.getColumnName(), value);
+                continue;
+            }
+
+            Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
+            Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
+            Boolean isDeleted = this.change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
+
+            if (value != null || (isDeleted != null && isDeleted)) {
+                Struct cell = new Struct(cellSchema);
+                cell.put(ScyllaSchema.CELL_VALUE, value);
+                valueStruct.put(cdef.getColumnName(), cell);
+            }
         }
+    }
 
-        Schema cellSchema = schema.cellSchema(cdef.getColumnName());
-        if (ScyllaSchema.isNonFrozenCollection(change.getSchema(), cdef)) {
-            Struct value = translateNonFrozenCollectionToKafka(valueStruct, change, cellSchema, cdef);
-            valueStruct.put(cdef.getColumnName(), value);
-            continue;
-        }
-
+    private Struct translateNonFrozenCollectionToKafka(Struct valueStruct, RawChange change, Schema cellSchema, ChangeSchema.ColumnDefinition cdef) {
         Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
-        Object value = translateFieldToKafka(change.getCell(cdef.getColumnName()), innerSchema);
-        Boolean isDeleted = change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean();
-
-        if (value != null || (isDeleted != null && isDeleted)) {
-            Struct cell = new Struct(cellSchema);
-            cell.put(ScyllaSchema.CELL_VALUE, value);
-            valueStruct.put(cdef.getColumnName(), cell);
-        }
-      }
-    }
-
-  /**
-   * Builds the "before" struct for UPDATE operations by combining data from preimage and postimage.
-   *
-   * <p>Scylla CDC preimage only contains OLD values for columns that were MODIFIED. For unchanged
-   * columns, their old value equals their new value, so we get them from the postimage.
-   *
-   * <p>This method handles three cases:
-   *
-   * <ul>
-   *   <li>Both preimage and postimage present: combines data from both sources
-   *   <li>Only preimage present: uses preimage as full image
-   *   <li>Neither present: returns null
-   * </ul>
-   *
-   * <p>When both images are present:
-   *
-   * <ul>
-   *   <li>For columns present in preimage (modified columns): uses preimage values
-   *   <li>For columns NOT in preimage but in postimage (unchanged columns): uses postimage values
-   *   <li>PARTITION_KEY and CLUSTERING_KEY columns are included from postimage (if includePk is
-   *       true)
-   * </ul>
-   *
-   * @param collectionSchema the collection schema
-   * @param preImage the preimage containing old values for modified columns, or null
-   * @param postImage the postimage containing all column values after the change, or null
-   * @param includePk whether to include primary key columns
-   * @param modifiedColumns the set of modified column names (pre-computed from preImage)
-   * @return the populated before struct, or null if no preimage is available
-   */
-  private Struct fillBeforeStructForUpdate(
-      ScyllaCollectionSchema collectionSchema,
-      RawChange preImage,
-      RawChange postImage,
-      boolean includePk,
-      Set<String> modifiedColumns) {
-    // If no preimage, we have no "before" data
-    if (preImage == null) {
-      return null;
-    }
-
-    // If no postimage, treat preimage as a full image
-    if (postImage == null) {
-      return fillStructWithFullImage(
-          collectionSchema.beforeSchema(), preImage, includePk, collectionSchema);
-    }
-
-    // Both images present - combine data from preimage and postimage
-    Struct valueStruct = new Struct(collectionSchema.beforeSchema());
-    boolean legacyFormat =
-        connectorConfig.getCdcOutputFormat()
-            == ScyllaConnectorConfig.CdcOutputFormat.LEGACY;
-
-    // Fill from postImage - this gives us unchanged columns and primary keys
-    for (ChangeSchema.ColumnDefinition cdef : postImage.getSchema().getNonCdcColumnDefinitions()) {
-      String columnName = cdef.getColumnName();
-      if (!ScyllaSchema.isSupportedColumnSchema(postImage.getSchema(), cdef)) {
-        continue;
-      }
-
-      if (isPrimaryKeyColumn(cdef)) {
-        if (!includePk) {
-          continue;
-        }
-        Object value =
-            translateCellToKafka(
-                getCellSafe(postImage, columnName), collectionSchema.cellSchema(columnName));
-        valueStruct.put(columnName, value);
-        continue;
-      }
-      if (modifiedColumns.contains(columnName)) {
-        continue;
-      }
-
-      // Unchanged column from postImage: legacy = Cell wrapping; advanced = raw
-      putColumnValueFromImage(
-          valueStruct,
-          postImage,
-          columnName,
-          cdef,
-          collectionSchema,
-          legacyFormat);
-    }
-
-    // Fill modified columns from preImage (which has the OLD values)
-    for (String columnName : modifiedColumns) {
-      ChangeSchema.ColumnDefinition cdef =
-          preImage.getSchema().getNonCdcColumnDefinitions().stream()
-              .filter(c -> c.getColumnName().equals(columnName))
-              .findFirst()
-              .orElse(null);
-      if (cdef == null || !ScyllaSchema.isSupportedColumnSchema(preImage.getSchema(), cdef)) {
-        continue;
-      }
-      putColumnValueFromImage(
-          valueStruct, preImage, columnName, cdef, collectionSchema, legacyFormat);
-    }
-
-    return valueStruct;
-  }
-
-  /**
-   * Puts a single non-PK column value into valueStruct from an image, using legacy (Cell wrap) or
-   * advanced (raw) format.
-   */
-  private void putColumnValueFromImage(
-      Struct valueStruct,
-      RawChange image,
-      String columnName,
-      ChangeSchema.ColumnDefinition cdef,
-      ScyllaCollectionSchema collectionSchema,
-      boolean legacyFormat) {
-    if (legacyFormat) {
-      if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
-        Struct cellOrNull =
-            translateNonFrozenCollectionToKafka(
-                valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
-        valueStruct.put(columnName, cellOrNull);
-      } else {
-        Object value =
-            translateCellToKafka(
-                getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
-        Schema cellSchema = collectionSchema.cellSchema(columnName);
         Struct cell = new Struct(cellSchema);
+        Struct value = new Struct(innerSchema);
+
+        Cell elementsCell = change.getCell(cdef.getColumnName());
+        Cell deletedElementsCell = change.getCell("cdc$deleted_elements_" + cdef.getColumnName());
+        boolean isDeleted = Boolean.TRUE.equals(change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean());
+
+        Object elements;
+        boolean hasModified = false;
+        switch (elementsCell.getDataType().getCqlType()) {
+            case SET: {
+                Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+                Schema scyllaElementsSchema = SchemaBuilder.array(elementsSchema.keySchema()).build();
+                List<Object> addedElements = (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
+                List<Object> deletedElements = (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema);
+                Map<Object, Boolean> delta = new HashMap<>();
+                if (addedElements != null) {
+                    addedElements.forEach(element -> delta.put(element, true));
+                }
+                if (deletedElements != null) {
+                    deletedElements.forEach(element -> delta.put(element, false));
+                }
+
+                hasModified = !delta.isEmpty();
+                elements = delta;
+                break;
+            }
+            case LIST:
+            case MAP: {
+                Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+                Schema deletedElementsScyllaSchema = SchemaBuilder.array(elementsSchema.keySchema()).optional().build();
+                Map<Object, Object> addedElements = (Map<Object, Object>) ObjectUtils.defaultIfNull(translateFieldToKafka(elementsCell, elementsSchema), new HashMap<>());
+                List<Object> deletedKeys = (List<Object>)translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema);
+                if (deletedKeys != null) {
+                    deletedKeys.forEach((key) -> {
+                        addedElements.put(key, null);
+                    });
+                }
+
+                hasModified = !addedElements.isEmpty();
+                elements = addedElements;
+                break;
+            }
+            case UDT: {
+                List<Short> deletedKeysList = (List<Short>) translateFieldToKafka(deletedElementsCell, SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build());
+                Set<Short> deletedKeys;
+                if (deletedKeysList == null) {
+                    deletedKeys = new HashSet<>();
+                } else {
+                    deletedKeys = new HashSet<>(deletedKeysList);
+                }
+
+                Map<String, Field> elementsMap = elementsCell.getUDT();
+                assert elementsMap instanceof LinkedHashMap;
+
+                Schema udtSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
+                Struct udtStruct = new Struct(udtSchema);
+                Short index = -1;
+                for (Map.Entry<String, Field> element : elementsMap.entrySet()) {
+                    index++;
+                    if ((!element.getValue().isNull()) || deletedKeys.contains(index)) {
+                        hasModified = true;
+                        Schema fieldCellSchema = udtSchema.field(element.getKey()).schema();
+                        Struct fieldCell = new Struct (fieldCellSchema);
+                        if (element.getValue().isNull()) {
+                            fieldCell.put(ScyllaSchema.CELL_VALUE, null);
+                        } else {
+                            fieldCell.put(ScyllaSchema.CELL_VALUE, translateFieldToKafka(element.getValue(), fieldCellSchema.field(ScyllaSchema.CELL_VALUE).schema()));
+                        }
+                        udtStruct.put(element.getKey(), fieldCell);
+                    }
+                }
+
+                elements = udtStruct;
+                break;
+            }
+            default:
+                throw new RuntimeException("Unreachable");
+        }
+
+        if (!hasModified) {
+            if (isDeleted) {
+                cell.put(ScyllaSchema.CELL_VALUE, null);
+                return cell;
+            } else {
+                return null;
+            }
+        }
+
+        CollectionOperation mode = isDeleted ? CollectionOperation.OVERWRITE : CollectionOperation.MODIFY;
+        value.put(ScyllaSchema.MODE_VALUE, mode.toString());
+        value.put(ScyllaSchema.ELEMENTS_VALUE, elements);
+
         cell.put(ScyllaSchema.CELL_VALUE, value);
-        valueStruct.put(columnName, cell);
-      }
-    } else {
-      if (ScyllaSchema.isNonFrozenCollection(image.getSchema(), cdef)) {
-        Struct cell =
-            translateNonFrozenCollectionToKafka(
-                valueStruct, image, collectionSchema.cellSchema(columnName), cdef);
-        valueStruct.put(columnName, cell != null ? cell.get(ScyllaSchema.CELL_VALUE) : null);
-      } else {
-        Object value =
-            translateCellToKafka(
-                getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
-        valueStruct.put(columnName, value);
-      }
-    }
-  }
-
-  private Struct translateNonFrozenCollectionToKafka(Struct valueStruct, RawChange change, Schema cellSchema, ChangeSchema.ColumnDefinition cdef) {
-      Schema innerSchema = cellSchema.field(ScyllaSchema.CELL_VALUE).schema();
-      Struct cell = new Struct(cellSchema);
-      Struct value = new Struct(innerSchema);
-
-      Cell elementsCell = change.getCell(cdef.getColumnName());
-      Cell deletedElementsCell = change.getCell("cdc$deleted_elements_" + cdef.getColumnName());
-      boolean isDeleted = Boolean.TRUE.equals(change.getCell("cdc$deleted_" + cdef.getColumnName()).getBoolean());
-
-      Object elements;
-      boolean hasModified = false;
-      switch (elementsCell.getDataType().getCqlType()) {
-          case SET: {
-              Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
-              Schema scyllaElementsSchema = SchemaBuilder.array(elementsSchema.keySchema()).build();
-              List<Object> addedElements = (List<Object>) translateFieldToKafka(elementsCell, scyllaElementsSchema);
-              List<Object> deletedElements = (List<Object>) translateFieldToKafka(deletedElementsCell, scyllaElementsSchema);
-              Map<Object, Boolean> delta = new HashMap<>();
-              if (addedElements != null) {
-                  addedElements.forEach(element -> delta.put(element, true));
-              }
-              if (deletedElements != null) {
-                  deletedElements.forEach(element -> delta.put(element, false));
-              }
-
-              hasModified = !delta.isEmpty();
-              elements = delta;
-              break;
-          }
-          case LIST:
-          case MAP: {
-              Schema elementsSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
-              Schema deletedElementsScyllaSchema = SchemaBuilder.array(elementsSchema.keySchema()).optional().build();
-              Map<Object, Object> addedElements = (Map<Object, Object>) ObjectUtils.defaultIfNull(translateFieldToKafka(elementsCell, elementsSchema), new HashMap<>());
-              List<Object> deletedKeys = (List<Object>)translateFieldToKafka(deletedElementsCell, deletedElementsScyllaSchema);
-              if (deletedKeys != null) {
-                  deletedKeys.forEach((key) -> {
-                      addedElements.put(key, null);
-                  });
-              }
-
-              hasModified = !addedElements.isEmpty();
-              elements = addedElements;
-              break;
-          }
-          case UDT: {
-              List<Short> deletedKeysList = (List<Short>) translateFieldToKafka(deletedElementsCell, SchemaBuilder.array(Schema.INT16_SCHEMA).optional().build());
-              Set<Short> deletedKeys;
-              if (deletedKeysList == null) {
-                  deletedKeys = new HashSet<>();
-              } else {
-                  deletedKeys = new HashSet<>(deletedKeysList);
-              }
-
-              Map<String, Field> elementsMap = elementsCell.getUDT();
-              assert elementsMap instanceof LinkedHashMap;
-
-              Schema udtSchema = innerSchema.field(ScyllaSchema.ELEMENTS_VALUE).schema();
-              Struct udtStruct = new Struct(udtSchema);
-              Short index = -1;
-              for (Map.Entry<String, Field> element : elementsMap.entrySet()) {
-                  index++;
-                  if ((!element.getValue().isNull()) || deletedKeys.contains(index)) {
-                      hasModified = true;
-                      Schema fieldCellSchema = udtSchema.field(element.getKey()).schema();
-                      Struct fieldCell = new Struct (fieldCellSchema);
-                      if (element.getValue().isNull()) {
-                          fieldCell.put(ScyllaSchema.CELL_VALUE, null);
-                      } else {
-                          fieldCell.put(ScyllaSchema.CELL_VALUE, translateFieldToKafka(element.getValue(), fieldCellSchema.field(ScyllaSchema.CELL_VALUE).schema()));
-                      }
-                      udtStruct.put(element.getKey(), fieldCell);
-                  }
-              }
-
-              elements = udtStruct;
-              break;
-          }
-          default:
-              throw new RuntimeException("Unreachable");
-      }
-
-      if (!hasModified) {
-          if (isDeleted) {
-              cell.put(ScyllaSchema.CELL_VALUE, null);
-              return cell;
-          } else {
-              return null;
-          }
-      }
-
-      CollectionOperation mode = isDeleted ? CollectionOperation.OVERWRITE : CollectionOperation.MODIFY;
-      value.put(ScyllaSchema.MODE_VALUE, mode.toString());
-      value.put(ScyllaSchema.ELEMENTS_VALUE, elements);
-
-      cell.put(ScyllaSchema.CELL_VALUE, value);
-      return cell;
-  }
-
-  private Struct generalizedEnvelope(
-      Schema schema,
-      Object before,
-      Object after,
-      Object payloadKey,
-      Object diff,
-      Struct source,
-      Instant timestamp,
-      Envelope.Operation operationType) {
-    Struct struct = new Struct(schema);
-    struct.put(Envelope.FieldName.OPERATION, operationType.code());
-    if (before != null) {
-      struct.put(Envelope.FieldName.BEFORE, before);
-    }
-    if (after != null) {
-      struct.put(Envelope.FieldName.AFTER, after);
-    }
-    // Add optional key field if schema contains it and value is not null
-    String keyFieldName = this.schema.getPayloadKeyFieldName();
-    if (payloadKey != null && schema.field(keyFieldName) != null) {
-      struct.put(keyFieldName, payloadKey);
-    }
-    // Add optional diff field if schema contains it and value is not null
-    if (diff != null && schema.field(ScyllaSchema.FIELD_DIFF) != null) {
-      struct.put(ScyllaSchema.FIELD_DIFF, diff);
-    }
-    if (source != null) {
-      struct.put(Envelope.FieldName.SOURCE, source);
-    }
-    if (timestamp != null) {
-      struct.put(Envelope.FieldName.TIMESTAMP, timestamp.toEpochMilli());
-    }
-    return struct;
-  }
-
-  /**
-   * Translates a Cell to Kafka representation for scalar and frozen collection types.
-   *
-   * @param cell the cell containing the value to translate
-   * @param cellSchema the pre-computed Kafka Connect schema for this cell (from
-   *     ScyllaCollectionSchema.cellSchema)
-   * @return the Kafka-compatible representation of the cell value, or null if the cell is null
-   */
-  private Object translateCellToKafka(Cell cell, Schema cellSchema) {
-    if (cell == null || cell.getAsObject() == null) {
-      return null;
-    }
-    return translateFieldToKafka(cell, cellSchema);
-  }
-
-  /** Converts a Scylla CDC field value into a Kafka Connect-compatible representation. */
-  private Object translateFieldToKafka(
-      com.scylladb.cdc.model.worker.cql.Field field, Schema resultSchema) {
-    ChangeSchema.DataType dataType = field.getDataType();
-
-    if (field.getAsObject() == null) {
-      return null;
+        return cell;
     }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.DECIMAL) {
-      return field.getDecimal().toString();
-    }
+    private Object translateFieldToKafka(Field field, Schema resultSchema) {
+       ChangeSchema.DataType dataType = field.getDataType();
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.UUID) {
-      return field.getUUID().toString();
-    }
+       if (field.getAsObject() == null) {
+           return null;
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.TIMEUUID) {
-      return field.getUUID().toString();
-    }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.DECIMAL) {
+           return field.getDecimal().toString();
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.VARINT) {
-      return field.getVarint().toString();
-    }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.UUID) {
+           return field.getUUID().toString();
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.INET) {
-      return field.getInet().getHostAddress();
-    }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.TIMEUUID) {
+           return field.getUUID().toString();
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.DATE) {
-      CqlDate cqlDate = field.getDate();
-      Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-      calendar.clear();
-      // Months start from 0 in Calendar:
-      calendar.set(cqlDate.getYear(), cqlDate.getMonth() - 1, cqlDate.getDay());
-      return Date.from(calendar.toInstant());
-    }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.VARINT) {
+           return field.getVarint().toString();
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.DURATION) {
-      return field.getDuration().toString();
-    }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.INET) {
+           return field.getInet().getHostAddress();
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.LIST) {
-      Schema innerSchema = resultSchema != null ? resultSchema.valueSchema() : null;
-      return field.getList().stream()
-          .map((element) -> translateFieldToKafka(element, innerSchema))
-          .collect(Collectors.toList());
-    }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.DATE) {
+           CqlDate cqlDate = field.getDate();
+           Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+           calendar.clear();
+           // Months start from 0 in Calendar:
+           calendar.set(cqlDate.getYear(), cqlDate.getMonth() - 1, cqlDate.getDay());
+           return Date.from(calendar.toInstant());
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.SET) {
-      Schema innerSchema = resultSchema != null ? resultSchema.valueSchema() : null;
-      return field.getSet().stream()
-          .map((element) -> translateFieldToKafka(element, innerSchema))
-          .collect(Collectors.toList());
-    }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.DURATION) {
+           return field.getDuration().toString();
+       }
 
-    if (dataType.getCqlType() == ChangeSchema.CqlType.MAP) {
-      Map<com.scylladb.cdc.model.worker.cql.Field, com.scylladb.cdc.model.worker.cql.Field> map =
-          field.getMap();
+       if (dataType.getCqlType() == ChangeSchema.CqlType.LIST) {
+           Schema innerSchema = resultSchema.valueSchema();
+           return field.getList().stream().map((element) -> this.translateFieldToKafka(element, innerSchema)).collect(Collectors.toList());
+       }
 
-      // Check if this is a non-frozen list (stored as map<timeuuid, V>)
-      // Non-frozen lists have TIMEUUID keys AND the schema is ARRAY of non-struct values.
-      // Frozen map<timeuuid, V> has the same CDC structure but schema is ARRAY of {key, value}.
-      List<ChangeSchema.DataType> typeArgs = dataType.getTypeArguments();
-      boolean isMapEntrySchema =
-          resultSchema != null
-              && resultSchema.type() == Schema.Type.ARRAY
-              && resultSchema.valueSchema() != null
-              && resultSchema.valueSchema().type() == Schema.Type.STRUCT
-              && resultSchema.valueSchema().field("key") != null
-              && resultSchema.valueSchema().field("value") != null;
+       if (dataType.getCqlType() == ChangeSchema.CqlType.SET) {
+           Schema innerSchema = resultSchema.valueSchema();
+           return field.getSet().stream().map((element) -> this.translateFieldToKafka(element, innerSchema)).collect(Collectors.toList());
+       }
 
-      if (typeArgs != null
-          && typeArgs.size() == 2
-          && typeArgs.get(0).getCqlType() == ChangeSchema.CqlType.TIMEUUID
-          && resultSchema != null
-          && resultSchema.type() == Schema.Type.ARRAY
-          && !isMapEntrySchema) {
-        // This is a non-frozen list - extract values only, sorted by key (timeuuid preserves order)
-        Schema valueSchema = resultSchema.valueSchema();
-        return map.entrySet().stream()
-            .sorted(
-                (e1, e2) -> {
-                  // Sort by timeuuid key to preserve insertion order
-                  UUID k1 = e1.getKey().getUUID();
-                  UUID k2 = e2.getKey().getUUID();
-                  return k1.compareTo(k2);
-                })
-            .map(e -> translateFieldToKafka(e.getValue(), valueSchema))
-            .collect(Collectors.toList());
-      }
+       if (dataType.getCqlType() == ChangeSchema.CqlType.MAP) {
+           Map<Field, Field> map = field.getMap();
+           Map<Object, Object> kafkaMap = new LinkedHashMap<>();
+           Schema keySchema = resultSchema.keySchema();
+           Schema valueSchema = resultSchema.valueSchema();
+           map.forEach((key, value) -> {
+               Object kafkaKey = translateFieldToKafka(key, keySchema);
+               Object kafkaValue = translateFieldToKafka(value, valueSchema);
+               kafkaMap.put(kafkaKey, kafkaValue);
+           });
+           return kafkaMap;
+       }
 
-      if (resultSchema != null && resultSchema.type() == Schema.Type.ARRAY) {
-        List<Object> entries = new ArrayList<>();
-        Schema entrySchema = resultSchema.valueSchema();
-        if (entrySchema == null) {
-          String errorMsg = "Array schema for MAP must have non-null value schema";
-          LOGGER.error("{} {}", CONNECTOR_ERROR_MARKER, errorMsg);
-          throw new IllegalStateException(errorMsg);
-        }
-        Schema keySchema = entrySchema.field("key").schema();
-        Schema valueSchema = entrySchema.field("value").schema();
-        map.forEach(
-            (key, value) -> {
-              Object kafkaKey = translateFieldToKafka(key, keySchema);
-              Object kafkaValue = translateFieldToKafka(value, valueSchema);
-              entries.add(createListElementStruct(entrySchema, kafkaKey, kafkaValue));
+       if (dataType.getCqlType() == ChangeSchema.CqlType.TUPLE) {
+           List<org.apache.kafka.connect.data.Field> fields_schemas = resultSchema.fields();
+           Struct tupleStruct = new Struct(resultSchema);
+           List<Field> tuple = field.getTuple();
+           for (int i = 0; i < tuple.size(); i++) {
+               tupleStruct.put("tuple_member_" + i, translateFieldToKafka(tuple.get(i), fields_schemas.get(i).schema()));
+           }
+           return tupleStruct;
+       }
+
+        if (dataType.getCqlType() == ChangeSchema.CqlType.UDT) {
+            Struct udtStruct = new Struct(resultSchema);
+            Map<String, Field> udt = field.getUDT();
+            udt.forEach((name, value) -> {
+                udtStruct.put(name, translateFieldToKafka(value, resultSchema.field(name).schema()));
             });
-        return entries;
-      }
-      Map<Object, Object> kafkaMap = new LinkedHashMap<>();
-      Schema keySchema = resultSchema != null ? resultSchema.keySchema() : null;
-      Schema valueSchema = resultSchema != null ? resultSchema.valueSchema() : null;
-      map.forEach(
-          (key, value) -> {
-            Object kafkaKey = translateFieldToKafka(key, keySchema);
-            Object kafkaValue = translateFieldToKafka(value, valueSchema);
-            kafkaMap.put(kafkaKey, kafkaValue);
-          });
-      return kafkaMap;
-    }
-
-    if (dataType.getCqlType() == ChangeSchema.CqlType.TUPLE) {
-      if (resultSchema == null) {
-        String errorMsg = "TUPLE type requires a non-null schema";
-        LOGGER.error("{} {}", CONNECTOR_ERROR_MARKER, errorMsg);
-        throw new IllegalStateException(errorMsg);
-      }
-      List<org.apache.kafka.connect.data.Field> fieldSchemas = resultSchema.fields();
-      Struct tupleStruct = new Struct(resultSchema);
-      List<com.scylladb.cdc.model.worker.cql.Field> tuple = field.getTuple();
-      for (int i = 0; i < tuple.size(); i++) {
-        Schema fieldSchema = fieldSchemas != null ? fieldSchemas.get(i).schema() : null;
-        // Use "field_N" naming for Avro compatibility (Avro field names cannot start with digits)
-        tupleStruct.put("field_" + i, translateFieldToKafka(tuple.get(i), fieldSchema));
-      }
-      return tupleStruct;
-    }
-
-    if (dataType.getCqlType() == ChangeSchema.CqlType.UDT) {
-      if (resultSchema == null) {
-        String errorMsg = "UDT type requires a non-null schema";
-        LOGGER.error("{} {}", CONNECTOR_ERROR_MARKER, errorMsg);
-        throw new IllegalStateException(errorMsg);
-      }
-      Struct udtStruct = new Struct(resultSchema);
-      Map<String, com.scylladb.cdc.model.worker.cql.Field> udt = field.getUDT();
-      boolean allNullOrEmpty = true;
-      for (Map.Entry<String, com.scylladb.cdc.model.worker.cql.Field> entry : udt.entrySet()) {
-        String name = entry.getKey();
-        com.scylladb.cdc.model.worker.cql.Field value = entry.getValue();
-        Schema fieldSchema =
-            resultSchema.field(name) != null ? resultSchema.field(name).schema() : null;
-        Object translated = translateFieldToKafka(value, fieldSchema);
-        udtStruct.put(name, translated);
-        // Check if field has meaningful content (not null and not empty collection)
-        if (translated != null && !isEmptyCollection(translated)) {
-          allNullOrEmpty = false;
+            return udtStruct;
         }
-      }
-      // Return null for empty UDTs (all fields null or empty) for consistency with frozen UDTs
-      if (allNullOrEmpty) {
-        return null;
-      }
-      return udtStruct;
-    }
 
-    return field.getAsObject();
-  }
-
-  /** Creates a list-entry struct for map-like collection elements. */
-  private Struct createListElementStruct(Schema entrySchema, Object key, Object value) {
-    Struct elementStruct = new Struct(entrySchema);
-    elementStruct.put("key", key);
-    elementStruct.put("value", value);
-    return elementStruct;
-  }
-
-  /** Checks if a value is an empty collection (List, Set, or Map). */
-  private static boolean isEmptyCollection(Object value) {
-    if (value instanceof Collection) {
-      return ((Collection<?>) value).isEmpty();
-    }
-    if (value instanceof Map) {
-      return ((Map<?, ?>) value).isEmpty();
-    }
-    return false;
-  }
-
-  // ========== PK Location Configuration Helpers ==========
-
-  /** Checks if the column is a primary key column (partition key or clustering key). */
-  private static boolean isPrimaryKeyColumn(ChangeSchema.ColumnDefinition cdef) {
-    ChangeSchema.ColumnType colType = cdef.getBaseTableColumnType();
-    return colType == ChangeSchema.ColumnType.PARTITION_KEY
-        || colType == ChangeSchema.ColumnType.CLUSTERING_KEY;
-  }
-
-  /** Checks if PK/CK should be included in the Kafka record key. */
-  private boolean includePkInKafkaKey() {
-    return connectorConfig.getCdcIncludePk().inKafkaKey;
-  }
-
-  /** Checks if PK/CK should be included in the 'after' struct. */
-  private boolean includePkInPayloadAfter() {
-    return connectorConfig.getCdcIncludePk().inPayloadAfter;
-  }
-
-  /** Checks if PK/CK should be included in the 'before' struct. */
-  private boolean includePkInPayloadBefore() {
-    return connectorConfig.getCdcIncludePk().inPayloadBefore;
-  }
-
-  /** Checks if PK/CK should be included in the payload 'key' field. */
-  private boolean includePkInPayloadKey() {
-    return connectorConfig.getCdcIncludePk().inPayloadKey;
-  }
-
-  /** Checks if PK/CK should be included in Kafka headers. */
-  private boolean includePkInKafkaHeaders() {
-    return connectorConfig.getCdcIncludePk().inKafkaHeaders;
-  }
-
-  /**
-   * Builds Kafka headers containing PK/CK values.
-   *
-   * @param image the image to extract PK/CK values from
-   * @param collectionSchema the collection schema for looking up cell schemas
-   * @return ConnectHeaders containing pk.* and ck.* headers, or null if not configured
-   */
-  private ConnectHeaders buildPkHeaders(RawChange image, ScyllaCollectionSchema collectionSchema) {
-    if (!includePkInKafkaHeaders() || image == null) {
-      return null;
-    }
-    ConnectHeaders headers = new ConnectHeaders();
-    for (ChangeSchema.ColumnDefinition cdef : image.getSchema().getNonCdcColumnDefinitions()) {
-      String columnName = cdef.getColumnName();
-      Object value =
-          translateCellToKafka(
-              getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
-      if (value == null) continue;
-
-      ChangeSchema.ColumnType columnType = cdef.getBaseTableColumnType();
-      String headerPrefix;
-      if (columnType == ChangeSchema.ColumnType.PARTITION_KEY) {
-        headerPrefix = "pk.";
-      } else if (columnType == ChangeSchema.ColumnType.CLUSTERING_KEY) {
-        headerPrefix = "ck.";
-      } else {
-        continue; // Skip non-key columns
-      }
-
-      // Convert value to string for header
-      headers.addString(headerPrefix + columnName, String.valueOf(value));
-    }
-    return headers;
-  }
-
-  /**
-   * Fills the payload 'key' struct with PK/CK values.
-   *
-   * @param keySchema the schema for the key struct
-   * @param image the image to extract PK/CK values from
-   * @param collectionSchema the collection schema for looking up cell schemas
-   * @return the populated key struct, or null if not configured or image is null
-   */
-  private Struct fillPayloadKeyStruct(
-      Schema keySchema, RawChange image, ScyllaCollectionSchema collectionSchema) {
-    if (!includePkInPayloadKey() || image == null || keySchema == null) {
-      return null;
+       return field.getAsObject();
     }
     Struct keyStruct = new Struct(keySchema);
     fillKeyStructFromImage(keyStruct, image, collectionSchema);

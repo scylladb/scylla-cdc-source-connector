@@ -21,13 +21,17 @@ import org.apache.kafka.connect.data.Timestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 public class ScyllaSchema implements DatabaseSchema<CollectionId> {
     private static final Logger LOGGER = LoggerFactory.getLogger(ScyllaSchema.class);
     public static final String CELL_VALUE = "value";
     public static final String ELEMENTS_VALUE = "elements";
     public static final String REMOVED_ELEMENTS_VALUE = "removed_elements";
     public static final String MODE_VALUE = "mode";
-    public static final String FIELD_DIFF = "diff";
 
   private final String payloadKeyFieldName;
 
@@ -119,56 +123,54 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
             .collect(Collectors.joining(", ")));
     final Envelope envelope = Envelope.fromSchema(valueSchema);
 
-    return new ScyllaCollectionSchema(
-        collectionId,
-        keySchema,
-        valueSchema,
-        beforeSchema,
-        afterSchema,
-        null,
-        cellSchemas,
-        null,
-        envelope);
-  }
+        Map<String, Schema> cellSchemas = computeCellSchemas(changeSchema, collectionId);
+        Schema keySchema = computeKeySchema(changeSchema, collectionId);
+        Schema beforeSchema = computeBeforeSchema(changeSchema, cellSchemas, collectionId);
+        Schema afterSchema = computeAfterSchema(changeSchema, cellSchemas, collectionId);
 
-  private Map<String, Schema> computeCellSchemas(
-      ChangeSchema changeSchema, CollectionId collectionId) {
-    Map<String, Schema> cellSchemas = new HashMap<>();
-    String schemaNamePrefix = generateSchemaNamePrefix(collectionId);
-    for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (isPrimaryKeyColumn(cdef)) continue;
+        final Schema valueSchema = SchemaBuilder.struct()
+                .name(adjuster.adjust(Envelope.schemaName(configuration.getLogicalName() + "." + collectionId.getTableName().keyspace + "." + collectionId.getTableName().name)))
+                .field(Envelope.FieldName.SOURCE, sourceSchema)
+                .field(Envelope.FieldName.BEFORE, beforeSchema)
+                .field(Envelope.FieldName.AFTER, afterSchema)
+                .field(Envelope.FieldName.OPERATION, Schema.OPTIONAL_STRING_SCHEMA)
+                .field(Envelope.FieldName.TIMESTAMP, Schema.OPTIONAL_INT64_SCHEMA)
+                .field(Envelope.FieldName.TRANSACTION, TransactionMonitor.TRANSACTION_BLOCK_SCHEMA)
+                .build();
 
-      try {
-        Schema columnSchema =
-            computeColumnSchema(
-                cdef.getCdcLogDataType(), cdef.getBaseTableDataType(), schemaNamePrefix);
-        cellSchemas.put(cdef.getColumnName(), columnSchema);
-        LOGGER.debug(
-            "Computed cell schema for column {}: type={}, schema={}",
-            cdef.getColumnName(),
-            cdef.getCdcLogDataType().getCqlType(),
-            columnSchema);
-      } catch (Exception e) {
-        LOGGER.error(
-            "Failed to compute cell schema for column {}: type={}",
-            cdef.getColumnName(),
-            cdef.getCdcLogDataType().getCqlType(),
-            e);
-        throw e;
-      }
+        final Envelope envelope = Envelope.fromSchema(valueSchema);
+
+        return new ScyllaCollectionSchema(collectionId, keySchema, valueSchema, beforeSchema, afterSchema, cellSchemas, envelope);
+    }
+
+    private Map<String, Schema> computeCellSchemas(ChangeSchema changeSchema, CollectionId collectionId) {
+        Map<String, Schema> cellSchemas = new HashMap<>();
+        for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
+            if (cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.PARTITION_KEY
+                    || cdef.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
+
+            Schema columnSchema = computeColumnSchema(changeSchema, cdef, configuration.getCollectionsMode());
+            Schema cellSchema = SchemaBuilder.struct()
+                    .name(adjuster.adjust(configuration.getLogicalName() + "." + collectionId.getTableName().keyspace + "." + collectionId.getTableName().name + "." + cdef.getColumnName() + ".Cell"))
+                    .field(CELL_VALUE, columnSchema).optional().build();
+            cellSchemas.put(cdef.getColumnName(), cellSchema);
+        }
+        return cellSchemas;
     }
     return cellSchemas;
   }
 
-  private Schema computeKeySchema(ChangeSchema changeSchema, CollectionId collectionId) {
-    // Return cached key schema if available for this keyspace.table
-    Schema cachedKeySchema = keySchemaCache.get(collectionId);
-    if (cachedKeySchema != null) {
-      return cachedKeySchema;
-    }
-
-    SchemaBuilder keySchemaBuilder =
-        SchemaBuilder.struct().name(generateSchemaNamePrefix(collectionId) + "Key");
+    private Schema computeKeySchema(ChangeSchema changeSchema, CollectionId collectionId) {
+        SchemaBuilder keySchemaBuilder = SchemaBuilder.struct()
+                .name(adjuster.adjust(configuration.getLogicalName() + "." + collectionId.getTableName().keyspace + "." + collectionId.getTableName().name + ".Key"));
+        for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
+            if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY
+                    && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
+            Schema columnSchema = computeColumnSchema(changeSchema, cdef, configuration.getCollectionsMode());
+            keySchemaBuilder = keySchemaBuilder.field(cdef.getColumnName(), columnSchema);
+        }
 
     // Add partition key columns first to ensure proper primary key ordering
     for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
@@ -178,57 +180,17 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
       keySchemaBuilder = keySchemaBuilder.field(cdef.getColumnName(), columnSchema);
     }
 
-    // Add clustering key columns second
-    for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) continue;
-
-      Schema columnSchema = computeColumnSchema(cdef.getCdcLogDataType());
-      keySchemaBuilder = keySchemaBuilder.field(cdef.getColumnName(), columnSchema);
-    }
-
-    Schema keySchema = keySchemaBuilder.build();
-    keySchemaCache.put(collectionId, keySchema);
-    return keySchema;
-  }
-
-  /**
-   * Generates a schema name prefix for nested types (maps, tuples, UDTs).
-   *
-   * <p>This prefix ensures globally unique schema names across different topics, which is required
-   * when using Schema Registry with {@code RecordNameStrategy}. Without this prefix, two different
-   * tables with the same nested type structure (e.g., {@code map<text, int>}) would generate
-   * identical schema names like {@code MapEntry_TEXT_INT}, causing conflicts if the structures
-   * differ or when schema evolution occurs independently per table.
-   *
-   * <p>With this prefix, schemas are namespaced per table: {@code
-   * connector.keyspace.table.MapEntry_TEXT_INT}
-   *
-   * @param collectionId the collection (table) identifier
-   * @return the schema name prefix including trailing dot
-   */
-  private String generateSchemaNamePrefix(CollectionId collectionId) {
-    return adjuster.adjust(
-            configuration.getLogicalName()
-                + "."
-                + collectionId.getTableName().keyspace
-                + "."
-                + collectionId.getTableName().name)
-        + ".";
-  }
-
-  private Schema computeRowSchema(
-      ChangeSchema changeSchema,
-      Map<String, Schema> cellSchemas,
-      CollectionId collectionId,
-      String suffix,
-      boolean includePk) {
-    SchemaBuilder schemaBuilder =
-        SchemaBuilder.struct().name(generateSchemaNamePrefix(collectionId) + suffix);
-    for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
-      if (isPrimaryKeyColumn(cdef)) {
-        if (includePk) {
-          Schema columnSchema = computeColumnSchema(cdef.getCdcLogDataType());
-          schemaBuilder = schemaBuilder.field(cdef.getColumnName(), columnSchema);
+    private Schema computeAfterSchema(ChangeSchema changeSchema, Map<String, Schema> cellSchemas, CollectionId collectionId) {
+        SchemaBuilder afterSchemaBuilder = SchemaBuilder.struct()
+                .name(adjuster.adjust(configuration.getLogicalName() + "." + collectionId.getTableName().keyspace + "." + collectionId.getTableName().name + ".After"));
+        for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
+            if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
+                afterSchemaBuilder = afterSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
+            } else {
+                Schema columnSchema = computeColumnSchema(changeSchema, cdef, configuration.getCollectionsMode());
+                afterSchemaBuilder = afterSchemaBuilder.field(cdef.getColumnName(), columnSchema);
+            }
         }
       } else {
         schemaBuilder =
@@ -238,59 +200,23 @@ public class ScyllaSchema implements DatabaseSchema<CollectionId> {
     return schemaBuilder.optional().build();
   }
 
-  /**
-   * Generates a unique schema name for a CQL data type.
-   *
-   * <p>Avro requires all record types to have unique names. This method generates deterministic
-   * names based on the type structure.
-   */
-  private static String generateTypeName(ChangeSchema.DataType dataType) {
-    if (dataType == null) {
-      return "Unknown";
+    private Schema computeBeforeSchema(ChangeSchema changeSchema, Map<String, Schema> cellSchemas, CollectionId collectionId) {
+        SchemaBuilder beforeSchemaBuilder = SchemaBuilder.struct()
+                .name(adjuster.adjust(configuration.getLogicalName() + "." + collectionId.getTableName().keyspace + "." + collectionId.getTableName().name + ".Before"));
+        for (ChangeSchema.ColumnDefinition cdef : changeSchema.getNonCdcColumnDefinitions()) {
+            if (!isSupportedColumnSchema(changeSchema, cdef)) continue;
+            if (cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.PARTITION_KEY && cdef.getBaseTableColumnType() != ChangeSchema.ColumnType.CLUSTERING_KEY) {
+                beforeSchemaBuilder = beforeSchemaBuilder.field(cdef.getColumnName(), cellSchemas.get(cdef.getColumnName()));
+            } else {
+                Schema columnSchema = computeColumnSchema(changeSchema, cdef, configuration.getCollectionsMode());
+                beforeSchemaBuilder = beforeSchemaBuilder.field(cdef.getColumnName(), columnSchema);
+            }
+        } else {
+            return computeColumnSchemaBasic(cdef.getCdcLogDataType());
+        }
     }
-    ChangeSchema.CqlType cqlType = dataType.getCqlType();
-    switch (cqlType) {
-      case MAP:
-        List<ChangeSchema.DataType> mapArgs = dataType.getTypeArguments();
-        if (mapArgs != null && mapArgs.size() == 2) {
-          return "Map_" + generateTypeName(mapArgs.get(0)) + "_" + generateTypeName(mapArgs.get(1));
-        }
-        return "Map";
-      case LIST:
-        List<ChangeSchema.DataType> listArgs = dataType.getTypeArguments();
-        if (listArgs != null && !listArgs.isEmpty()) {
-          return "List_" + generateTypeName(listArgs.get(0));
-        }
-        return "List";
-      case SET:
-        List<ChangeSchema.DataType> setArgs = dataType.getTypeArguments();
-        if (setArgs != null && !setArgs.isEmpty()) {
-          return "Set_" + generateTypeName(setArgs.get(0));
-        }
-        return "Set";
-      case TUPLE:
-        List<ChangeSchema.DataType> tupleArgs = dataType.getTypeArguments();
-        if (tupleArgs != null && !tupleArgs.isEmpty()) {
-          StringBuilder sb = new StringBuilder("Tuple");
-          for (ChangeSchema.DataType arg : tupleArgs) {
-            sb.append("_").append(generateTypeName(arg));
-          }
-          return sb.toString();
-        }
-        return "Tuple";
-      case UDT:
-        ChangeSchema.DataType.UdtType udtType = dataType.getUdtType();
-        if (udtType != null && udtType.getName() != null) {
-          // Sanitize UDT name for Avro (replace dots and other invalid chars)
-          return "UDT_" + udtType.getName().replace(".", "_").replace("-", "_");
-        }
-        return "UDT";
-      default:
-        return cqlType.name();
-    }
-  }
 
-  protected static Schema computeColumnSchema(ChangeSchema changeSchema, ChangeSchema.ColumnDefinition cdef, CollectionsMode mode) {
+    protected static Schema computeColumnSchema(ChangeSchema changeSchema, ChangeSchema.ColumnDefinition cdef, CollectionsMode mode) {
         if (isNonFrozenCollection(changeSchema, cdef)) {
             switch (mode) {
                 case DELTA: {

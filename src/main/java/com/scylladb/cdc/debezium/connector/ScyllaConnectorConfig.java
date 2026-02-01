@@ -96,561 +96,57 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
             .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
             .withWidth(ConfigDef.Width.SHORT)
             .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("The consistency level of CDC table read queries. This consistency level is used only for read queries " +
+                    "to the CDC log table.");
+
+    public static final Field LOCAL_DC_NAME = Field.create("scylla.local.dc")
+            .withDisplayName("Local DC Name")
+            .withType(ConfigDef.Type.STRING)
+            .withWidth(ConfigDef.Width.MEDIUM)
+            .withImportance(ConfigDef.Importance.LOW)
+            .withDescription("The name of Scylla local datacenter. This local datacenter name will be used to setup " +
+                    "the connection to Scylla to prioritize sending requests to " +
+                    "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
+
+    public static final CollectionsMode DEFAULT_COLLECTIONS_MODE = CollectionsMode.DELTA;
+    public static final Field COLLECTIONS_MODE = Field.create("scylla.collections.mode")
+            .withDisplayName("Collections format")
+            .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
+            .withWidth(ConfigDef.Width.SHORT)
+            .withImportance(ConfigDef.Importance.MEDIUM)
             .withDescription("How to represent non-frozen collections. Currently, only 'delta' mode is supported - in the future " +
                     "support for more modes may be added. 'Delta' mode: change in collection is represented as a struct " +
                     "with 2 fields, 'mode' and 'elements'. 'mode' describes what type of change happened (modifying collection, overwriting collection), " +
                     "'elements' contains added/removed elements.");
+    /*
+     * Scylla CDC Source Connector relies on heartbeats to move the offset,
+     * because the offset determines if the generation ended, therefore HEARTBEAT_INTERVAL
+     * should be positive (0 would disable heartbeats) and a default value is changed
+     * (previously 0).
+     */
+    protected static final Field CUSTOM_HEARTBEAT_INTERVAL = Heartbeat.HEARTBEAT_INTERVAL
+            .withDescription("Length of an interval in milli-seconds in in which the connector periodically sends heartbeat messages "
+                    + "to a heartbeat topic. In Scylla CDC Source Connector, a heartbeat message is used to record the last read " +
+                    "CDC log row.")
+            .withDefault(30000)
+            .withValidation(Field::isRequired, Field::isPositiveInteger);
 
-  public static final Field SSL_KEYSTORE_PATH =
-      Field.create("scylla.ssl.keystore.path")
-          .withDisplayName("SSL Keystore Path")
-          .withType(ConfigDef.Type.STRING)
-          .withImportance(ConfigDef.Importance.MEDIUM)
-          .withDescription("Path to the Java Keystore.");
-
-  public static final Field SSL_KEYSTORE_PASSWORD =
-      Field.create("scylla.ssl.keystore.password")
-          .withDisplayName("SSL Keystore Password")
-          .withType(ConfigDef.Type.STRING)
-          .withImportance(ConfigDef.Importance.MEDIUM)
-          .withDescription("Password to open the Java Keystore with.");
-
-  public static final Field SSL_CIPHER_SUITES =
-      Field.create("scylla.ssl.cipherSuites")
-          .withDisplayName("The cipher suites to enable")
-          .withType(ConfigDef.Type.LIST)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withDescription(
-              "The cipher suites to enable. "
-                  + "Defaults to none, resulting in a ``minimal quality of service`` according to JDK documentation.");
-
-  public static final Field SSL_OPENSLL_KEYCERTCHAIN =
-      Field.create("scylla.ssl.openssl.keyCertChain")
-          .withDisplayName("The path to the certificate chain file")
-          .withType(ConfigDef.Type.STRING)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withDescription("Path to the SSL certificate file, when using OpenSSL.");
-
-  public static final Field SSL_OPENSLL_PRIVATEKEY =
-      Field.create("scylla.ssl.openssl.privateKey")
-          .withDisplayName("The path to the private key file")
-          .withType(ConfigDef.Type.STRING)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withDescription("Path to the private key file, when using OpenSSL.");
-
-  public static final Field TABLE_NAMES =
-      Field.create("scylla.table.names")
-          .withDisplayName("Table Names")
-          .withType(ConfigDef.Type.LIST)
-          .withWidth(ConfigDef.Width.LONG)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withValidation(ConfigSerializerUtil::validateTableNames)
-          .withDescription(
-              "List of CDC-enabled table names for connector to read. "
-                  + "Provided as a comma-separated list of pairs <keyspace name>.<table name>");
-
-  public static final Field USER =
-      Field.create("scylla.user")
-          .withDisplayName("User")
-          .withType(ConfigDef.Type.STRING)
-          .withWidth(ConfigDef.Width.SHORT)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withDescription(
-              "The username to connect to Scylla with. If not set, no authorization is done.");
-
-  public static final Field PASSWORD =
-      Field.create("scylla.password")
-          .withDisplayName("Password")
-          .withType(ConfigDef.Type.PASSWORD)
-          .withWidth(ConfigDef.Width.SHORT)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withDescription(
-              "The password to connect to Scylla with. If not set, no authorization is done.");
-
-  public static final Field QUERY_TIME_WINDOW_SIZE =
-      Field.create("scylla.query.time.window.size")
-          .withDisplayName("Query Time Window Size (ms)")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "The size of windows queried by the connector. Changes are queried using SELECT statements "
-                  + "with time restriction with width defined by this parameter. Value expressed in milliseconds.")
-          .withValidation(Field::isNonNegativeInteger)
-          .withDefault(30000);
-
-  public static final Field CONFIDENCE_WINDOW_SIZE =
-      Field.create("scylla.confidence.window.size")
-          .withDisplayName("Confidence Window Size (ms)")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "The size of the confidence window. It is necessary for the connector to avoid reading too fresh "
-                  + "data from the CDC log due to the eventual consistency of Scylla. The problem could appear when a newer write "
-                  + "reaches a replica before some older write. For a short period of time, when reading, it "
-                  + "is possible for the replica to return only the newer write. The connector mitigates this problem "
-                  + "by not reading a window of most recent changes (controlled by this parameter). Value expressed in milliseconds.")
-          .withValidation(Field::isNonNegativeInteger)
-          .withDefault(30000);
-
-  public static final Field MINIMAL_WAIT_FOR_WINDOW_MS =
-      Field.create("scylla.minimal.wait.for.window.time")
-          .withDisplayName("Minimal 'waitForWindow' time (ms)")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Minimal time between reading consecutive CDC log windows. Meant to be used as a simple throttling mechanism "
-                  + "in situations where driver has a lot of old data to catch up on and ends up hogging resources. "
-                  + "Value expressed in milliseconds.")
-          .withValidation(Field::isNonNegativeInteger)
-          .withDefault(0);
-
-  public static final CQLConfiguration.ConsistencyLevel DEFAULT_CONSISTENCY_LEVEL =
-      CQLConfiguration.ConsistencyLevel.QUORUM;
-  public static final Field CONSISTENCY_LEVEL =
-      Field.create("scylla.consistency.level")
-          .withDisplayName("Consistency Level")
-          .withEnum(CQLConfiguration.ConsistencyLevel.class, DEFAULT_CONSISTENCY_LEVEL)
-          .withWidth(ConfigDef.Width.SHORT)
-          .withImportance(ConfigDef.Importance.MEDIUM)
-          .withDescription(
-              "The consistency level of CDC table read queries. This consistency level is used only for read queries "
-                  + "to the CDC log table.");
-  public static final Field QUERY_OPTIONS_FETCH_SIZE =
-      Field.create("scylla.query.options.fetch.size")
-          .withDisplayName("Queries fetch size")
-          .withType(ConfigDef.Type.INT)
-          .withDefault(0)
-          .withWidth(ConfigDef.Width.SHORT)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withValidation(Field::isNonNegativeInteger)
-          .withDescription(
-              "The default page fetch size for all driver select queries. Value 0 means use driver "
-                  + "defaults (usually 5000). Passed to "
-                  + "driver's QueryOptions before session construction. Set this to an explicit value if "
-                  + "experiencing too high memory usage.");
-
-  public static final Field LOCAL_DC_NAME =
-      Field.create("scylla.local.dc")
-          .withDisplayName("Local DC Name")
-          .withType(ConfigDef.Type.STRING)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "The name of Scylla local datacenter. This local datacenter name will be used to setup "
-                  + "the connection to Scylla to prioritize sending requests to "
-                  + "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
-
-  public static final Field CDC_INCLUDE_BEFORE =
-      Field.create(CDC_INCLUDE_BEFORE_KEY)
-          .withDisplayName("CDC Include Before")
-          .withEnum(CdcIncludeMode.class, CdcIncludeMode.NONE)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.MEDIUM)
-          .withValidation(ConfigSerializerUtil::validateCdcIncludeBefore)
-          .withDescription(
-              "Specifies whether to include the 'before' state of the row in CDC messages. "
-                  + "Set to 'full' to include the complete row before the change. "
-                  + "Set to 'only-updated' to include only the columns that were modified by the operation. "
-                  + "Requires the table to have preimage enabled (WITH cdc = {'preimage': true}). "
-                  + "Only applicable when cdc.output.format=advanced. Default is 'none'.");
-
-  public static final Field CDC_INCLUDE_AFTER =
-      Field.create(CDC_INCLUDE_AFTER_KEY)
-          .withDisplayName("CDC Include After")
-          .withEnum(CdcIncludeMode.class, CdcIncludeMode.NONE)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.MEDIUM)
-          .withValidation(ConfigSerializerUtil::validateCdcIncludeAfter)
-          .withDescription(
-              "Specifies whether to include the 'after' state of the row in CDC messages. "
-                  + "Set to 'full' to include the complete row after the change. "
-                  + "Set to 'only-updated' to include only the columns that were modified by the operation. "
-                  + "Requires the table to have postimage enabled (WITH cdc = {'postimage': true}). "
-                  + "Only applicable when cdc.output.format=advanced. Default is 'none'.");
-
-  public static final Field CDC_INCLUDE_PK =
-      Field.create(CDC_INCLUDE_PK_KEY)
-          .withDisplayName("CDC Include PK Locations")
-          .withType(ConfigDef.Type.LIST)
-          .withWidth(ConfigDef.Width.LONG)
-          .withImportance(ConfigDef.Importance.MEDIUM)
-          .withDefault("kafka-key,payload-after,payload-before")
-          .withValidation(Field::isRequired, ConfigSerializerUtil::validateCdcIncludePk)
-          .withDescription(
-              "Specifies where primary key (PK) and clustering key (CK) columns should be included "
-                  + "in the output. Provide as a comma-separated list of locations: "
-                  + "'kafka-key' (Kafka record key for partitioning/ordering), "
-                  + "'payload-after' (inside value.after), "
-                  + "'payload-before' (inside value.before), "
-                  + "'payload-key' (top-level key object in message value), "
-                  + "'kafka-headers' (as Kafka message headers). "
-                  + "Default is 'kafka-key,payload-after,payload-before'.");
-
-  public static final Field CDC_INCLUDE_PK_PAYLOAD_KEY_NAME =
-      Field.create(CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_KEY)
-          .withDisplayName("CDC Include PK Payload Key Field Name")
-          .withType(ConfigDef.Type.STRING)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDefault(CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_DEFAULT)
-          .withDescription(
-              "Specifies the field name for the primary key object in the message payload "
-                  + "when 'payload-key' is included in cdc.include.primary-key.placement. "
-                  + "Default is 'key'.");
-
-  public static final Field CDC_INCOMPLETE_TASK_TIMEOUT_MS =
-      Field.create("cdc.incomplete.task.timeout.ms")
-          .withDisplayName("Incomplete Task Timeout (ms)")
-          .withType(ConfigDef.Type.LONG)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Timeout in milliseconds for incomplete CDC tasks waiting for preimage/postimage events. "
-                  + "Tasks that remain incomplete longer than this duration will be dropped and logged as errors. "
-                  + "Default is 15000 (15 seconds).")
-          .withValidation(Field::isPositiveLong)
-          .withDefault(15000L);
-
-  public static final Field CDC_OUTPUT_FORMAT =
-      Field.create(CDC_OUTPUT_FORMAT_KEY)
-          .withDisplayName("CDC Output Format")
-          .withEnum(CdcOutputFormat.class, CdcOutputFormat.LEGACY)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.HIGH)
-          .withDescription(
-              "Output format for CDC messages. "
-                  + "'legacy' uses the v1 format with Cell wrapper (e.g., {\"value\": <actual_value>}) "
-                  + "for non-PK columns, and simple preimage handling with experimental.preimages.enabled. "
-                  + "'advanced' uses direct values (no Cell wrapper) for non-PK columns, "
-                  + "and supports cdc.include.before/after modes with preimage AND postimage. "
-                  + "Default is 'legacy'.");
-
-  public static final Field PREIMAGES_ENABLED =
-      Field.create("experimental.preimages.enabled")
-          .withDisplayName("Enable experimental preimages support (legacy mode only)")
-          .withType(ConfigDef.Type.BOOLEAN)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDefault(false)
-          .withValidation(ConfigSerializerUtil::validatePreimagesEnabled)
-          .withDescription(
-              "If enabled, connector will use PRE_IMAGE CDC entries to populate 'before' field of the "
-                  + "Debezium Envelope. Only applicable when cdc.output.format=legacy. "
-                  + "For the 'advanced' format, use cdc.include.before and cdc.include.after instead. "
-                  + "See Scylla docs for more information about CDC preimages limitations.");
-
-  /*
-   * Scylla CDC Source Connector relies on heartbeats to move the offset,
-   * because the offset determines if the generation ended, therefore HEARTBEAT_INTERVAL
-   * should be positive (0 would disable heartbeats) and a default value is changed
-   * (previously 0).
-   */
-  protected static final Field CUSTOM_HEARTBEAT_INTERVAL =
-      Heartbeat.HEARTBEAT_INTERVAL
-          .withDescription(
-              "Length of an interval in milli-seconds in in which the connector periodically sends heartbeat messages "
-                  + "to a heartbeat topic. In Scylla CDC Source Connector, a heartbeat message is used to record the last read "
-                  + "CDC log row.")
-          .withDefault(30000)
-          .withValidation(Field::isRequired, Field::isPositiveInteger);
-
-  public static final Field SOURCE_INFO_STRUCT_MAKER =
-      CommonConnectorConfig.SOURCE_INFO_STRUCT_MAKER.withDefault(
-          ScyllaSourceInfoStructMaker.class.getName());
-
-  public static final Field RETRY_BACKOFF_BASE_MS =
-      Field.create("worker.retry.backoff.base")
-          .withDisplayName("Worker's retry base backoff (ms)")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "The initial backoff in milliseconds that will be used for queries to Scylla. "
-                  + "Each consecutive retry will increase exponentially by a factor of 2 up to configured max backoff.")
-          .withValidation(Field::isNonNegativeInteger)
-          .optional()
-          .withDefault(50);
-
-  public static final Field RETRY_MAX_BACKOFF_MS =
-      Field.create("worker.maximum.backoff")
-          .withDisplayName("Worker's retry maximum backoff (ms)")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Maximum backoff in milliseconds that will be used for queries to Scylla.")
-          .withValidation(Field::isNonNegativeInteger)
-          .optional()
-          .withDefault(30000);
-
-  public static final Field RETRY_BACKOFF_JITTER_PERCENTAGE =
-      Field.create("worker.jitter.percentage")
-          .withDisplayName("Worker's retry jitter percentage")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "The jitter applied to the retry backoffs to make them more spread out in case of the "
-                  + "surges in retries performed. Setting 20 (20%) means that the backoff will have randomly up to 20% of its value "
-                  + "subtracted before application. The jitter does not modify base backoff and has no impact on exponential rise. "
-                  + "Minimal allowed value is 1. Max is 100.")
-          .withValidation(Field::isPositiveInteger)
-          .optional()
-          .withDefault(20);
-
-  public static final Field POOLING_CORE_POOL_LOCAL =
-      Field.create("worker.pooling.core.pool.local")
-          .withDisplayName("Number of connections to DB node")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Worker's target number of connections to a singular Scylla node within distance 'LOCAL'. "
-                  + "Local nodes are the nodes of local datacenter. "
-                  + "Driver session used by worker will aim to maintain this number of connections per local node.")
-          .withValidation(Field::isNonNegativeInteger)
-          .optional()
-          .withDefault(1);
-
-  public static final Field POOLING_MAX_POOL_LOCAL =
-      Field.create("worker.pooling.max.pool.local")
-          .withDisplayName("Max number of connections to DB node")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Worker's maximum number of connections to a singular Scylla node within distance 'LOCAL'. "
-                  + "Worker will open additional connections up to this maximum whenever existing ones go above certain threshold"
-                  + " of concurrent requests.")
-          .withValidation(Field::isNonNegativeInteger)
-          .optional()
-          .withDefault(1);
-
-  public static final Field POOLING_MAX_QUEUE_SIZE =
-      Field.create("worker.pooling.max.queue.size")
-          .withDisplayName("Max requests queue size")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Worker's maximum requests queue size per connection pool. Requests get enqueued if no connection "
-                  + "is available. For some setups (many nodes, many shards, few connector tasks, few connections) it may "
-                  + "be necessary to increase this to avoid BusyPoolException. Additional requests above this limit will be "
-                  + "rejected. Requests that wait for longer than pool timeout value also will be rejected.")
-          .withValidation(Field::isNonNegativeInteger)
-          .optional()
-          .withDefault(512);
-
-  public static final Field POOLING_MAX_REQUESTS_PER_CONNECTION =
-      Field.create("worker.pooling.max.requests.per.connection")
-          .withDisplayName("Max requests per DB connection")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Worker's maximum requests per connection to a Scylla node within distance 'LOCAL'. Requests above "
-                  + "this quantity will be enqueued.")
-          .withValidation(Field::isNonNegativeInteger)
-          .optional()
-          .withDefault(1024);
-
-  public static final Field POOLING_POOL_TIMEOUT_MS =
-      Field.create("worker.pooling.pool.timeout.ms")
-          .withDisplayName("Timeout for acquiring a DB connection")
-          .withType(ConfigDef.Type.INT)
-          .withWidth(ConfigDef.Width.MEDIUM)
-          .withImportance(ConfigDef.Importance.LOW)
-          .withDescription(
-              "Worker's timeout for trying to acquire a connection from a host's pool.")
-          .withValidation(Field::isNonNegativeInteger)
-          .optional()
-          .withDefault(5000);
-
-  private static final ConfigDefinition CONFIG_DEFINITION =
-      CommonConnectorConfig.CONFIG_DEFINITION
-          .edit()
-          .name("Scylla")
-          .type(
-              CLUSTER_IP_ADDRESSES,
-              USER,
-              PASSWORD,
-              TOPIC_PREFIX,
-              CONSISTENCY_LEVEL,
-              QUERY_OPTIONS_FETCH_SIZE,
-              LOCAL_DC_NAME,
-              SSL_ENABLED,
-              SSL_PROVIDER,
-              SSL_TRUSTSTORE_PATH,
-              SSL_TRUSTSTORE_PASSWORD,
-              SSL_KEYSTORE_PATH,
-              SSL_KEYSTORE_PASSWORD,
-              SSL_CIPHER_SUITES,
-              SSL_OPENSLL_KEYCERTCHAIN,
-              SSL_OPENSLL_PRIVATEKEY,
-              COLLECTIONS_MODE)
-          .connector(
-              QUERY_TIME_WINDOW_SIZE,
-              CONFIDENCE_WINDOW_SIZE,
-              MINIMAL_WAIT_FOR_WINDOW_MS,
-              CDC_OUTPUT_FORMAT,
-              PREIMAGES_ENABLED,
-              CDC_INCLUDE_BEFORE,
-              CDC_INCLUDE_AFTER,
-              CDC_INCLUDE_PK,
-              CDC_INCLUDE_PK_PAYLOAD_KEY_NAME,
-              CDC_INCOMPLETE_TASK_TIMEOUT_MS,
-              RETRY_BACKOFF_BASE_MS,
-              RETRY_MAX_BACKOFF_MS,
-              RETRY_BACKOFF_JITTER_PERCENTAGE,
-              POOLING_CORE_POOL_LOCAL,
-              POOLING_MAX_POOL_LOCAL,
-              POOLING_MAX_REQUESTS_PER_CONNECTION,
-              POOLING_MAX_QUEUE_SIZE,
-              POOLING_POOL_TIMEOUT_MS)
-          .events(TABLE_NAMES)
-          .excluding(Heartbeat.HEARTBEAT_INTERVAL)
-          .events(CUSTOM_HEARTBEAT_INTERVAL)
-          // Exclude some Debezium options, which are not applicable/not supported by
-          // the Scylla CDC Source Connector.
-          .excluding(
-              CommonConnectorConfig.PROVIDE_TRANSACTION_METADATA,
-              CommonConnectorConfig.SNAPSHOT_DELAY_MS,
-              CommonConnectorConfig.SNAPSHOT_MODE_TABLES,
-              CommonConnectorConfig.SNAPSHOT_FETCH_SIZE,
-              CommonConnectorConfig.SNAPSHOT_MAX_THREADS,
-              CommonConnectorConfig.QUERY_FETCH_SIZE)
-          .create();
-
-  protected static Field.Set ALL_FIELDS = Field.setOf(CONFIG_DEFINITION.all());
-
-  protected static Field.Set EXPOSED_FIELDS = ALL_FIELDS;
-
-  private final Configuration config;
-  private final CdcOutputFormat cdcOutputFormat;
-  private final CdcIncludeMode cdcIncludeBefore;
-  private final CdcIncludeMode cdcIncludeAfter;
-  private final PkLocationConfig pkLocationConfig;
-
-  /** Pre-computed boolean flags for PK location configuration to avoid repeated EnumSet lookups. */
-  public static class PkLocationConfig {
-    public final boolean inKafkaKey;
-    public final boolean inPayloadAfter;
-    public final boolean inPayloadBefore;
-    public final boolean inPayloadKey;
-    public final boolean inKafkaHeaders;
-
-    PkLocationConfig(EnumSet<CdcIncludePkLocation> locations) {
-      this.inKafkaKey = locations.contains(CdcIncludePkLocation.KAFKA_KEY);
-      this.inPayloadAfter = locations.contains(CdcIncludePkLocation.PAYLOAD_AFTER);
-      this.inPayloadBefore = locations.contains(CdcIncludePkLocation.PAYLOAD_BEFORE);
-      this.inPayloadKey = locations.contains(CdcIncludePkLocation.PAYLOAD_KEY);
-      this.inKafkaHeaders = locations.contains(CdcIncludePkLocation.KAFKA_HEADERS);
-    }
-  }
-
-  protected ScyllaConnectorConfig(Configuration config) {
-    super(config, 0);
-    this.config = config;
-    this.cdcOutputFormat =
-        CdcOutputFormat.parse(config.getString(ScyllaConnectorConfig.CDC_OUTPUT_FORMAT));
-    this.cdcIncludeBefore =
-        CdcIncludeMode.parse(config.getString(ScyllaConnectorConfig.CDC_INCLUDE_BEFORE));
-    this.cdcIncludeAfter =
-        CdcIncludeMode.parse(config.getString(ScyllaConnectorConfig.CDC_INCLUDE_AFTER));
-    this.pkLocationConfig =
-        new PkLocationConfig(
-            CdcIncludePkLocation.parseList(config.getList(ScyllaConnectorConfig.CDC_INCLUDE_PK)));
-  }
-
-  public static ConfigDef configDef() {
-    return CONFIG_DEFINITION.configDef();
-  }
-
-  public List<InetSocketAddress> getContactPoints() {
-    return ConfigSerializerUtil.deserializeClusterIpAddresses(
-        config.getString(ScyllaConnectorConfig.CLUSTER_IP_ADDRESSES));
-  }
-
-  public boolean getSslEnabled() {
-    return config.getBoolean(SSL_ENABLED);
-  }
-
-  public SslProvider getSslProvider() {
-    return EnumUtils.getEnum(SslProvider.class, config.getString(SSL_PROVIDER).toUpperCase());
-  }
-
-  public String getTrustStorePath() {
-    return config.getString(SSL_TRUSTSTORE_PATH);
-  }
-
-  public String getTrustStorePassword() {
-    return config.getString(SSL_TRUSTSTORE_PASSWORD);
-  }
-
-  public String getKeyStorePath() {
-    return config.getString(SSL_KEYSTORE_PATH);
-  }
-
-  public String getKeyStorePassword() {
-    return config.getString(SSL_KEYSTORE_PASSWORD);
-  }
-
-  public List<String> getCipherSuite() {
-    return config.getList(SSL_CIPHER_SUITES);
-  }
-
-  public String getCertPath() {
-    return config.getString(SSL_OPENSLL_KEYCERTCHAIN);
-  }
-
-  public String getPrivateKeyPath() {
-    return config.getString(SSL_OPENSLL_PRIVATEKEY);
-  }
-
-  public Set<TableName> getTableNames() {
-    return ConfigSerializerUtil.deserializeTableNames(
-        config.getString(ScyllaConnectorConfig.TABLE_NAMES));
-  }
-
-  public String getUser() {
-    return config.getString(ScyllaConnectorConfig.USER);
-  }
-
-  public String getPassword() {
-    return config.getString(ScyllaConnectorConfig.PASSWORD);
-  }
-
-  public long getQueryTimeWindowSizeMs() {
-    return config.getInteger(ScyllaConnectorConfig.QUERY_TIME_WINDOW_SIZE);
-  }
-
-  public long getConfidenceWindowSizeMs() {
-    return config.getInteger(ScyllaConnectorConfig.CONFIDENCE_WINDOW_SIZE);
-  }
-
-  public long getMinimalWaitForWindowMs() {
-    return config.getInteger(ScyllaConnectorConfig.MINIMAL_WAIT_FOR_WINDOW_MS);
-  }
-
-  public long getHeartbeatIntervalMs() {
-    return config.getInteger(Heartbeat.HEARTBEAT_INTERVAL);
-  }
-
-  public CQLConfiguration.ConsistencyLevel getConsistencyLevel() {
-    String consistencyLevelValue = config.getString(ScyllaConnectorConfig.CONSISTENCY_LEVEL);
-    try {
-      return CQLConfiguration.ConsistencyLevel.valueOf(consistencyLevelValue.toUpperCase());
-    } catch (IllegalArgumentException ex) {
-      return DEFAULT_CONSISTENCY_LEVEL;
-    }
-  }
-
-  public String getLocalDCName() {
-    return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
-  }
+    private static final ConfigDefinition CONFIG_DEFINITION =
+            CommonConnectorConfig.CONFIG_DEFINITION.edit()
+                    .name("Scylla")
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME, COLLECTIONS_MODE)
+                    .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE)
+                    .events(TABLE_NAMES)
+                    .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
+                    // Exclude some Debezium options, which are not applicable/not supported by
+                    // the Scylla CDC Source Connector.
+                    .excluding(CommonConnectorConfig.PROVIDE_TRANSACTION_METADATA,
+                            CommonConnectorConfig.SNAPSHOT_DELAY_MS,
+                            CommonConnectorConfig.SNAPSHOT_MODE_TABLES,
+                            CommonConnectorConfig.SNAPSHOT_FETCH_SIZE,
+                            CommonConnectorConfig.SNAPSHOT_MAX_THREADS,
+                            CommonConnectorConfig.QUERY_FETCH_SIZE)
+                    .create();
 
   public CdcOutputFormat getCdcOutputFormat() {
     return cdcOutputFormat;
@@ -873,6 +369,15 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     CdcIncludePkLocation(String value) {
       this.value = value;
+    }
+
+    public CollectionsMode getCollectionsMode() {
+        String collectionsModeValue = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
+        try {
+            return CollectionsMode.valueOf(collectionsModeValue.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return DEFAULT_COLLECTIONS_MODE;
+        }
     }
 
     @Override
