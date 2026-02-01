@@ -106,6 +106,16 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                     "the connection to Scylla to prioritize sending requests to " +
                     "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
 
+    public static final CollectionsMode DEFAULT_COLLECTIONS_MODE = CollectionsMode.DELTA;
+    public static final Field COLLECTIONS_MODE = Field.create("scylla.collections.mode")
+            .withDisplayName("Collections format")
+            .withEnum(CollectionsMode.class, DEFAULT_COLLECTIONS_MODE)
+            .withWidth(ConfigDef.Width.SHORT)
+            .withImportance(ConfigDef.Importance.MEDIUM)
+            .withDescription("How to represent non-frozen collections. Currently, only 'delta' mode is supported - in the future " +
+                    "support for more modes may be added. 'Delta' mode: change in collection is represented as a struct " +
+                    "with 2 fields, 'mode' and 'elements'. 'mode' describes what type of change happened (modifying collection, overwriting collection), " +
+                    "'elements' contains added/removed elements.");
     /*
      * Scylla CDC Source Connector relies on heartbeats to move the offset,
      * because the offset determines if the generation ended, therefore HEARTBEAT_INTERVAL
@@ -122,7 +132,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     private static final ConfigDefinition CONFIG_DEFINITION =
             CommonConnectorConfig.CONFIG_DEFINITION.edit()
                     .name("Scylla")
-                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME)
+                    .type(CLUSTER_IP_ADDRESSES, USER, PASSWORD, LOGICAL_NAME, CONSISTENCY_LEVEL, LOCAL_DC_NAME, COLLECTIONS_MODE)
                     .connector(QUERY_TIME_WINDOW_SIZE, CONFIDENCE_WINDOW_SIZE)
                     .events(TABLE_NAMES)
                     .excluding(Heartbeat.HEARTBEAT_INTERVAL).events(CUSTOM_HEARTBEAT_INTERVAL)
@@ -190,6 +200,15 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
     public String getLocalDCName() {
         return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
+    }
+
+    public CollectionsMode getCollectionsMode() {
+        String collectionsModeValue = config.getString(ScyllaConnectorConfig.COLLECTIONS_MODE);
+        try {
+            return CollectionsMode.valueOf(collectionsModeValue.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return DEFAULT_COLLECTIONS_MODE;
+        }
     }
 
     @Override
