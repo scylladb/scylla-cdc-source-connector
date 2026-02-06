@@ -224,7 +224,7 @@
         <kafka.version>8.1.1-ccs</kafka.version>
         <scylla.driver.version>3.11.5.11</scylla.driver.version>
         <scylla.cdc.java.version>1.3.9</scylla.cdc.java.version>
-        <flogger.version>0.5.1</flogger.version>
+        <flogger.version>0.9</flogger.version>
         <!-- added for transitive dependencies -->
         <log4j.version>2.25.3</log4j.version>
         <jackson-databind.version>2.20.1</jackson-databind.version>
