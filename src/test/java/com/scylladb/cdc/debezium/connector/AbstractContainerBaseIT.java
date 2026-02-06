@@ -115,6 +115,17 @@ public abstract class AbstractContainerBaseIT {
               "Schema Registry container logs:\n%s",
               getContainerLogs(schemaRegistryContainer, 2000, 256 * 1024));
         }
+      } else if (KAFKA_PROVIDER == KafkaProvider.DEBEZIUM) {
+        if (debeziumKafkaContainer != null) {
+          logger.atInfo().log(
+              "Debezium Kafka container logs:\n%s",
+              getContainerLogs(debeziumKafkaContainer, 2000, 256 * 1024));
+        }
+        if (debeziumConnectContainer != null) {
+          logger.atInfo().log(
+              "Debezium Connect container logs:\n%s",
+              getContainerLogs(debeziumConnectContainer, 2000, 256 * 1024));
+        }
       }
 
       // Log ScyllaDB container logs
@@ -130,7 +141,8 @@ public abstract class AbstractContainerBaseIT {
   /** Enum representing supported Kafka providers. */
   public enum KafkaProvider {
     APACHE("apache", "4.0.0"),
-    CONFLUENT("confluent", "7.8.0");
+    CONFLUENT("confluent", "7.8.0"),
+    DEBEZIUM("debezium", "3.4.1.Final");
 
     private final String value;
     private final String defaultVersion;
@@ -202,6 +214,7 @@ public abstract class AbstractContainerBaseIT {
     private final int minor;
     private final int patch;
     private final String label;
+    private final String originalVersion;
 
     public KafkaVersion(int major, int minor, int patch) {
       this(major, minor, patch, null);
@@ -212,6 +225,7 @@ public abstract class AbstractContainerBaseIT {
       this.minor = minor;
       this.patch = patch;
       this.label = label;
+      this.originalVersion = null;
     }
 
     public KafkaVersion(String version) {
@@ -219,7 +233,12 @@ public abstract class AbstractContainerBaseIT {
         throw new IllegalArgumentException("Version cannot be null or empty");
       }
 
-      // Check if version has a label part (e.g., "4.1.0-rc1")
+      this.originalVersion = version;
+
+      // Check if version has a label part
+      // Supports two formats:
+      // - "4.1.0-rc1" (hyphen separator)
+      // - "3.0.0.Final" (Debezium style with dot separator for label)
       String versionPart = version;
       String labelPart = null;
 
@@ -230,9 +249,13 @@ public abstract class AbstractContainerBaseIT {
       }
 
       String[] parts = versionPart.split("\\.");
-      if (parts.length != 3) {
+      if (parts.length == 4) {
+        // Handle Debezium-style version: "3.0.0.Final"
+        labelPart = parts[3];
+        parts = new String[] {parts[0], parts[1], parts[2]};
+      } else if (parts.length != 3) {
         throw new IllegalArgumentException(
-            "Invalid version format. Expected: major.minor.patch[-label]");
+            "Invalid version format. Expected: major.minor.patch[-label] or major.minor.patch.label");
       }
 
       try {
@@ -283,6 +306,10 @@ public abstract class AbstractContainerBaseIT {
 
     @Override
     public String toString() {
+      // Use original version string if available to preserve exact format for Docker tags
+      if (originalVersion != null) {
+        return originalVersion;
+      }
       if (hasLabel()) {
         return major + "." + minor + "." + patch + "-" + label;
       }
@@ -392,6 +419,12 @@ public abstract class AbstractContainerBaseIT {
   /** Container for Confluent Kafka Connect */
   protected static GenericContainer<?> kafkaConnectContainer;
 
+  /** Container for Debezium Kafka (uses Apache Kafka) */
+  protected static KafkaContainer debeziumKafkaContainer;
+
+  /** Container for Debezium Kafka Connect */
+  protected static GenericContainer<?> debeziumConnectContainer;
+
   /** Container for ScyllaDB */
   protected static ScyllaDBContainer scyllaDBContainer;
 
@@ -419,6 +452,14 @@ public abstract class AbstractContainerBaseIT {
         result.put(
             "connect.url",
             "http://localhost:" + kafkaConnectContainer.getMappedPort(KAFKA_CONNECT_PORT));
+    } else if (KAFKA_PROVIDER == KafkaProvider.DEBEZIUM) {
+      startDebeziumInfrastructure();
+      result.put(
+          "bootstrap.servers", "localhost:" + debeziumKafkaContainer.getMappedPort(KAFKA_PORT));
+      if (KAFKA_CONNECT_MODE.equals(KafkaConnectMode.DISTRIBUTED))
+        result.put(
+            "connect.url",
+            "http://localhost:" + debeziumConnectContainer.getMappedPort(KAFKA_CONNECT_PORT));
     } else {
       throw new IllegalStateException("Unsupported Kafka provider: " + KAFKA_PROVIDER);
     }
@@ -675,6 +716,96 @@ public abstract class AbstractContainerBaseIT {
     }
   }
 
+  /**
+   * Start the Debezium infrastructure. Uses Apache Kafka (via testcontainers KafkaContainer) for
+   * the broker and Debezium Connect image for Kafka Connect.
+   */
+  private static void startDebeziumInfrastructure() {
+    if (debeziumKafkaContainer != null && debeziumKafkaContainer.isRunning()) {
+      return;
+    }
+
+    String imageVersion = PROVIDER_IMAGE_VERSION.toString();
+
+    // Use Apache Kafka 3.7.0 for the broker (compatible with Debezium 3.0.0.Final)
+    debeziumKafkaContainer =
+        new KafkaContainer(DockerImageName.parse("apache/kafka:3.7.0"))
+            .withNetwork(NETWORK)
+            .withNetworkAliases("kafka")
+            .withExposedPorts(KAFKA_PORT, KAFKA_CONNECT_PORT)
+            .withListener("kafka:19092")
+            .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
+            .withStartupTimeout(Duration.ofMinutes(5));
+
+    if (KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED) {
+      debeziumConnectContainer =
+          new GenericContainer<>(DockerImageName.parse("quay.io/debezium/connect:" + imageVersion))
+              .dependsOn(debeziumKafkaContainer)
+              .withNetwork(NETWORK)
+              .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
+              .withNetworkAliases("connect")
+              .withExposedPorts(KAFKA_CONNECT_PORT)
+              .withEnv("BOOTSTRAP_SERVERS", "kafka:19092")
+              .withEnv("GROUP_ID", "debezium-connect")
+              .withEnv("CONFIG_STORAGE_TOPIC", "debezium-connect-configs")
+              .withEnv("CONFIG_STORAGE_REPLICATION_FACTOR", "1")
+              .withEnv("OFFSET_STORAGE_TOPIC", "debezium-connect-offsets")
+              .withEnv("OFFSET_STORAGE_REPLICATION_FACTOR", "1")
+              .withEnv("STATUS_STORAGE_TOPIC", "debezium-connect-status")
+              .withEnv("STATUS_STORAGE_REPLICATION_FACTOR", "1")
+              .withEnv("KEY_CONVERTER", "org.apache.kafka.connect.json.JsonConverter")
+              .withEnv("VALUE_CONVERTER", "org.apache.kafka.connect.json.JsonConverter")
+              .withEnv("CONNECT_PLUGIN_PATH", "/kafka/connect,/opt/custom-connectors")
+              .withEnv("LOG_LEVEL", "INFO")
+              .withStartupTimeout(Duration.ofMinutes(5));
+
+      Startables.deepStart(debeziumKafkaContainer, debeziumConnectContainer).join();
+
+      // Wait for Kafka Connect to be ready
+      waitForKafkaConnectReady(debeziumConnectContainer);
+    } else {
+      // Standalone mode: start only Kafka container, then start Connect inside it
+      debeziumKafkaContainer.start();
+
+      try {
+        String connectScript = "/opt/kafka/bin/connect-standalone.sh";
+        String connectConfigPath = "/tmp/connect-standalone.properties";
+
+        // Create custom standalone properties for Debezium
+        String standaloneProperties =
+            "bootstrap.servers=kafka:19092\n"
+                + "key.converter=org.apache.kafka.connect.json.JsonConverter\n"
+                + "value.converter=org.apache.kafka.connect.json.JsonConverter\n"
+                + "key.converter.schemas.enable=true\n"
+                + "value.converter.schemas.enable=true\n"
+                + "offset.storage.file.filename=/tmp/connect.offsets\n"
+                + "offset.flush.interval.ms=10000\n"
+                + "plugin.path=/usr/local/share/java,/usr/local/share/kafka/plugins,/opt/custom-connectors\n";
+
+        // Write custom standalone properties to container
+        ((KafkaContainer) debeziumKafkaContainer)
+            .execInContainer(
+                "sh", "-c", "echo '" + standaloneProperties + "' > " + connectConfigPath);
+
+        // Execute Kafka Connect in the background
+        String[] command = {
+          "sh",
+          "-c",
+          String.format(
+              "nohup %s %s > /tmp/kafka-connect.log 2>&1 &", connectScript, connectConfigPath)
+        };
+
+        ((KafkaContainer) debeziumKafkaContainer).execInContainer(command);
+
+        // Wait for Kafka Connect to be ready by polling the REST API
+        waitForKafkaConnectReady(debeziumKafkaContainer);
+
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to start Kafka Connect in Debezium Kafka container", e);
+      }
+    }
+  }
+
   /** Stop all running containers */
   public static synchronized void stopKafkaInfrastructure() {
     if (apacheKafkaContainer != null && apacheKafkaContainer.isRunning()) {
@@ -691,6 +822,14 @@ public abstract class AbstractContainerBaseIT {
 
     if (confluentKafkaContainer != null && confluentKafkaContainer.isRunning()) {
       confluentKafkaContainer.stop();
+    }
+
+    if (debeziumConnectContainer != null && debeziumConnectContainer.isRunning()) {
+      debeziumConnectContainer.stop();
+    }
+
+    if (debeziumKafkaContainer != null && debeziumKafkaContainer.isRunning()) {
+      debeziumKafkaContainer.stop();
     }
   }
 
@@ -710,6 +849,13 @@ public abstract class AbstractContainerBaseIT {
         return null;
       }
       return "http://localhost:" + kafkaConnectContainer.getMappedPort(KAFKA_CONNECT_PORT);
+    } else if (KAFKA_PROVIDER == KafkaProvider.DEBEZIUM
+        && KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED) {
+      // Debezium distributed mode uses separate Kafka Connect container
+      if (debeziumConnectContainer == null || !debeziumConnectContainer.isRunning()) {
+        return null;
+      }
+      return "http://localhost:" + debeziumConnectContainer.getMappedPort(KAFKA_CONNECT_PORT);
     } else {
       // All other modes use Kafka Connect running inside the main Kafka container
       GenericContainer<?> kafkaContainer = null;
@@ -717,6 +863,8 @@ public abstract class AbstractContainerBaseIT {
         kafkaContainer = apacheKafkaContainer;
       } else if (KAFKA_PROVIDER == KafkaProvider.CONFLUENT) {
         kafkaContainer = confluentKafkaContainer;
+      } else if (KAFKA_PROVIDER == KafkaProvider.DEBEZIUM) {
+        kafkaContainer = debeziumKafkaContainer;
       }
 
       if (kafkaContainer == null || !kafkaContainer.isRunning()) {
@@ -778,6 +926,11 @@ public abstract class AbstractContainerBaseIT {
         return null;
       }
       return confluentKafkaContainer.getBootstrapServers();
+    } else if (KAFKA_PROVIDER == KafkaProvider.DEBEZIUM) {
+      if (debeziumKafkaContainer == null || !debeziumKafkaContainer.isRunning()) {
+        return null;
+      }
+      return debeziumKafkaContainer.getBootstrapServers();
     }
     return null;
   }
@@ -818,6 +971,27 @@ public abstract class AbstractContainerBaseIT {
 
           // Kafka Connect logs are written to /tmp/kafka-connect.log
           return confluentKafkaContainer
+              .execInContainer("sh", "-c", "tail -n 2000 /tmp/kafka-connect.log || true")
+              .getStdout();
+        }
+      } else if (KAFKA_PROVIDER == KafkaProvider.DEBEZIUM) {
+        if (KAFKA_CONNECT_MODE == KafkaConnectMode.DISTRIBUTED) {
+          // For Debezium distributed mode, Connect runs in a separate container
+          if (debeziumConnectContainer == null || !debeziumConnectContainer.isRunning()) {
+            return null;
+          }
+
+          // Get logs from the dedicated Debezium Connect container
+          return getContainerLogs(debeziumConnectContainer, 2000, 256 * 1024);
+
+        } else {
+          // For Debezium standalone mode, Connect runs inside the Kafka container
+          if (debeziumKafkaContainer == null || !debeziumKafkaContainer.isRunning()) {
+            return null;
+          }
+
+          // Kafka Connect logs are written to /tmp/kafka-connect.log
+          return debeziumKafkaContainer
               .execInContainer("sh", "-c", "tail -n 2000 /tmp/kafka-connect.log || true")
               .getStdout();
         }
