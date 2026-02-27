@@ -1314,3 +1314,98 @@ Scylla CDC Source Connector reads the CDC log by quering on [Vnode](https://docs
 
 #### `tasks.max` property
 By adjusting `tasks.max` property, you can configure how many Kafka Connect worker tasks will be started. By scaling up the number of nodes in your Kafka Connect cluster (and `tasks.max` number), you can achieve higher throughput. In general, the `tasks.max` property should be greater or equal the number of nodes in Kafka Connect cluster, to allow the connector to start on each node. `tasks.max` property should also be greater or equal the number of nodes in your Scylla cluster, especially if those nodes have high shard count (32 or greater) as they have a large number of [CDC Streams](https://docs.scylladb.com/using-scylla/cdc/cdc-streams/).
+
+### Throttling the connector on first start
+
+When the connector starts for the first time, it may need to catch up on a large backlog of historical CDC data. During this catch-up phase the connector can issue rapid-fire queries to Scylla, consuming significant cluster resources. The following configuration parameters allow you to throttle the connector and control the rate at which it reads data.
+
+#### How the connector reads CDC data
+
+The connector reads the CDC log in a series of **time windows**. Each window is a `SELECT` query covering a slice of the CDC log defined by `scylla.query.time.window.size` (default: `30000` ms). After reading one window, the connector moves to the next one. When it reaches data that is too recent (within `scylla.confidence.window.size` of the present), it waits before proceeding. On first start the connector has many windows to read through sequentially, and this is where throttling matters.
+
+#### Configuration parameters
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `scylla.minimal.wait.for.window.time` | `0` (disabled) | Minimum time in milliseconds between reading consecutive CDC log windows. This is the **primary throttling knob**. Setting it to a positive value introduces a mandatory pause after each window read. |
+| `scylla.query.time.window.size` | `30000` | Size of each query window in milliseconds. Smaller windows mean less data per query. |
+| `scylla.query.options.fetch.size` | `0` (driver default, typically `5000`) | Number of rows fetched per CQL page within each query. A smaller value reduces per-query memory usage but increases the number of network round trips. |
+| `poll.interval.ms` | `500` | How often (in milliseconds) Kafka Connect polls the connector's internal queue for records. Higher values reduce how frequently batches are sent to Kafka. |
+| `max.batch.size` | `2048` | Maximum number of records returned per poll cycle. Smaller values cap the throughput on the Kafka side. |
+| `max.queue.size` | `8192` | Maximum size of the internal in-memory queue between the CDC reader and Kafka Connect. When the queue is full, the CDC reader blocks, creating backpressure toward Scylla. |
+
+#### Calculating throttle values
+
+To estimate the right values, start from the **target throughput** you want to allow and work backwards.
+
+**Step 1: Decide your target read rate.**
+
+For example, you want the connector to read at most **R = 1 window per second** during catch-up.
+
+**Step 2: Set `scylla.minimal.wait.for.window.time`.**
+
+This parameter directly controls the pause between windows. If each window read takes approximately `T_read` milliseconds, set:
+
+```
+scylla.minimal.wait.for.window.time = (1000 / R) - T_read
+```
+
+For example, if each window read takes ~200 ms and you want 1 window/s:
+
+```
+scylla.minimal.wait.for.window.time = 1000 - 200 = 800
+```
+
+If you are unsure how long a window read takes, start with `scylla.minimal.wait.for.window.time = 1000` and adjust down from there.
+
+**Step 3: Adjust the window size if needed.**
+
+Each window covers `scylla.query.time.window.size` milliseconds of CDC log data. The default of 30 seconds is reasonable for most workloads. If your tables have a very high write rate and each window returns a large amount of data, reduce the window size:
+
+```
+scylla.query.time.window.size = 10000
+```
+
+This makes each query smaller, which reduces per-query load on Scylla. The trade-off is that the connector needs more windows to cover the same time span.
+
+**Step 4: Limit the output side.**
+
+To prevent bursts on the Kafka side, reduce batch and queue sizes:
+
+```
+poll.interval.ms = 1000
+max.batch.size = 512
+max.queue.size = 2048
+```
+
+When `max.queue.size` is small, the internal queue fills up faster and the CDC reader blocks until Kafka Connect drains it. This creates natural backpressure.
+
+**Step 5: Reduce CQL page size for memory-constrained environments.**
+
+If Scylla nodes are under memory pressure, limit how many rows the driver fetches per network round trip:
+
+```
+scylla.query.options.fetch.size = 1000
+```
+
+#### Example: gentle first-start configuration
+
+The following configuration keeps the connector well-behaved during initial catch-up:
+
+```properties
+# Pause 1 second between each window read
+scylla.minimal.wait.for.window.time=1000
+
+# Read 10-second windows instead of 30-second
+scylla.query.time.window.size=10000
+
+# Fetch 1000 rows per CQL page
+scylla.query.options.fetch.size=1000
+
+# Slow down the Kafka output side
+poll.interval.ms=1000
+max.batch.size=512
+max.queue.size=2048
+```
+
+Once the connector has caught up with the real-time CDC stream, these throttles remain in effect but have minimal impact since the connector naturally waits for new data to appear. You can relax the values after catch-up by updating the connector configuration.
