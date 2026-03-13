@@ -201,8 +201,7 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
                   long startMs = System.currentTimeMillis() - lookbackMs;
                   Timestamp windowStart = new Timestamp(new Date(startMs));
                   Timestamp windowEnd = new Timestamp(new Date(startMs + queryWindowMs));
-                  sourceInfo.setTaskState(
-                      new TaskState(windowStart, windowEnd, Optional.empty()));
+                  sourceInfo.setTaskState(new TaskState(windowStart, windowEnd, Optional.empty()));
                   logger.info(
                       "No saved offset for task, applying initial lookback of {} ms", lookbackMs);
                 }
