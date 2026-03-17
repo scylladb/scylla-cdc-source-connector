@@ -194,6 +194,19 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
                 }
                 TaskState taskState = new TaskState(windowStart, windowEnd, changeId);
                 sourceInfo.setTaskState(taskState);
+              } else {
+                long lookbackMs = connectorConfig.getInitialLookbackMs();
+                if (lookbackMs > 0) {
+                  long queryWindowMs = connectorConfig.getQueryTimeWindowSizeMs();
+                  long nowMs = System.currentTimeMillis();
+                  long startMs = nowMs - lookbackMs;
+                  long endMs = Math.min(startMs + queryWindowMs, nowMs);
+                  Timestamp windowStart = new Timestamp(new Date(startMs));
+                  Timestamp windowEnd = new Timestamp(new Date(endMs));
+                  sourceInfo.setTaskState(new TaskState(windowStart, windowEnd, Optional.empty()));
+                  logger.info(
+                      "No saved offset for task, applying initial lookback of {} ms", lookbackMs);
+                }
               }
             });
     return new ScyllaOffsetContext(sourceInfos, new TransactionContext());
