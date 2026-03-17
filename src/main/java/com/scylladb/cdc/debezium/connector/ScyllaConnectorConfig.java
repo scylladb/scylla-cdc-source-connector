@@ -196,6 +196,22 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withValidation(Field::isNonNegativeInteger)
           .withDefault(0);
 
+  public static final Field INITIAL_LOOKBACK_MS =
+      Field.create("scylla.initial.lookback.ms")
+          .withDisplayName("Initial lookback window (ms)")
+          .withType(ConfigDef.Type.LONG)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.MEDIUM)
+          .withDescription(
+              "Maximum time in milliseconds to look back when the connector starts without saved offsets. "
+                  + "When set to a positive value, the connector will begin reading CDC changes from "
+                  + "(current time - this value) instead of from the beginning of the first CDC generation. "
+                  + "This prevents the connector from scanning through a potentially large number of empty "
+                  + "windows on first start, reducing cluster load. Set to 0 to start from the beginning "
+                  + "of the first CDC generation (original behavior). Value expressed in milliseconds.")
+          .withValidation(Field::isNonNegativeLong)
+          .withDefault(0L);
+
   public static final CQLConfiguration.ConsistencyLevel DEFAULT_CONSISTENCY_LEVEL =
       CQLConfiguration.ConsistencyLevel.QUORUM;
   public static final Field CONSISTENCY_LEVEL =
@@ -483,6 +499,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               QUERY_TIME_WINDOW_SIZE,
               CONFIDENCE_WINDOW_SIZE,
               MINIMAL_WAIT_FOR_WINDOW_MS,
+              INITIAL_LOOKBACK_MS,
               CDC_OUTPUT_FORMAT,
               PREIMAGES_ENABLED,
               CDC_INCLUDE_BEFORE,
@@ -621,6 +638,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public long getMinimalWaitForWindowMs() {
     return config.getInteger(ScyllaConnectorConfig.MINIMAL_WAIT_FOR_WINDOW_MS);
+  }
+
+  public long getInitialLookbackMs() {
+    return config.getLong(ScyllaConnectorConfig.INITIAL_LOOKBACK_MS);
   }
 
   public long getHeartbeatIntervalMs() {
