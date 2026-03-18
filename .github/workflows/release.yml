@@ -120,3 +120,9 @@ jobs:
         run: |
           git status && git log -3
           git push origin --follow-tags -v
+
+      - name: Create GitHub Release
+        if: inputs.dry-run == false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: make github-release
