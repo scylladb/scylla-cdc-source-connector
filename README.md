@@ -41,6 +41,7 @@ Below is a summary of the Debezium and Kafka (Connect API) dependency versions u
 
 | Connector version | Debezium version    | Connect API |
 |-------------------|---------------------|-------------|
+| v2.0.0            | 2.7.4.Final         | 8.1.1-ccs   |
 | v1.2.6            | 2.6.2.Final         | 3.9.1       |
 | v1.2.5            | 2.6.2.Final         | 3.3.1       |
 | v1.2.4            | 2.6.2.Final         | 3.3.1       |
@@ -68,7 +69,7 @@ cd scylla-cdc-source-connector
 mvn clean package
 ```
 
-The connector JAR file will be available in `scylla-cdc-kafka-connect/target/fat-jar` directory.
+The connector JAR file will be available in `target/fat-jar` directory.
 
 
 ### Installation
@@ -1043,6 +1044,38 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | `scylla.confidence.window.size`  | The size of the confidence window. It is necessary for the connector to avoid reading too fresh data from the CDC log due to the eventual consistency of Scylla. The problem could appear when a newer write reaches a replica before some older write. For a short period of time, when reading, it is possible for the replica to return only the newer write. The connector mitigates this problem by not reading a window of most recent changes (controlled by this parameter). Value expressed in milliseconds. |
 | `scylla.consistency.level`       | The consistency level of CDC table read queries. This consistency level is used only for read queries to the CDC log table. By default, `QUORUM` level is used.                                                                                                                                                                                                                                                                                                                                                       |
 | `scylla.local.dc`                | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.                                                                                                                                                                                                                                                                         |
+| `scylla.initial.lookback.ms`     | Maximum time in milliseconds to look back when the connector starts without saved offsets. When set to a positive value, the connector will begin reading CDC changes from (current time - this value) instead of from the beginning of the first CDC generation. This prevents the connector from scanning through a potentially large number of empty windows on first start, reducing cluster load. Set to `0` to start from the beginning of the first CDC generation (default behavior). |
+
+### SSL Configuration
+
+The connector supports SSL/TLS connections to Scylla. The following properties configure SSL:
+
+| Property                         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+|----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `scylla.ssl.enabled`             | Flag to determine if SSL is enabled when connecting to Scylla. Default: `false`. |
+| `scylla.ssl.provider`            | The SSL provider to use. Valid values: `JDK`, `OPENSSL`, `OPENSSL_REFCNT`. Default: `JDK`. |
+| `scylla.ssl.truststore.path`     | Path to the Java truststore. |
+| `scylla.ssl.truststore.password` | Password to open the Java truststore with. |
+| `scylla.ssl.keystore.path`       | Path to the Java keystore. |
+| `scylla.ssl.keystore.password`   | Password to open the Java keystore with. |
+| `scylla.ssl.cipherSuites`        | The cipher suites to enable (comma-separated list). Defaults to none, resulting in a minimal quality of service according to JDK documentation. |
+| `scylla.ssl.openssl.keyCertChain` | Path to the SSL certificate chain file, when using OpenSSL provider. |
+| `scylla.ssl.openssl.privateKey`  | Path to the private key file, when using OpenSSL provider. |
+
+### Worker Connection Pool and Retry Configuration
+
+These properties control how the connector's worker tasks connect to Scylla and handle retries:
+
+| Property                                  | Default | Description |
+|-------------------------------------------|---------|-------------|
+| `worker.retry.backoff.base`               | `50`    | Initial backoff in milliseconds for retried queries to Scylla. Each consecutive retry increases exponentially by a factor of 2 up to the configured max backoff. |
+| `worker.maximum.backoff`                  | `30000` | Maximum backoff in milliseconds for retried queries to Scylla. |
+| `worker.jitter.percentage`                | `20`    | Jitter percentage applied to retry backoffs to spread out retry surges. A value of 20 means the backoff will have randomly up to 20% of its value subtracted. Min: 1, Max: 100. |
+| `worker.pooling.core.pool.local`          | `1`     | Target number of connections per local Scylla node. The driver session will aim to maintain this many connections per node. |
+| `worker.pooling.max.pool.local`           | `1`     | Maximum number of connections per local Scylla node. Additional connections are opened when existing ones exceed the concurrent request threshold. |
+| `worker.pooling.max.queue.size`           | `512`   | Maximum request queue size per connection pool. Requests are enqueued when no connection is available. Increase this for setups with many nodes/shards but few connector tasks. |
+| `worker.pooling.max.requests.per.connection` | `1024` | Maximum concurrent requests per connection to a local Scylla node. Requests above this limit are enqueued. |
+| `worker.pooling.pool.timeout.ms`          | `5000`  | Timeout in milliseconds for acquiring a connection from a host's pool. |
 
 
 ### Output Format Configuration
