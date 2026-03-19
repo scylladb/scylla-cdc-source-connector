@@ -3,6 +3,7 @@ package com.scylladb.cdc.debezium.connector;
 import com.scylladb.cdc.cql.driver3.Driver3MasterCQL;
 import com.scylladb.cdc.cql.driver3.Driver3Session;
 import com.scylladb.cdc.cql.driver3.Driver3WorkerCQL;
+import com.scylladb.cdc.model.GenerationId;
 import com.scylladb.cdc.model.RetryBackoff;
 import com.scylladb.cdc.model.master.GenerationMetadata;
 import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
@@ -138,23 +139,17 @@ public class ScyllaStreamingChangeEventSource
       Driver3Session session, ScyllaTaskContext taskContext) {
     var tasks =
         taskContext.getTasks().stream().collect(Collectors.toMap(Pair::getKey, Pair::getValue));
-    return fetchGenerationMetadata(session)
+    // Extract the generation ID from the assigned tasks rather than querying
+    // the database for the first generation. The master already determined the
+    // correct generation when it assigned these tasks to this worker.
+    GenerationId generationId = taskContext.getTasks().get(0).getKey().getGenerationId();
+    return fetchGenerationMetadata(session, generationId)
         .thenApply(generationMetadata -> new GroupedTasks(tasks, generationMetadata));
   }
 
-  private CompletableFuture<GenerationMetadata> fetchGenerationMetadata(Driver3Session session) {
+  private CompletableFuture<GenerationMetadata> fetchGenerationMetadata(
+      Driver3Session session, GenerationId generationId) {
     var masterCql = new Driver3MasterCQL(session);
-    return masterCql
-        .fetchFirstGenerationId()
-        .thenApply(
-            opt ->
-                opt.orElseThrow(
-                    () ->
-                        new IllegalStateException(
-                            "No generation ID found in CDC generation table. "
-                                + "This may be caused by CDC not being enabled on the relevant tables, or the CDC generation table being empty. "
-                                + "Please ensure that CDC is enabled and the generation table is populated. "
-                                + "Refer to the Scylla CDC documentation for setup and troubleshooting steps.")))
-        .thenCompose(firstGenerationId -> masterCql.fetchGenerationMetadata(firstGenerationId));
+    return masterCql.fetchGenerationMetadata(generationId);
   }
 }
