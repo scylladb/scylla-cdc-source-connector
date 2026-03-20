@@ -93,6 +93,20 @@ public class CdcIncludeBeforeFullAfterOnlyUpdatedIT
   }
 
   /**
+   * TTL DELETE: INSERT record + DELETE record (ROW_DELETE with preimage) + tombstone.
+   *
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   */
+  @Override
+  String[] expectedTtlDelete(int pk) {
+    return new String[] {
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      buildTtlDeleteRecord(pk, expectedSource()),
+      null
+    };
+  }
+
+  /**
    * UPDATE (partial): before=full image, after=only modified columns + PK.
    *
    * <p>Mixed mode: before contains ALL columns (full state), but after contains only the modified

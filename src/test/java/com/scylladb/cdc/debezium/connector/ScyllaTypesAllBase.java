@@ -1,5 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -25,6 +26,16 @@ public abstract class ScyllaTypesAllBase<K, V> extends ScyllaTypesIT<K, V> {
   abstract String[] expectedPrimitiveInsert(int pk);
 
   abstract String[] expectedPrimitiveDelete(int pk);
+
+  /**
+   * Returns expected records for a per-write TTL-based row deletion ({@code INSERT ... USING TTL}).
+   * Per-row TTL (the {@code timestamp TTL} column feature) is tested in {@link
+   * CdcPerRowTtlDeleteIT}.
+   *
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   *     ScyllaDB does not currently generate CDC events for per-write TTL expirations
+   */
+  abstract String[] expectedPrimitiveTtlDelete(int pk);
 
   abstract String[] expectedPrimitiveUpdateFromValueToNil(int pk);
 
@@ -572,6 +583,24 @@ public abstract class ScyllaTypesAllBase<K, V> extends ScyllaTypesIT<K, V> {
     session.execute(
         "UPDATE %s SET %s WHERE id = %d"
             .formatted(getSuiteKeyspaceTableName(), PRIMITIVE_SET_EMPTY_SET2, pk));
+  }
+
+  private static final int TTL_SECONDS = 5;
+
+  protected void primitiveInsertFullRowWithTtl(int pk, String textColValue, int ttlSeconds) {
+    String values = PRIMITIVE_BASE_VALUES_SET1.formatted(textColValue);
+    session.execute(
+        "INSERT INTO %s (%s) VALUES (%d, %s, '%s', %d, %s, %s) USING TTL %d"
+            .formatted(
+                getSuiteKeyspaceTableName(),
+                PRIMITIVE_ALL_COLUMNS,
+                pk,
+                values,
+                UNTOUCHED_TEXT_VALUE,
+                UNTOUCHED_INT_VALUE,
+                UNTOUCHED_BOOLEAN_VALUE,
+                UNTOUCHED_UUID_VALUE,
+                ttlSeconds));
   }
 
   protected void primitiveDeleteRow(int pk) {
@@ -1218,6 +1247,25 @@ public abstract class ScyllaTypesAllBase<K, V> extends ScyllaTypesIT<K, V> {
     primitiveInsertFullRow(pk, "delete me");
     primitiveDeleteRow(pk);
     waitAndAssert(pk, expectedPrimitiveDelete(pk));
+  }
+
+  /**
+   * Tests that per-write TTL-based row deletion generates a DELETE CDC record.
+   *
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   *     ScyllaDB does not currently generate CDC events for per-write TTL expirations
+   * @see CdcPerRowTtlDeleteIT for per-row TTL tests
+   */
+  @Test
+  void testPrimitiveTtlDelete() throws InterruptedException {
+    Assumptions.assumeTrue(
+        PARSED_SCYLLA_VERSION != null
+            && PARSED_SCYLLA_VERSION.isAtLeast(ScyllaVersion.PER_ROW_TTL_SUPPORT),
+        "Per-write TTL CDC tests require ScyllaDB >= " + ScyllaVersion.PER_ROW_TTL_SUPPORT);
+    int pk = reservePk();
+    primitiveInsertFullRowWithTtl(pk, "ttl_delete_me", TTL_SECONDS);
+    Thread.sleep((TTL_SECONDS + 3) * 1000L);
+    waitAndAssert(pk, expectedPrimitiveTtlDelete(pk));
   }
 
   @Test

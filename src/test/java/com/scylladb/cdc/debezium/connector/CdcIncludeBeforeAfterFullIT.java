@@ -84,6 +84,20 @@ public class CdcIncludeBeforeAfterFullIT extends CdcIncludeBeforeAfterBase<Strin
   }
 
   /**
+   * TTL DELETE: INSERT record + DELETE record (ROW_DELETE with preimage) + tombstone.
+   *
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   */
+  @Override
+  String[] expectedTtlDelete(int pk) {
+    return new String[] {
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      buildTtlDeleteRecord(pk, expectedSource()),
+      null
+    };
+  }
+
+  /**
    * UPDATE (partial - only some primitives modified): before and after contain ALL columns.
    *
    * <p>In "full" mode, even when only a few columns are modified, both before and after contain all

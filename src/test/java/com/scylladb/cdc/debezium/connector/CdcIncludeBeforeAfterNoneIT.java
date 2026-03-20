@@ -97,6 +97,20 @@ public class CdcIncludeBeforeAfterNoneIT extends CdcIncludeBeforeAfterBase<Strin
   }
 
   /**
+   * TTL DELETE: INSERT record + DELETE record (ROW_DELETE with preimage) + tombstone.
+   *
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   */
+  @Override
+  String[] expectedTtlDelete(int pk) {
+    return new String[] {
+      buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
+      buildTtlDeleteRecord(pk, expectedSource()),
+      null
+    };
+  }
+
+  /**
    * UPDATE (all active columns): before=null, after=null.
    *
    * <p>With mode=none, no data is included regardless of how many columns were modified. The "key"
