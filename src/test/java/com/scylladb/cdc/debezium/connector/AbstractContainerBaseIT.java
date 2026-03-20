@@ -365,6 +365,9 @@ public abstract class AbstractContainerBaseIT {
   public static final String SCYLLA_VERSION =
       System.getProperty("it.scylla.version", DEFAULT_SCYLLA_VERSION);
 
+  /** Parsed ScyllaDB version for feature-gating tests. */
+  protected static final ScyllaVersion PARSED_SCYLLA_VERSION = ScyllaVersion.parse(SCYLLA_VERSION);
+
   /**
    * Builds the ScyllaDB server command used by the container. Includes developer/overprovisioned
    * defaults and allows reducing log verbosity via system properties:

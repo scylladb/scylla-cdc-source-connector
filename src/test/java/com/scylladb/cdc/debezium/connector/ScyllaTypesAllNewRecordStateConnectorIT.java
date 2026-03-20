@@ -359,6 +359,23 @@ public class ScyllaTypesAllNewRecordStateConnectorIT extends ScyllaTypesAllBase<
     };
   }
 
+  /**
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   */
+  @Override
+  String[] expectedPrimitiveTtlDelete(int pk) {
+    return new String[] {
+      // INSERT record (flattened)
+      flattenedRecord(
+          primitiveColumnsValues(pk, "ttl_delete_me"),
+          frozenCollectionsColumnsNull(),
+          nonFrozenCollectionsColumnsNull(),
+          udtColumnsNull()),
+      // TTL DELETE: NewRecordState produces null when after is null
+      null
+    };
+  }
+
   @Override
   String[] expectedPrimitiveUpdateFromValueToNil(int pk) {
     return new String[] {

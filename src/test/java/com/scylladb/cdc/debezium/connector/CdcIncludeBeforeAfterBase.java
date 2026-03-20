@@ -3,6 +3,7 @@ package com.scylladb.cdc.debezium.connector;
 import java.util.List;
 import java.util.Properties;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -101,6 +102,20 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
    * Implementations should return the expected record structure based on their configuration.
    */
   abstract String[] expectedUpdateMultiColumn(int pk);
+
+  /**
+   * Returns the expected JSON for a per-write TTL-based DELETE operation with the given primary
+   * key. Implementations should return the expected record structure based on their
+   * cdc.include.before and cdc.include.after configuration.
+   *
+   * <p>This tests CQL's per-write TTL ({@code INSERT ... USING TTL N}), which uses lazy expiration
+   * at compaction/read time. Per-row TTL (the {@code timestamp TTL} column feature) is tested
+   * separately in {@link CdcPerRowTtlDeleteIT}.
+   *
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   *     ScyllaDB does not currently generate CDC events for per-write TTL expirations
+   */
+  abstract String[] expectedTtlDelete(int pk);
 
   // ===================== Schema Definition =====================
 
@@ -453,6 +468,8 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
         + UNTOUCHED_UDT_VALUES;
   }
 
+  private static final int TTL_SECONDS = 5;
+
   /** Inserts a full row with all columns using set 1 values. */
   protected void insertFullRow(int pk) {
     session.execute(
@@ -463,6 +480,19 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
             + ") VALUES ("
             + buildInsertValuesSet1(pk)
             + ")");
+  }
+
+  /** Inserts a full row with all columns using set 1 values and a TTL. */
+  protected void insertFullRowWithTtl(int pk, int ttlSeconds) {
+    session.execute(
+        "INSERT INTO "
+            + getSuiteKeyspaceTableName()
+            + " ("
+            + ALL_COLUMNS
+            + ") VALUES ("
+            + buildInsertValuesSet1(pk)
+            + ") USING TTL "
+            + ttlSeconds);
   }
 
   /** Deletes a row by primary key. */
@@ -522,6 +552,28 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
     insertFullRow(pk);
     updateSomePrimitives(pk);
     waitAndAssert(pk, expectedUpdate(pk));
+  }
+
+  /**
+   * Tests that per-write TTL-based row deletion generates a DELETE CDC record.
+   *
+   * <p>Inserts a row with {@code USING TTL}, waits for expiry, and verifies the generated records.
+   * This tests CQL's per-write (regular) TTL. For per-row TTL tests, see {@link
+   * CdcPerRowTtlDeleteIT}.
+   *
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   *     ScyllaDB does not currently generate CDC events for per-write TTL expirations
+   */
+  @Test
+  void testTtlDelete() throws InterruptedException {
+    Assumptions.assumeTrue(
+        PARSED_SCYLLA_VERSION != null
+            && PARSED_SCYLLA_VERSION.isAtLeast(ScyllaVersion.PER_ROW_TTL_SUPPORT),
+        "Per-write TTL CDC tests require ScyllaDB >= " + ScyllaVersion.PER_ROW_TTL_SUPPORT);
+    int pk = reservePk();
+    insertFullRowWithTtl(pk, TTL_SECONDS);
+    Thread.sleep((TTL_SECONDS + 3) * 1000L);
+    waitAndAssert(pk, expectedTtlDelete(pk));
   }
 
   /** Tests UPDATE operation that modifies all active columns. */
@@ -1348,6 +1400,24 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
       int pk, String beforeMode, String afterMode, String source) {
     // Note: For partition-key-only tables, Scylla sends PARTITION_DELETE which has no preimage
     String before = "null"; // Partition delete has no preimage
+    String after = "null"; // DELETE always has null after
+    return buildRecord(pk, before, after, "d", source);
+  }
+
+  /**
+   * Builds a complete expected Kafka record JSON for TTL-based DELETE operation.
+   *
+   * <p>TTL delete is a ROW_DELETE (not PARTITION_DELETE), so the preimage is available. The
+   * emitter's {@code emitDeleteRecord} always uses {@code fillStructWithFullImage} regardless of
+   * the before/after mode, so the full preimage is always included.
+   *
+   * @param pk the primary key value
+   * @param source the expected source JSON (use expectedSource())
+   * @return complete JSON record string
+   */
+  protected static String buildTtlDeleteRecord(int pk, String source) {
+    // TTL delete is ROW_DELETE which has preimage available (unlike PARTITION_DELETE)
+    String before = jsonFullImageSet1(pk);
     String after = "null"; // DELETE always has null after
     return buildRecord(pk, before, after, "d", source);
   }

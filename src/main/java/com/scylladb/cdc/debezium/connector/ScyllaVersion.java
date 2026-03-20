@@ -17,6 +17,9 @@ public class ScyllaVersion implements Comparable<ScyllaVersion> {
   public static final ScyllaVersion PARTITION_DELETE_PREIMAGE_SUPPORT =
       new ScyllaVersion(2026, 1, 0);
 
+  /** Minimum version that supports per-row TTL ({@code timestamp TTL} column syntax). */
+  public static final ScyllaVersion PER_ROW_TTL_SUPPORT = new ScyllaVersion(2026, 2, 0);
+
   private static final Pattern VERSION_PATTERN = Pattern.compile("(\\d+)\\.(\\d+)\\.(\\d+)");
 
   private final int major;

@@ -423,6 +423,50 @@ public class ScyllaTypesAllAvroConnectorIT
     };
   }
 
+  /**
+   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
+   */
+  @Override
+  String[] expectedPrimitiveTtlDelete(int pk) {
+    String allCols =
+        primitiveColumnsValues(pk, "ttl_delete_me")
+            + ",\n"
+            + frozenCollectionsColumnsNull()
+            + ",\n"
+            + nonFrozenCollectionsColumnsNull()
+            + ",\n"
+            + udtColumnsNull();
+    return new String[] {
+      // INSERT record
+      """
+        {
+          "before": null,
+          "after": {
+            %s
+          },
+          "key": {"id": %d},
+          "op": "c",
+          "source": %s
+        }
+        """
+          .formatted(allCols, pk, expectedSource()),
+      // TTL DELETE record (ROW_DELETE with preimage)
+      """
+        {
+          "before": {
+            %s
+          },
+          "after": null,
+          "key": {"id": %d},
+          "op": "d",
+          "source": %s
+        }
+        """
+          .formatted(allCols, pk, expectedSource()),
+      null
+    };
+  }
+
   @Override
   String[] expectedPrimitiveUpdateFromValueToNil(int pk) {
     return new String[] {
