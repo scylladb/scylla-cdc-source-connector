@@ -54,28 +54,35 @@ public class ScyllaStreamingChangeEventSource
     // Detect Scylla version for feature compatibility checks
     ScyllaVersion scyllaVersion = new ScyllaVersionChecker(configuration).getVersion();
 
-    Driver3Session session = new ScyllaSessionBuilder(configuration).build();
-    Driver3WorkerCQL cql = new Driver3WorkerCQL(session);
-    RetryBackoff retryBackoff = configuration.createCDCWorkerRetryBackoff();
-    ScyllaWorkerTransport workerTransport =
-        new ScyllaWorkerTransport(
-            context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
+    // Acquire a shared CQL session from the JVM-global cache. Tasks targeting the same
+    // cluster with identical connection parameters will share a single session, reducing
+    // the aggregate number of connections and in-flight requests to each ScyllaDB node.
+    Driver3Session session = SharedSessionCache.acquire(configuration);
+    try {
+      Driver3WorkerCQL cql = new Driver3WorkerCQL(session);
+      RetryBackoff retryBackoff = configuration.createCDCWorkerRetryBackoff();
+      ScyllaWorkerTransport workerTransport =
+          new ScyllaWorkerTransport(
+              context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
 
-    // Create the appropriate consumer based on output format configuration
-    TaskAndRawChangeConsumer changeConsumer = createChangeConsumer(offsetContext, scyllaVersion);
+      // Create the appropriate consumer based on output format configuration
+      TaskAndRawChangeConsumer changeConsumer = createChangeConsumer(offsetContext, scyllaVersion);
 
-    WorkerConfiguration workerConfiguration =
-        WorkerConfiguration.builder()
-            .withTransport(workerTransport)
-            .withCQL(cql)
-            .withConsumer(changeConsumer)
-            .withQueryTimeWindowSizeMs(configuration.getQueryTimeWindowSizeMs())
-            .withConfidenceWindowSizeMs(configuration.getConfidenceWindowSizeMs())
-            .withWorkerRetryBackoff(retryBackoff)
-            .withMinimalWaitForWindowMs(configuration.getMinimalWaitForWindowMs())
-            .build();
-    var worker = new Worker(workerConfiguration);
-    runWorker(session, taskContext, worker);
+      WorkerConfiguration workerConfiguration =
+          WorkerConfiguration.builder()
+              .withTransport(workerTransport)
+              .withCQL(cql)
+              .withConsumer(changeConsumer)
+              .withQueryTimeWindowSizeMs(configuration.getQueryTimeWindowSizeMs())
+              .withConfidenceWindowSizeMs(configuration.getConfidenceWindowSizeMs())
+              .withWorkerRetryBackoff(retryBackoff)
+              .withMinimalWaitForWindowMs(configuration.getMinimalWaitForWindowMs())
+              .build();
+      var worker = new Worker(workerConfiguration);
+      runWorker(session, taskContext, worker);
+    } finally {
+      SharedSessionCache.release(configuration);
+    }
   }
 
   /**
