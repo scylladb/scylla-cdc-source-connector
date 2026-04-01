@@ -1,8 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.scylladb.cdc.cql.driver3.Driver3Session;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,16 +21,15 @@ import org.slf4j.LoggerFactory;
  * to {@link #acquire} a session creates it, subsequent tasks increment the reference count, and
  * {@link #release} decrements it. The session is closed only when the last task releases it.
  *
- * <p>When multiple tasks share a session, the connection pool is dynamically scaled: each new task
- * that joins increases the maximum number of connections per host (via {@code
- * PoolingOptions.setMaxConnectionsPerHost} and {@code setCoreConnectionsPerHost}), and each task
- * that leaves decreases it. This ensures the shared pool can handle the aggregate concurrency of
- * all tasks without hitting {@code BusyPoolException}, while still bounding the total number of
- * connections proportionally to the actual number of tasks.
+ * <p>When multiple tasks share a session, they also share the connection pool. This means the pool
+ * may temporarily become busy under high concurrency. Callers should handle {@code
+ * BusyPoolException} (wrapped in {@code NoHostAvailableException}) with retry and backoff rather
+ * than treating it as a fatal error.
  *
  * <p>The session cache key is derived from connection-identity properties only (contact points,
  * port, credentials, SSL, consistency level, local DC, and fetch size). Pooling parameters are
- * intentionally excluded from the key because they are managed dynamically as tasks join and leave.
+ * intentionally excluded from the key so that tasks sharing the same cluster always share a session
+ * regardless of per-task pooling configuration differences.
  *
  * <p>This class is thread-safe.
  */
@@ -46,8 +43,8 @@ public final class SharedSessionCache {
 
   /**
    * Acquires a shared {@link Driver3Session} for the given configuration. If an identical session
-   * already exists in the cache, its reference count is incremented, the connection pool is scaled
-   * up, and the existing session is returned. Otherwise, a new session is created and cached.
+   * already exists in the cache, its reference count is incremented and the existing session is
+   * returned. Otherwise, a new session is created and cached.
    *
    * @param configuration the connector configuration determining the session identity
    * @return a shared Driver3Session instance
@@ -60,7 +57,6 @@ public final class SharedSessionCache {
             (k, existing) -> {
               if (existing != null && !existing.isClosed()) {
                 existing.retain();
-                scalePool(existing.session(), existing.refCount());
                 LOGGER.info(
                     "Reusing shared CQL session for {} (ref count: {})",
                     k.summary(),
@@ -69,17 +65,14 @@ public final class SharedSessionCache {
               }
               LOGGER.info("Creating new shared CQL session for {}", k.summary());
               Driver3Session session = new ScyllaSessionBuilder(configuration).build();
-              return new RefCountedSession(
-                  session,
-                  configuration.getPoolingCorePoolLocal(),
-                  configuration.getPoolingMaxPoolLocal());
+              return new RefCountedSession(session);
             });
     return refCounted.session();
   }
 
   /**
-   * Releases a previously acquired session. Decrements the reference count, scales down the
-   * connection pool, and closes the session if no more tasks are using it.
+   * Releases a previously acquired session. Decrements the reference count and closes the session
+   * if no more tasks are using it.
    *
    * @param configuration the connector configuration that was used to acquire the session
    */
@@ -98,121 +91,9 @@ public final class SharedSessionCache {
             existing.close();
             return null; // remove from map
           }
-          scalePool(existing.session(), remaining);
           LOGGER.info("Released shared CQL session for {} (ref count: {})", k.summary(), remaining);
           return existing;
         });
-  }
-
-  /**
-   * Scales the connection pool to accommodate the given number of tasks sharing the session. Sets
-   * {@code maxConnectionsPerHost} and {@code coreConnectionsPerHost} to {@code baseCorePool *
-   * taskCount} and {@code baseMaxPool * taskCount} respectively, so each task gets its fair share
-   * of connection capacity.
-   *
-   * <p>Uses reflection to access the underlying driver's {@code PoolingOptions} through the shaded
-   * class hierarchy: {@code Driver3Session.driverSession} -> {@code Session.getCluster()} -> {@code
-   * Cluster.getConfiguration()} -> {@code Configuration.getPoolingOptions()}.
-   *
-   * <p>The DataStax Java Driver 3.x {@code PoolingOptions} fields are {@code volatile} and designed
-   * for runtime modification. {@code setCoreConnectionsPerHost} additionally triggers {@code
-   * Manager.ensurePoolsSizing()} which actively opens new connections if needed.
-   */
-  private static void scalePool(Driver3Session driver3Session, int taskCount) {
-    try {
-      // Access the raw driver Session from Driver3Session via reflection.
-      // Driver3Session stores the DataStax Session as a private field.
-      Field driverSessionField = Driver3Session.class.getDeclaredField("driverSession");
-      driverSessionField.setAccessible(true);
-      Object rawSession = driverSessionField.get(driver3Session);
-
-      // Navigate the driver object graph to reach PoolingOptions:
-      // Session -> Cluster -> Configuration -> PoolingOptions
-      Object cluster = rawSession.getClass().getMethod("getCluster").invoke(rawSession);
-      Object configuration = cluster.getClass().getMethod("getConfiguration").invoke(cluster);
-      Object poolingOptions =
-          configuration.getClass().getMethod("getPoolingOptions").invoke(configuration);
-
-      // Find the HostDistance enum class from the shaded driver package.
-      // We locate it via the parameter type of getCoreConnectionsPerHost(HostDistance).
-      Method getCoreMethod = findMethod(poolingOptions.getClass(), "getCoreConnectionsPerHost");
-      Class<?> hostDistanceClass = getCoreMethod.getParameterTypes()[0];
-      Object localDistance = hostDistanceClass.getField("LOCAL").get(null);
-
-      // Read current pool values
-      Method getMaxMethod = findMethod(poolingOptions.getClass(), "getMaxConnectionsPerHost");
-      int currentCore = (int) getCoreMethod.invoke(poolingOptions, localDistance);
-      int currentMax = (int) getMaxMethod.invoke(poolingOptions, localDistance);
-
-      // Compute the per-task base values from the RefCountedSession
-      // (stored at session creation time from the first task's config)
-      RefCountedSession refCounted = null;
-      for (RefCountedSession rc : CACHE.values()) {
-        if (rc.session() == driver3Session) {
-          refCounted = rc;
-          break;
-        }
-      }
-      int baseCorePool = refCounted != null ? refCounted.baseCorePool : 1;
-      int baseMaxPool = refCounted != null ? refCounted.baseMaxPool : 1;
-
-      int newCore = baseCorePool * taskCount;
-      int newMax = baseMaxPool * taskCount;
-
-      // The driver enforces core <= max, so the order of updates matters.
-      // When scaling up: increase max first, then core.
-      // When scaling down: decrease core first, then max.
-      Method setCoreMethod =
-          findMethod(poolingOptions.getClass(), "setCoreConnectionsPerHost", int.class);
-      Method setMaxMethod =
-          findMethod(poolingOptions.getClass(), "setMaxConnectionsPerHost", int.class);
-
-      if (newMax >= currentMax) {
-        // Scaling up or same: max first, then core
-        setMaxMethod.invoke(poolingOptions, localDistance, newMax);
-        setCoreMethod.invoke(poolingOptions, localDistance, newCore);
-      } else {
-        // Scaling down: core first, then max
-        setCoreMethod.invoke(poolingOptions, localDistance, newCore);
-        setMaxMethod.invoke(poolingOptions, localDistance, newMax);
-      }
-
-      LOGGER.info(
-          "Scaled connection pool for {} tasks: core={}, max={}", taskCount, newCore, newMax);
-    } catch (Exception e) {
-      LOGGER.warn(
-          "Failed to scale connection pool for {} tasks. "
-              + "The session will continue working with the existing pool size, "
-              + "which may cause BusyPoolException under high concurrency.",
-          taskCount,
-          e);
-    }
-  }
-
-  /**
-   * Finds a method by name on the given class, matching by name only (for getter-style methods with
-   * a single HostDistance parameter) or by name and additional parameter types (for setter-style
-   * methods). This avoids hard-coding the shaded HostDistance class name.
-   */
-  private static Method findMethod(Class<?> clazz, String name, Class<?>... extraParamTypes) {
-    for (Method m : clazz.getMethods()) {
-      if (!m.getName().equals(name)) continue;
-      Class<?>[] params = m.getParameterTypes();
-      if (params.length != 1 + extraParamTypes.length) continue;
-      // First param must be an enum (HostDistance)
-      if (!params[0].isEnum()) continue;
-      // Check remaining params match
-      boolean match = true;
-      for (int i = 0; i < extraParamTypes.length; i++) {
-        if (!params[i + 1].equals(extraParamTypes[i])) {
-          match = false;
-          break;
-        }
-      }
-      if (match) return m;
-    }
-    throw new NoSuchMethodError(
-        "Method " + name + " not found on " + clazz.getName() + " with expected parameter types");
   }
 
   /** Returns the number of distinct sessions currently cached. Visible for testing. */
@@ -232,26 +113,17 @@ public final class SharedSessionCache {
 
   /**
    * A reference-counted wrapper around a {@link Driver3Session}. The session is closed only when
-   * the reference count drops to zero. Also stores the per-task base pooling values so the pool can
-   * be scaled proportionally as tasks join and leave.
+   * the reference count drops to zero.
    */
   private static final class RefCountedSession {
     private final Driver3Session session;
     private final AtomicInteger refs;
     private volatile boolean closed;
 
-    /** Per-task base value for core connections per host (from the first task's config). */
-    final int baseCorePool;
-
-    /** Per-task base value for max connections per host (from the first task's config). */
-    final int baseMaxPool;
-
-    RefCountedSession(Driver3Session session, int baseCorePool, int baseMaxPool) {
+    RefCountedSession(Driver3Session session) {
       this.session = session;
       this.refs = new AtomicInteger(1);
       this.closed = false;
-      this.baseCorePool = Math.max(1, baseCorePool);
-      this.baseMaxPool = Math.max(1, baseMaxPool);
     }
 
     Driver3Session session() {
@@ -289,8 +161,8 @@ public final class SharedSessionCache {
   /**
    * Immutable key that identifies a unique CQL session configuration. Two tasks produce the same
    * key if and only if they connect to the same cluster with the same identity (credentials, SSL,
-   * consistency, fetch size). Pooling parameters are intentionally excluded because they are
-   * managed dynamically by the cache as tasks join and leave.
+   * consistency, fetch size). Pooling parameters are intentionally excluded so that tasks sharing
+   * the same cluster always share a session.
    */
   static final class SessionKey {
     private final String contactPoints;
