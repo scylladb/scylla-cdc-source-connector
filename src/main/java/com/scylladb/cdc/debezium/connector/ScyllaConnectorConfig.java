@@ -406,6 +406,22 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .optional()
           .withDefault(20);
 
+  public static final Field MAX_WORKER_RETRIES =
+      Field.create("worker.max.retries")
+          .withDisplayName("Maximum worker execution attempts")
+          .withType(ConfigDef.Type.INT)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDescription(
+              "Maximum number of attempts to execute the CDC worker. "
+                  + "Despite the name, this controls total attempts, not retries: "
+                  + "a value of 1 means the worker runs once with no retries on failure. "
+                  + "Set to -1 for unlimited attempts (not recommended for production). "
+                  + "Must be a positive integer or -1. Default is 20.")
+          .withValidation(ScyllaConnectorConfig::validateMaxWorkerRetries)
+          .optional()
+          .withDefault(20);
+
   public static final Field POOLING_CORE_POOL_LOCAL =
       Field.create("worker.pooling.core.pool.local")
           .withDisplayName("Number of connections to DB node")
@@ -510,6 +526,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               RETRY_BACKOFF_BASE_MS,
               RETRY_MAX_BACKOFF_MS,
               RETRY_BACKOFF_JITTER_PERCENTAGE,
+              MAX_WORKER_RETRIES,
               POOLING_CORE_POOL_LOCAL,
               POOLING_MAX_POOL_LOCAL,
               POOLING_MAX_REQUESTS_PER_CONNECTION,
@@ -703,6 +720,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public int getRetryBackoffJitterPercentage() {
     return config.getInteger(ScyllaConnectorConfig.RETRY_BACKOFF_JITTER_PERCENTAGE);
+  }
+
+  public int getMaxWorkerRetries() {
+    return config.getInteger(ScyllaConnectorConfig.MAX_WORKER_RETRIES);
   }
 
   public ExponentialRetryBackoffWithJitter createCDCWorkerRetryBackoff() {
@@ -914,6 +935,29 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   @Override
   public EnumeratedValue getSnapshotMode() {
     return SnapshotMode.INITIAL;
+  }
+
+  /**
+   * Validates that worker.max.retries is a positive integer or -1 (unlimited). Rejects 0 and
+   * negative values other than -1 at config time so they don't cause runtime crashes.
+   */
+  private static int validateMaxWorkerRetries(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String stringValue = config.getString(field);
+    if (stringValue == null || stringValue.isEmpty()) {
+      return 0; // will use default
+    }
+    try {
+      int value = Integer.parseInt(stringValue);
+      if (value == 0 || value < -1) {
+        problems.accept(field, value, "Must be a positive integer or -1 for unlimited");
+        return 1;
+      }
+      return 0;
+    } catch (NumberFormatException e) {
+      problems.accept(field, stringValue, "Must be a valid integer");
+      return 1;
+    }
   }
 
   @Override
