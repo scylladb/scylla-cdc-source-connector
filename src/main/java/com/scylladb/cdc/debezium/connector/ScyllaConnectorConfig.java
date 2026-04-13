@@ -444,10 +444,12 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "Worker's maximum requests queue size per connection pool. Requests get enqueued if no connection "
                   + "is available. For some setups (many nodes, many shards, few connector tasks, few connections) it may "
                   + "be necessary to increase this to avoid BusyPoolException. Additional requests above this limit will be "
-                  + "rejected. Requests that wait for longer than pool timeout value also will be rejected.")
+                  + "rejected. Requests that wait for longer than pool timeout value also will be rejected. "
+                  + "Note: this limit is per Kafka Connect task. The aggregate queue size per Scylla node is "
+                  + "tasks.max * this value.")
           .withValidation(Field::isNonNegativeInteger)
           .optional()
-          .withDefault(512);
+          .withDefault(256);
 
   public static final Field POOLING_MAX_REQUESTS_PER_CONNECTION =
       Field.create("worker.pooling.max.requests.per.connection")
@@ -457,10 +459,11 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
               "Worker's maximum requests per connection to a Scylla node within distance 'LOCAL'. Requests above "
-                  + "this quantity will be enqueued.")
+                  + "this quantity will be enqueued. Note: this limit is per Kafka Connect task. The aggregate "
+                  + "concurrent requests per Scylla node is tasks.max * this value.")
           .withValidation(Field::isNonNegativeInteger)
           .optional()
-          .withDefault(1024);
+          .withDefault(256);
 
   public static final Field POOLING_POOL_TIMEOUT_MS =
       Field.create("worker.pooling.pool.timeout.ms")
