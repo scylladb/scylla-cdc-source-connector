@@ -41,7 +41,8 @@ transforms.reroute.topic.replacement=orders.order-event
 | `ScyllaFlattenColumns` | Flattens nested column structs into a flat key→value record |
 
 Kafka Connect's own transform library (`org.apache.kafka.connect.transforms.*`) adds further
-options: field dropping/renaming, topic routing by regex, timestamp conversion, and more.
+options: field dropping/renaming, topic routing by regex, timestamp conversion, and more. See
+the [Kafka Connect included transformations reference][connect-transforms] for the full list.
 
 ---
 
@@ -217,3 +218,4 @@ from `scylla-cdc-lib` to plug in a custom checkpoint backend. See the
 [debezium-format]: https://debezium.io/documentation/reference/stable/connectors/cassandra.html
 [example-smt]: ../src/main/java/com/scylladb/cdc/debezium/connector/transforms/ExampleOrderEventTransform.java
 [state-store-readme]: https://github.com/scylladb/scylla-cdc-java#checkpoint-persistence-cdcstatestore
+[connect-transforms]: https://kafka.apache.org/42/kafka-connect/user-guide/#included-transformations
