@@ -1,6 +1,5 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.ChangeId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
@@ -44,7 +43,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   private final boolean usePreimages;
   private final boolean usePostimages;
   private final boolean waitPreimageForPartitionDelete;
-  private final Map<TaskId, TaskInfo> taskInfoMap;
+  private final Map<RowKey, TaskInfo> taskInfoMap;
   private final ScyllaConnectorConfig connectorConfig;
   private final long incompleteTaskTimeoutMs;
   private final AtomicLong eventCounter = new AtomicLong(0);
@@ -123,20 +122,20 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   }
 
   /**
-   * Gets or creates a TaskInfo for the given task ID.
+   * Gets or creates a TaskInfo for the given row key.
    *
-   * @param taskId the task ID
+   * @param rowKey the row key identifying the specific row within the task
    * @return the TaskInfo, never null when taskInfoMap is initialized
    * @throws IllegalStateException if called when taskInfoMap is null (preimages/postimages
    *     disabled)
    */
-  private TaskInfo getOrCreateTaskInfo(TaskId taskId) {
+  private TaskInfo getOrCreateTaskInfo(RowKey rowKey) {
     if (taskInfoMap == null) {
       throw new IllegalStateException(
           "getOrCreateTaskInfo called but taskInfoMap is null. "
               + "This method should only be called when preimages or postimages are enabled.");
     }
-    return taskInfoMap.computeIfAbsent(taskId, k -> createTaskInfo());
+    return taskInfoMap.computeIfAbsent(rowKey, k -> createTaskInfo());
   }
 
   /**
@@ -151,10 +150,10 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     }
 
     long now = System.currentTimeMillis();
-    Iterator<Map.Entry<TaskId, TaskInfo>> iterator = taskInfoMap.entrySet().iterator();
+    Iterator<Map.Entry<RowKey, TaskInfo>> iterator = taskInfoMap.entrySet().iterator();
 
     while (iterator.hasNext()) {
-      Map.Entry<TaskId, TaskInfo> entry = iterator.next();
+      Map.Entry<RowKey, TaskInfo> entry = iterator.next();
       TaskInfo taskInfo = entry.getValue();
       long age = now - taskInfo.getCreatedAtMillis();
 
@@ -196,24 +195,25 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
       RawChange.OperationType operationType = change.getOperationType();
 
       if (taskInfoMap != null) {
+        RowKey rowKey = RowKey.from(task.id, change);
         TaskInfo taskInfo = null;
         switch (operationType) {
           case PRE_IMAGE:
-            taskInfo = getOrCreateTaskInfo(task.id).setPreImage(change);
+            taskInfo = getOrCreateTaskInfo(rowKey).setPreImage(change);
             break;
           case POST_IMAGE:
-            taskInfo = getOrCreateTaskInfo(task.id).setPostImage(change);
+            taskInfo = getOrCreateTaskInfo(rowKey).setPostImage(change);
             break;
           case ROW_DELETE:
           case ROW_INSERT:
           case ROW_UPDATE:
-            taskInfo = getOrCreateTaskInfo(task.id).setChange(change);
+            taskInfo = getOrCreateTaskInfo(rowKey).setChange(change);
             break;
           case PARTITION_DELETE:
             if (isSinglePartitionDelete(change.getSchema())) {
               // TaskInfo.isComplete() handles the decision on whether to wait for preimage
               // based on the waitPreimageForPartitionDelete flag passed to the constructor
-              taskInfo = getOrCreateTaskInfo(task.id).setChange(change);
+              taskInfo = getOrCreateTaskInfo(rowKey).setChange(change);
             }
             break;
           default:
@@ -223,7 +223,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
           advanceStateWithoutDispatching(task, change.getId());
         } else if (taskInfo.isComplete()) {
           // If it is final event that task expects we advance the state and dispatch
-          taskInfoMap.remove(task.id);
+          taskInfoMap.remove(rowKey);
           advanceStateAndDispatch(task, change.getId(), taskInfo);
         }
         // If task is not complete yet (e.g., received PRE_IMAGE but waiting for change),

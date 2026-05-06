@@ -1,6 +1,5 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.Task;
@@ -32,7 +31,7 @@ public class ScyllaChangesConsumerLegacy implements TaskAndRawChangeConsumer {
   private final ScyllaSchemaLegacy schema;
   private final Clock clock;
   private final boolean usePreimages;
-  private final Map<TaskId, RawChange> lastPreImage;
+  private final Map<RowKey, RawChange> lastPreImage;
   private final ScyllaConnectorConfig connectorConfig;
 
   public ScyllaChangesConsumerLegacy(
@@ -58,7 +57,8 @@ public class ScyllaChangesConsumerLegacy implements TaskAndRawChangeConsumer {
   public CompletableFuture<Void> consume(Task task, RawChange change) {
     try {
       if (usePreimages && change.getOperationType() == RawChange.OperationType.PRE_IMAGE) {
-        lastPreImage.put(task.id, change);
+        RowKey rowKey = RowKey.from(task.id, change);
+        lastPreImage.put(rowKey, change);
         if (lastPreImage.size() == PREIMAGE_MAP_SIZE_WARNING_THRESHOLD) {
           logger.warn(
               "Preimage map has grown to {} entries. This may indicate orphaned preimages "
@@ -97,19 +97,20 @@ public class ScyllaChangesConsumerLegacy implements TaskAndRawChangeConsumer {
         return CompletableFuture.completedFuture(null);
       }
 
-      if (usePreimages && lastPreImage.containsKey(task.id)) {
+      if (usePreimages && lastPreImage.containsKey(RowKey.from(task.id, change))) {
+        RowKey rowKey = RowKey.from(task.id, change);
         dispatcher.dispatchDataChangeEvent(
             new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo),
             new CollectionId(task.id.getTable()),
             new ScyllaChangeRecordEmitterLegacy(
                 new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo),
-                lastPreImage.get(task.id),
+                lastPreImage.get(rowKey),
                 change,
                 taskStateOffsetContext,
                 schema,
                 clock,
                 connectorConfig));
-        lastPreImage.remove(task.id);
+        lastPreImage.remove(rowKey);
       } else {
         dispatcher.dispatchDataChangeEvent(
             new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo),
@@ -136,7 +137,7 @@ public class ScyllaChangesConsumerLegacy implements TaskAndRawChangeConsumer {
   }
 
   /** Returns the preimage map for testing purposes. Package-private for test access. */
-  Map<TaskId, RawChange> getPreImageMapForTesting() {
+  Map<RowKey, RawChange> getPreImageMapForTesting() {
     return lastPreImage;
   }
 }

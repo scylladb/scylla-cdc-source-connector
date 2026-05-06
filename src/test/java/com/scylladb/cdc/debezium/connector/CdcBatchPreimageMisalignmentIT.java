@@ -19,13 +19,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 /**
- * Integration test that reproduces CDC preimage misalignment when using UNLOGGED BATCH with
- * multiple UPDATE statements targeting different rows in the same partition.
+ * Regression test for CDC preimage misalignment when using UNLOGGED BATCH with multiple UPDATE
+ * statements targeting different rows in the same partition.
  *
  * <p>Root cause: ScyllaDB generates CDC log entries in type-grouped order for unsplit mutations:
- * [all preimages] -> [all deltas] -> [all postimages]. The connector's preimage/postimage storage
- * is keyed by TaskId (per-vnode), not by row identity. When multiple rows share the same TaskId,
- * later preimage/delta/postimage entries overwrite earlier ones, causing misalignment.
+ * [all preimages] -> [all deltas] -> [all postimages]. Prior to the fix, the connector's
+ * preimage/postimage storage was keyed by TaskId (per-vnode), not by row identity. When multiple
+ * rows shared the same TaskId, later entries would overwrite earlier ones, causing misalignment.
+ *
+ * <p>The fix introduces {@link RowKey} which keys storage by TaskId + primary key column values,
+ * ensuring each row gets its own accumulator.
  *
  * <p>Related issues:
  *
@@ -38,17 +41,16 @@ import org.junit.jupiter.api.TestInfo;
  * Queries the CDC log table directly to confirm that ScyllaDB generates entries in type-grouped
  * order (PRE_IMAGE, PRE_IMAGE, UPDATE, UPDATE, POST_IMAGE, POST_IMAGE) rather than per-row order.
  *
- * <h3>Phase 2: Legacy Format Preimage Misalignment</h3>
+ * <h3>Phase 2: Legacy Format Preimage Correlation</h3>
  *
  * With {@code cdc.output.format=legacy} and {@code experimental.preimages.enabled=true}, verifies
- * that the connector produces 2 UPDATE events where one has the wrong preimage (from a different
- * row) and the other has no preimage at all.
+ * that both UPDATE events have correct preimages matching their respective rows.
  *
- * <h3>Phase 3: Advanced Format Data Loss</h3>
+ * <h3>Phase 3: Advanced Format Event Completeness</h3>
  *
  * With {@code cdc.output.format=advanced}, {@code cdc.include.before=full}, {@code
- * cdc.include.after=full}, verifies that the connector produces only 1 UPDATE event instead of 2
- * (second row's event is lost because its TaskInfo never completes).
+ * cdc.include.after=full}, verifies that both UPDATE events are produced with correctly correlated
+ * before/after data.
  */
 public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
 
@@ -112,7 +114,7 @@ public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
       session.execute(
           "CREATE KEYSPACE IF NOT EXISTS "
               + keyspace
-              + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
+              + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1} AND tablets = {'enabled': false}");
       session.execute(
           "CREATE TABLE IF NOT EXISTS "
               + fullTableName
@@ -247,17 +249,11 @@ public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
   }
 
   /**
-   * Phase 2: Verify that the legacy consumer produces misaligned preimages for UNLOGGED BATCH
-   * operations.
+   * Phase 2: Verify that the legacy consumer correctly correlates preimages with their
+   * corresponding rows in UNLOGGED BATCH operations.
    *
-   * <p>With the legacy format, the consumer stores preimages in {@code Map<TaskId, RawChange>}.
-   * When two preimages arrive before any delta (due to type-grouped ordering), the second
-   * overwrites the first. Result:
-   *
-   * <ul>
-   *   <li>Event 1: dispatched with wrong preimage (from the other row)
-   *   <li>Event 2: dispatched with null preimage (entry was consumed by Event 1)
-   * </ul>
+   * <p>With the fix (RowKey-based storage), each row gets its own preimage entry keyed by PK+CK
+   * values. Both UPDATE events should have correct preimages matching their respective rows.
    */
   @Test
   public void legacyFormatPreimageMisalignmentWithUnloggedBatch(TestInfo testInfo)
@@ -279,7 +275,7 @@ public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
       session.execute(
           "CREATE KEYSPACE IF NOT EXISTS "
               + keyspace
-              + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
+              + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1} AND tablets = {'enabled': false}");
       session.execute(
           "CREATE TABLE IF NOT EXISTS "
               + fullTableName
@@ -329,81 +325,43 @@ public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
       assertEquals("u", event1.getString("op"), "Event 1 should be an update");
       assertEquals("u", event2.getString("op"), "Event 2 should be an update");
 
-      // In legacy format, "before" contains the preimage data (or null)
-      // and "after" contains the delta.
-      // Due to the bug, one event should have the WRONG preimage and one should have NULL.
+      // Both events should have preimages (before != null)
+      assertFalse(event1.isNull("before"), "Event 1 should have a 'before' (preimage)");
+      assertFalse(event2.isNull("before"), "Event 2 should have a 'before' (preimage)");
+      assertFalse(event1.isNull("after"), "Event 1 should have an 'after' (delta)");
+      assertFalse(event2.isNull("after"), "Event 2 should have an 'after' (delta)");
 
-      boolean event1HasBefore = !event1.isNull("before");
-      boolean event2HasBefore = !event2.isNull("before");
+      // Verify each event's preimage matches its own row (not the other row)
+      for (ConsumerRecord<String, String> record : updateRecords) {
+        JSONObject event = new JSONObject(record.value());
+        JSONObject before = event.getJSONObject("before");
+        JSONObject after = event.getJSONObject("after");
 
-      // BUG ASSERTION: Exactly one event should have a preimage, and one should not.
-      // In correct behavior, BOTH events should have preimages.
-      assertNotEquals(
-          event1HasBefore,
-          event2HasBefore,
-          "BUG CONFIRMED: Expected exactly one event with preimage and one without. "
-              + "In correct behavior, both events would have preimages. "
-              + "Event 1 has before="
-              + (event1HasBefore ? "present" : "null")
-              + ", Event 2 has before="
-              + (event2HasBefore ? "present" : "null"));
+        int afterCk = extractLegacyCellIntValue(after, "ck");
+        String beforeV = extractLegacyCellValue(before, "v");
 
-      // Identify which event has the preimage
-      JSONObject eventWithBefore = event1HasBefore ? event1 : event2;
-      JSONObject eventWithoutBefore = event1HasBefore ? event2 : event1;
-
-      // The event WITH a preimage should have a MISALIGNED preimage:
-      // The preimage's 'v' value should NOT match the 'after' row's original value.
-      JSONObject before = eventWithBefore.getJSONObject("before");
-      JSONObject after = eventWithBefore.getJSONObject("after");
-
-      // Extract the clustering key from the 'after' (delta) to identify which row this event is for
-      // In legacy format, after contains Cell structs with {"value": ..., "set": true/false}
-      // but the exact format may vary. Let's extract what we can.
-      String beforeV = extractLegacyCellValue(before, "v");
-      int afterCk = extractLegacyCellIntValue(after, "ck");
-
-      // Determine what the correct preimage 'v' should be for this row
-      String expectedBeforeV = (afterCk == 1) ? "original_A" : "original_B";
-
-      // BUG ASSERTION: The preimage 'v' should NOT match the expected value for this row.
-      // It should be from the OTHER row due to the overwrite.
-      assertNotEquals(
-          expectedBeforeV,
-          beforeV,
-          "BUG CONFIRMED: Preimage 'v' value '"
-              + beforeV
-              + "' does not belong to this row (ck="
-              + afterCk
-              + "). "
-              + "Expected '"
-              + expectedBeforeV
-              + "' but got the other row's preimage due to TaskId collision.");
-
-      // The event WITHOUT a preimage should have had one (it was an UPDATE, not INSERT)
-      assertFalse(
-          eventWithoutBefore.isNull("after"),
-          "Event without preimage should still have an 'after' (delta)");
+        // The preimage 'v' should match the original value for THIS row
+        String expectedBeforeV = (afterCk == 1) ? "original_A" : "original_B";
+        assertEquals(
+            expectedBeforeV,
+            beforeV,
+            "Preimage 'v' for row ck="
+                + afterCk
+                + " should be '"
+                + expectedBeforeV
+                + "' but got '"
+                + beforeV
+                + "'");
+      }
     }
   }
 
   /**
-   * Phase 3: Verify that the advanced consumer loses events for UNLOGGED BATCH operations.
+   * Phase 3: Verify that the advanced consumer correctly produces events for all rows in UNLOGGED
+   * BATCH operations.
    *
-   * <p>With the advanced format using BeforeAfter mode, the consumer stores preimage, change, and
-   * postimage in a single TaskInfo keyed by TaskId. With type-grouped ordering:
-   *
-   * <ol>
-   *   <li>PRE_IMAGE(A) -> stored
-   *   <li>PRE_IMAGE(B) -> overwrites A's preimage
-   *   <li>ROW_UPDATE(A) -> overwrites nothing (change slot empty), stored
-   *   <li>ROW_UPDATE(B) -> overwrites A's change
-   *   <li>POST_IMAGE(A) -> stored, TaskInfo now complete (preImage=B, change=B, postImage=A) ->
-   *       dispatches with ALL WRONG data
-   *   <li>POST_IMAGE(B) -> new TaskInfo, only postImage set -> never completes -> LOST
-   * </ol>
-   *
-   * Result: Only 1 event produced instead of 2. The single event has misaligned data.
+   * <p>With the fix (RowKey-based storage), each row gets its own TaskInfo accumulator. Both rows
+   * should produce UPDATE events with correctly correlated before/after data.
    */
   @Test
   public void advancedFormatDataLossWithUnloggedBatch(TestInfo testInfo) throws Exception {
@@ -424,7 +382,7 @@ public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
       session.execute(
           "CREATE KEYSPACE IF NOT EXISTS "
               + keyspace
-              + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
+              + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1} AND tablets = {'enabled': false}");
       // Note: use 'preimage': true (not 'full') because the connector's advanced format
       // validation only accepts boolean true, not the string 'full'.
       session.execute(
@@ -466,8 +424,7 @@ public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
               + " SET v='updated_B' WHERE pk=1 AND ck=2; "
               + "APPLY BATCH");
 
-      // Wait for UPDATE events - we expect only 1 due to the bug (second row lost)
-      // Wait long enough to be confident no second event is coming
+      // Wait for UPDATE events - expect 2 (one per row)
       List<ConsumerRecord<String, String>> updateRecords =
           waitForKafkaRecordsWithExtraWait(consumer, "batch updates", 20_000);
 
@@ -482,40 +439,36 @@ public class CdcBatchPreimageMisalignmentIT extends AbstractContainerBaseIT {
         }
       }
 
-      // BUG ASSERTION: Only 1 UPDATE event received instead of the expected 2.
-      // The second row's event is lost because its TaskInfo (BeforeAfter) never completes:
-      // POST_IMAGE(B) creates a new TaskInfo with only postImage set, but no preImage or change.
+      // Both rows should produce UPDATE events
       assertEquals(
-          1,
+          2,
           updateOnlyRecords.size(),
-          "BUG CONFIRMED: Expected 2 UPDATE events but got "
-              + updateOnlyRecords.size()
-              + ". The second row's event was lost due to TaskId collision in BeforeAfter mode.");
+          "Expected 2 UPDATE events (one per row in the batch), got " + updateOnlyRecords.size());
 
-      // The single event should have misaligned data
-      JSONObject soleEvent = new JSONObject(updateOnlyRecords.get(0).value());
-      assertFalse(soleEvent.isNull("before"), "The sole event should have a 'before' field");
-      assertFalse(soleEvent.isNull("after"), "The sole event should have an 'after' field");
+      // Each event should have correct before and after fields with matching row identity
+      for (ConsumerRecord<String, String> record : updateOnlyRecords) {
+        JSONObject event = new JSONObject(record.value());
+        assertFalse(event.isNull("before"), "UPDATE event should have a 'before' field");
+        assertFalse(event.isNull("after"), "UPDATE event should have an 'after' field");
 
-      // The before, after fields contain data from DIFFERENT rows due to overwrites
-      JSONObject before = soleEvent.getJSONObject("before");
-      JSONObject after = soleEvent.getJSONObject("after");
+        JSONObject before = event.getJSONObject("before");
+        JSONObject after = event.getJSONObject("after");
 
-      // In advanced format, values are stored directly (not in Cell structs)
-      // Extract clustering keys to verify misalignment
-      int beforeCk = before.optInt("ck", -1);
-      int afterCk = after.optInt("ck", -1);
+        // In advanced format with PK placement in payload, both before and after
+        // should have the same clustering key (same row)
+        int beforeCk = before.optInt("ck", -1);
+        int afterCk = after.optInt("ck", -1);
 
-      // If before and after have different clustering keys, the misalignment is confirmed
-      if (beforeCk != -1 && afterCk != -1 && beforeCk != afterCk) {
-        assertNotEquals(
-            beforeCk,
-            afterCk,
-            "BUG CONFIRMED: before.ck="
-                + beforeCk
-                + " != after.ck="
-                + afterCk
-                + ". Preimage from one row is paired with postimage from another.");
+        if (beforeCk != -1 && afterCk != -1) {
+          assertEquals(
+              beforeCk,
+              afterCk,
+              "before.ck and after.ck should match (same row). "
+                  + "Got before.ck="
+                  + beforeCk
+                  + ", after.ck="
+                  + afterCk);
+        }
       }
     }
   }
