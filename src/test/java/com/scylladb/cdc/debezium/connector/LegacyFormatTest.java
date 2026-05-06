@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcOutputFormat;
-import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.RawChange;
 import io.debezium.config.Configuration;
 import io.debezium.schema.DatabaseSchema;
@@ -514,7 +513,7 @@ public class LegacyFormatTest {
       ScyllaChangesConsumerLegacy consumer =
           new ScyllaChangesConsumerLegacy(null, null, schema, null, connectorConfig);
 
-      Map<TaskId, RawChange> lastPreImage = consumer.getPreImageMapForTesting();
+      Map<RowKey, RawChange> lastPreImage = consumer.getPreImageMapForTesting();
 
       assertNull(lastPreImage);
     }
@@ -534,7 +533,7 @@ public class LegacyFormatTest {
       ScyllaChangesConsumerLegacy consumer =
           new ScyllaChangesConsumerLegacy(null, null, schema, null, connectorConfig);
 
-      Map<TaskId, RawChange> lastPreImage = consumer.getPreImageMapForTesting();
+      Map<RowKey, RawChange> lastPreImage = consumer.getPreImageMapForTesting();
 
       assertNotNull(lastPreImage);
       assertEquals("java.util.HashMap", lastPreImage.getClass().getName());

@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcIncludeMode;
-import com.scylladb.cdc.model.TaskId;
 import io.debezium.config.Configuration;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -36,10 +35,10 @@ public class ScyllaChangesConsumerTest {
   }
 
   @SuppressWarnings("unchecked")
-  private Map<TaskId, TaskInfo> getTaskInfoMap(ScyllaChangesConsumer consumer) throws Exception {
+  private Map<RowKey, TaskInfo> getTaskInfoMap(ScyllaChangesConsumer consumer) throws Exception {
     Field field = ScyllaChangesConsumer.class.getDeclaredField("taskInfoMap");
     field.setAccessible(true);
-    return (Map<TaskId, TaskInfo>) field.get(consumer);
+    return (Map<RowKey, TaskInfo>) field.get(consumer);
   }
 
   @Test
@@ -48,7 +47,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
     assertEquals(0, taskInfoMap.size());
   }
@@ -59,7 +58,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
     assertEquals(0, taskInfoMap.size());
   }
@@ -70,7 +69,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
     assertEquals(0, taskInfoMap.size());
   }
@@ -81,7 +80,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNull(taskInfoMap);
   }
 
@@ -93,7 +92,7 @@ public class ScyllaChangesConsumerTest {
 
     // Access the private method via reflection
     Method method =
-        ScyllaChangesConsumer.class.getDeclaredMethod("getOrCreateTaskInfo", TaskId.class);
+        ScyllaChangesConsumer.class.getDeclaredMethod("getOrCreateTaskInfo", RowKey.class);
     method.setAccessible(true);
 
     // Should throw IllegalStateException
@@ -102,7 +101,7 @@ public class ScyllaChangesConsumerTest {
             Exception.class,
             () -> {
               try {
-                method.invoke(consumer, (TaskId) null);
+                method.invoke(consumer, (RowKey) null);
               } catch (java.lang.reflect.InvocationTargetException e) {
                 throw e.getCause();
               }
@@ -139,7 +138,7 @@ public class ScyllaChangesConsumerTest {
     // Should not throw when map is empty
     cleanupMethod.invoke(consumer);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertEquals(0, taskInfoMap.size());
   }
 
@@ -170,7 +169,7 @@ public class ScyllaChangesConsumerTest {
         new ScyllaChangesConsumer(null, null, null, null, config, null, customTimeoutMs);
 
     // Verify the consumer was created successfully
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
   }
 
@@ -180,7 +179,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
 
     // Verify it's a ConcurrentHashMap
@@ -193,7 +192,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
     assertEquals(0, taskInfoMap.size());
   }
@@ -204,7 +203,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
     assertEquals(0, taskInfoMap.size());
   }
@@ -216,7 +215,7 @@ public class ScyllaChangesConsumerTest {
     ScyllaChangesConsumer consumer =
         new ScyllaChangesConsumer(null, null, null, null, config, null);
 
-    Map<TaskId, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
+    Map<RowKey, TaskInfo> taskInfoMap = getTaskInfoMap(consumer);
     assertNotNull(taskInfoMap);
     assertEquals(0, taskInfoMap.size());
   }
