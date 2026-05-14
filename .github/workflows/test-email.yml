@@ -1,0 +1,29 @@
+name: Test Email Notification
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-email:
+    name: Send test email
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send test email
+        uses: dawidd6/action-send-mail@v17
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          from: publish.code@scylladb.com
+          to: drivers-team@scylladb.com
+          subject: "[TEST] Email automation verification"
+          body: |
+            This is a test email to verify that the automated email
+            notification from the release workflow is configured correctly.
+
+            If you received this, the EMAIL_USERNAME and EMAIL_PASSWORD
+            secrets are working.
+
+            This workflow will be removed after verification.
