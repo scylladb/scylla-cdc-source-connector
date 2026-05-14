@@ -121,8 +121,38 @@ jobs:
           git status && git log -3
           git push origin --follow-tags -v
 
+      - name: Extract release version
+        if: inputs.dry-run == false
+        run: |
+          RELEASE_TAG=$(git describe --tags --abbrev=0)
+          RELEASE_VERSION=${RELEASE_TAG#v}
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
+          echo "RELEASE_VERSION=${RELEASE_VERSION}" >> $GITHUB_ENV
+
       - name: Create GitHub Release
         if: inputs.dry-run == false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make github-release
+
+      - name: Notify Confluent Hub
+        if: inputs.dry-run == false
+        uses: dawidd6/action-send-mail@v17
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          from: code.publishing@scylladb.com
+          to: confluent-hub@confluent.io
+          cc: drivers-team@scylladb.com
+          subject: "Publish scylla-cdc-source-connector ${{ env.RELEASE_VERSION }}"
+          body: |
+            Dear Confluent team,
+
+            Please publish version ${{ env.RELEASE_VERSION }} of scylla-cdc-source-connector:
+            https://github.com/scylladb/scylla-cdc-source-connector/releases/download/v${{ env.RELEASE_VERSION }}/scylladb-scylla-cdc-source-connector-${{ env.RELEASE_VERSION }}.zip
+
+            Best regards,
+            Driver Team at ScyllaDB
