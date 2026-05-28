@@ -9,8 +9,12 @@ CONNECT_ZIP := $(CHECKOUT_TARGET)/components/packages/scylladb-$(ARTIFACT_ID)-$(
 .PHONY: github-release
 
 github-release:
-	gh release create "$(RELEASE_TAG)" \
-		"$(FAT_JAR)" \
-		"$(CONNECT_ZIP)" \
-		--title "Release $(RELEASE_VERSION)" \
-		--generate-notes
+	if gh release view "$(RELEASE_TAG)" > /dev/null 2>&1; then \
+		gh release upload "$(RELEASE_TAG)" "$(FAT_JAR)" "$(CONNECT_ZIP)" --clobber; \
+	else \
+		gh release create "$(RELEASE_TAG)" \
+			"$(FAT_JAR)" \
+			"$(CONNECT_ZIP)" \
+			--title "Release $(RELEASE_VERSION)" \
+			--generate-notes; \
+	fi
