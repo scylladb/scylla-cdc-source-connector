@@ -54,10 +54,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 17
@@ -75,7 +75,7 @@ jobs:
         run: mvn -B verify -Dit.kafka.provider=${{ matrix.kafka_provider }} -Dit.provider.image.version=${{ matrix.provider_image_version }} -Dit.kafka.connect.mode=${{ matrix.kafka_connect_mode }} -Dit.scylla.version=${{ matrix.scylla_version }}
 
       - name: Parse test results
-        uses: mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # v6.4.1
         if: always()
         with:
           check_name: Integration test report for ${{ matrix.kafka_provider }}:${{ matrix.provider_image_version }} running in ${{ matrix.kafka_connect_mode }} mode on ScyllaDB ${{ matrix.scylla_version }} version
