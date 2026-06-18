@@ -312,15 +312,18 @@
                 <artifactId>flogger-log4j-backend</artifactId>
                 <version>${flogger.version}</version>
             </dependency>
+            <!-- CVE-2026-44249, CVE-2026-45416: force netty to 4.2.15.Final;
+                 remove once scylladb/scylla-cdc-java bumps netty and a new
+                 scylla-cdc-driver3 release is consumed here (Stage 3). -->
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-common</artifactId>
-                <version>4.2.9.Final</version>
+                <version>4.2.15.Final</version>
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-handler</artifactId>
-                <version>4.2.9.Final</version>
+                <version>4.2.15.Final</version>
             </dependency>
             <dependency>
                 <groupId>org.xerial.snappy</groupId>
