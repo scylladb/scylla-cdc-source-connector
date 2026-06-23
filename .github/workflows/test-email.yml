@@ -16,7 +16,7 @@ jobs:
           secure: true
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          from: publish.code@scylladb.com
+          from: drivers-team-bot@scylladb.com
           to: drivers-team@scylladb.com
           subject: "[TEST] Email automation verification"
           body: |
