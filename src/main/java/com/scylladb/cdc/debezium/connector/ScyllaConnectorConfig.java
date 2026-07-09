@@ -39,6 +39,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   public static final String CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_KEY =
       "cdc.include.primary-key.payload-key-name";
 
+  /** Configuration key for ambiguous non-frozen collection null/empty representation. */
+  public static final String CDC_NON_FROZEN_COLLECTION_EMPTY_REPRESENTATION_KEY =
+      "cdc.non-frozen-collections.empty-representation";
+
   /** Default value for the payload key field name. */
   public static final String CDC_INCLUDE_PK_PAYLOAD_KEY_NAME_DEFAULT = "key";
 
@@ -306,6 +310,21 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "when 'payload-key' is included in cdc.include.primary-key.placement. "
                   + "Default is 'key'.");
 
+  public static final Field CDC_NON_FROZEN_COLLECTION_EMPTY_REPRESENTATION =
+      Field.create(CDC_NON_FROZEN_COLLECTION_EMPTY_REPRESENTATION_KEY)
+          .withDisplayName("CDC Non-Frozen Collections Empty Representation")
+          .withEnum(
+              NonFrozenCollectionEmptyRepresentation.class,
+              NonFrozenCollectionEmptyRepresentation.NULL)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDescription(
+              "Controls how ambiguous NULL/empty values for non-frozen collection columns are "
+                  + "emitted. Scylla CDC does not distinguish explicit NULL from an empty "
+                  + "non-frozen collection when no element-level changes are present. Use 'null' "
+                  + "to preserve the existing behavior, or 'empty' to emit an empty array. "
+                  + "Default is 'null'.");
+
   public static final Field CDC_INCOMPLETE_TASK_TIMEOUT_MS =
       Field.create("cdc.incomplete.task.timeout.ms")
           .withDisplayName("Incomplete Task Timeout (ms)")
@@ -540,6 +559,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               CDC_INCLUDE_AFTER,
               CDC_INCLUDE_PK,
               CDC_INCLUDE_PK_PAYLOAD_KEY_NAME,
+              CDC_NON_FROZEN_COLLECTION_EMPTY_REPRESENTATION,
               CDC_INCOMPLETE_TASK_TIMEOUT_MS,
               RETRY_BACKOFF_BASE_MS,
               RETRY_MAX_BACKOFF_MS,
@@ -574,6 +594,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   private final CdcIncludeMode cdcIncludeBefore;
   private final CdcIncludeMode cdcIncludeAfter;
   private final PkLocationConfig pkLocationConfig;
+  private final NonFrozenCollectionEmptyRepresentation nonFrozenCollectionEmptyRepresentation;
 
   /** Pre-computed boolean flags for PK location configuration to avoid repeated EnumSet lookups. */
   public static class PkLocationConfig {
@@ -604,6 +625,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     this.pkLocationConfig =
         new PkLocationConfig(
             CdcIncludePkLocation.parseList(config.getList(ScyllaConnectorConfig.CDC_INCLUDE_PK)));
+    this.nonFrozenCollectionEmptyRepresentation =
+        NonFrozenCollectionEmptyRepresentation.parse(
+            config.getString(CDC_NON_FROZEN_COLLECTION_EMPTY_REPRESENTATION));
   }
 
   public static ConfigDef configDef() {
@@ -723,6 +747,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public String getCdcIncludePkPayloadKeyName() {
     return config.getString(ScyllaConnectorConfig.CDC_INCLUDE_PK_PAYLOAD_KEY_NAME);
+  }
+
+  public NonFrozenCollectionEmptyRepresentation getNonFrozenCollectionEmptyRepresentation() {
+    return nonFrozenCollectionEmptyRepresentation;
   }
 
   public long getIncompleteTaskTimeoutMs() {
@@ -889,6 +917,35 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
         }
       }
       return NONE;
+    }
+  }
+
+  public enum NonFrozenCollectionEmptyRepresentation implements EnumeratedValue {
+    NULL("null"),
+    EMPTY("empty");
+
+    private final String value;
+
+    NonFrozenCollectionEmptyRepresentation(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public String getValue() {
+      return value;
+    }
+
+    public static NonFrozenCollectionEmptyRepresentation parse(String value) {
+      if (value == null) {
+        return NULL;
+      }
+      String normalized = value.trim().toLowerCase(Locale.ROOT);
+      for (NonFrozenCollectionEmptyRepresentation representation : values()) {
+        if (representation.getValue().equals(normalized)) {
+          return representation;
+        }
+      }
+      return NULL;
     }
   }
 

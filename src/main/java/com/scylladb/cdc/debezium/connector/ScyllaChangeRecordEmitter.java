@@ -445,8 +445,8 @@ public class ScyllaChangeRecordEmitter
     for (ChangeSchema.ColumnDefinition cdef : image.getSchema().getNonCdcColumnDefinitions()) {
       String columnName = cdef.getColumnName();
       Object value =
-          translateCellToKafka(
-              getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+          translateColumnToKafka(
+              cdef, getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
 
       if (isPrimaryKeyColumn(cdef)) {
         if (includePk) {
@@ -482,8 +482,8 @@ public class ScyllaChangeRecordEmitter
     for (ChangeSchema.ColumnDefinition cdef : image.getSchema().getNonCdcColumnDefinitions()) {
       String columnName = cdef.getColumnName();
       Object value =
-          translateCellToKafka(
-              getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
+          translateColumnToKafka(
+              cdef, getCellSafe(image, columnName), collectionSchema.cellSchema(columnName));
 
       if (isPrimaryKeyColumn(cdef)) {
         if (includePk) {
@@ -558,16 +558,20 @@ public class ScyllaChangeRecordEmitter
         continue;
       }
       Object value =
-          translateCellToKafka(
-              getCellSafe(postImage, columnName), collectionSchema.cellSchema(columnName));
+          translateColumnToKafka(
+              cdef, getCellSafe(postImage, columnName), collectionSchema.cellSchema(columnName));
       valueStruct.put(columnName, value);
     }
 
     // Fill modified columns from preImage (which has the OLD values)
-    for (String columnName : modifiedColumns) {
+    for (ChangeSchema.ColumnDefinition cdef : preImage.getSchema().getNonCdcColumnDefinitions()) {
+      String columnName = cdef.getColumnName();
+      if (!modifiedColumns.contains(columnName)) {
+        continue;
+      }
       Object value =
-          translateCellToKafka(
-              getCellSafe(preImage, columnName), collectionSchema.cellSchema(columnName));
+          translateColumnToKafka(
+              cdef, getCellSafe(preImage, columnName), collectionSchema.cellSchema(columnName));
       valueStruct.put(columnName, value);
     }
 
@@ -622,6 +626,33 @@ public class ScyllaChangeRecordEmitter
       return null;
     }
     return translateFieldToKafka(cell, cellSchema);
+  }
+
+  private Object translateColumnToKafka(
+      ChangeSchema.ColumnDefinition cdef, Cell cell, Schema cellSchema) {
+    Object value = translateCellToKafka(cell, cellSchema);
+    if (value == null && shouldEmitEmptyNonFrozenCollection(cdef)) {
+      return Collections.emptyList();
+    }
+    return value;
+  }
+
+  private boolean shouldEmitEmptyNonFrozenCollection(ChangeSchema.ColumnDefinition cdef) {
+    return connectorConfig.getNonFrozenCollectionEmptyRepresentation()
+            == ScyllaConnectorConfig.NonFrozenCollectionEmptyRepresentation.EMPTY
+        && isNonFrozenCollectionColumn(cdef);
+  }
+
+  private static boolean isNonFrozenCollectionColumn(ChangeSchema.ColumnDefinition cdef) {
+    ChangeSchema.DataType baseTableType = cdef.getBaseTableDataType();
+    if (baseTableType == null || baseTableType.isFrozen()) {
+      return false;
+    }
+
+    ChangeSchema.CqlType cqlType = baseTableType.getCqlType();
+    return cqlType == ChangeSchema.CqlType.LIST
+        || cqlType == ChangeSchema.CqlType.SET
+        || cqlType == ChangeSchema.CqlType.MAP;
   }
 
   /** Converts a Scylla CDC field value into a Kafka Connect-compatible representation. */
