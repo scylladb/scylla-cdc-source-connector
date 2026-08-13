@@ -226,7 +226,7 @@
         <scylla.cdc.java.version>1.3.12</scylla.cdc.java.version>
         <flogger.version>0.5.1</flogger.version>
         <!-- added for transitive dependencies -->
-        <log4j.version>2.25.4</log4j.version>
+        <log4j.version>2.25.5</log4j.version>
         <jackson.version>2.22.1</jackson.version>
         <guava.version>33.5.0-jre</guava.version>
         <jetty.version>12.1.7</jetty.version>
