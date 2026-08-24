@@ -8,7 +8,16 @@ jobs:
     name: Send test email
     runs-on: ubuntu-latest
     steps:
-      - name: Send test email
+      # THROWAWAY VERIFICATION BRANCH -- do not merge.
+      # Injects a known tag so the real "Notify Confluent Hub" step from PR #268
+      # can be checked for correct ${{ env.* }} interpolation before that PR
+      # deletes this probe. Recipient is redirected to a single mailbox.
+      - name: Fake release version
+        run: |
+          echo "RELEASE_TAG=v2.0.6" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=2.0.6" >> "$GITHUB_ENV"
+
+      - name: Notify Confluent Hub
         uses: dawidd6/action-send-mail@2cea9617b09d79a095af21254fbcb7ae95903dde # v3.12.0
         with:
           server_address: smtp.gmail.com
@@ -17,13 +26,14 @@ jobs:
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
           from: drivers-team-bot@scylladb.com
-          to: drivers-team@scylladb.com
-          subject: "[TEST] Email automation verification"
+          to: mikita.hradovich@scylladb.com
+          cc: mikita.hradovich@scylladb.com
+          subject: "Publish scylla-cdc-source-connector ${{ env.RELEASE_VERSION }}"
           body: |
-            This is a test email to verify that the automated email
-            notification from the release workflow is configured correctly.
+            Dear Confluent team,
 
-            If you received this, the EMAIL_USERNAME and EMAIL_PASSWORD
-            secrets are working.
+            Please publish version ${{ env.RELEASE_VERSION }} of scylla-cdc-source-connector:
+            https://github.com/scylladb/scylla-cdc-source-connector/releases/download/${{ env.RELEASE_TAG }}/scylladb-scylla-cdc-source-connector-${{ env.RELEASE_VERSION }}.zip
 
-            This workflow will be removed after verification.
+            Best regards,
+            Driver Team at ScyllaDB
