@@ -30,10 +30,10 @@ jobs:
           cc: mikita.hradovich@scylladb.com
           subject: "Publish scylla-cdc-source-connector ${{ env.RELEASE_VERSION }}"
           body: |
-            Dear Confluent team,
+            Dear CCET Team,
 
             Please publish version ${{ env.RELEASE_VERSION }} of scylla-cdc-source-connector:
             https://github.com/scylladb/scylla-cdc-source-connector/releases/download/${{ env.RELEASE_TAG }}/scylladb-scylla-cdc-source-connector-${{ env.RELEASE_VERSION }}.zip
 
             Best regards,
-            Driver Team at ScyllaDB
+            Drivers Team at ScyllaDB
