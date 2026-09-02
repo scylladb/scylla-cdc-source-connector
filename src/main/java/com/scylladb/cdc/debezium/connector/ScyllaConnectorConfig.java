@@ -248,6 +248,19 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "the connection to Scylla to prioritize sending requests to "
                   + "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
 
+  public static final CQLConfiguration.AddressTranslatorType DEFAULT_ADDRESS_TRANSLATOR =
+      CQLConfiguration.AddressTranslatorType.NONE;
+  public static final Field ADDRESS_TRANSLATOR =
+      Field.create("scylla.address.translator")
+          .withDisplayName("Address Translator")
+          .withEnum(CQLConfiguration.AddressTranslatorType.class, DEFAULT_ADDRESS_TRANSLATOR)
+          .withWidth(ConfigDef.Width.SHORT)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDescription(
+              "Translator applied to the rpc_address each node advertises. Set to EC2_MULTI_REGION "
+                  + "to reach a cluster that advertises public addresses (e.g. Scylla Cloud) over VPC "
+                  + "peering, translating each public address to its private IP. Defaults to NONE.");
+
   public static final Field CDC_INCLUDE_BEFORE =
       Field.create(CDC_INCLUDE_BEFORE_KEY)
           .withDisplayName("CDC Include Before")
@@ -520,6 +533,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               CONSISTENCY_LEVEL,
               QUERY_OPTIONS_FETCH_SIZE,
               LOCAL_DC_NAME,
+              ADDRESS_TRANSLATOR,
               SSL_ENABLED,
               SSL_PROVIDER,
               SSL_TRUSTSTORE_PATH,
@@ -699,6 +713,15 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public String getLocalDCName() {
     return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
+  }
+
+  public CQLConfiguration.AddressTranslatorType getAddressTranslator() {
+    String value = config.getString(ScyllaConnectorConfig.ADDRESS_TRANSLATOR);
+    try {
+      return CQLConfiguration.AddressTranslatorType.valueOf(value.toUpperCase());
+    } catch (IllegalArgumentException ex) {
+      return DEFAULT_ADDRESS_TRANSLATOR;
+    }
   }
 
   public CdcOutputFormat getCdcOutputFormat() {
