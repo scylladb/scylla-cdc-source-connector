@@ -1003,6 +1003,18 @@ Maps are represented as arrays of key-value structs:
 
 This representation is used instead of a JSON object to support non-string key types.
 
+### Non-Frozen Empty and Null Collections
+
+Scylla CDC does not distinguish an explicit `NULL` from an explicit empty non-frozen collection when no element-level changes are present. By default, the connector preserves the existing behavior and emits these ambiguous values as `null`.
+
+To emit ambiguous non-frozen collection values as empty arrays instead, set:
+
+```properties
+cdc.non-frozen-collections.empty-representation=empty
+```
+
+The default value is `null`. The `empty` mode emits `[]` for non-frozen lists, sets, and maps. Maps are still represented as arrays of key-value structs, so an empty map is also `[]`.
+
 ### User Defined Types (UDT)
 
 UDTs are represented as structs with fields matching the UDT definition:
@@ -1211,6 +1223,7 @@ The connector supports including the complete row state before and/or after a ch
 | `cdc.include.after`  | `none`  | `none`, `full`, `only-updated` | Specifies whether to include the 'after' state of the row in CDC messages. Requires the Scylla table to have postimage enabled (`WITH cdc = {'postimage': true}`) for `full` or `only-updated` modes. |
 | `cdc.include.primary-key.placement` | `kafka-key,payload-after,payload-before` | Comma-separated list of: `kafka-key`, `payload-after`, `payload-before`, `payload-key`, `kafka-headers` | Specifies where primary key (PK) and clustering key (CK) columns should be included in the output. See [Primary Key Placement](#primary-key-placement) for details. |
 | `cdc.include.primary-key.payload-key-name` | `key` | Any valid field name | Specifies the field name for the primary key object in the message payload when `payload-key` is included in `cdc.include.primary-key.placement`. |
+| `cdc.non-frozen-collections.empty-representation` | `null` | `null`, `empty` | Controls how ambiguous NULL/empty values for non-frozen collection columns are emitted. Use `null` to preserve existing behavior, or `empty` to emit empty arrays. |
 | `cdc.incomplete.task.timeout.ms` | `15000` | Positive integer (milliseconds) | Timeout for incomplete CDC tasks waiting for preimage/postimage events. Tasks that remain incomplete longer than this duration are dropped and logged as errors. |
 
 #### Mode Descriptions
