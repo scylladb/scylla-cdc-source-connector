@@ -50,6 +50,11 @@ public class ScyllaWorkerTransport implements WorkerTransport {
   }
 
   @Override
+  public Map<TaskId, TaskState> getTaskStatesForMigration(Set<TaskId> tasks) {
+    return offsetContext.taskStatesForMigration(tasks);
+  }
+
+  @Override
   public void setState(TaskId task, TaskState newState) {
     // Already handled in consume().
   }

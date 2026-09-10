@@ -8,10 +8,11 @@ import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.Timestamp;
 import com.scylladb.cdc.transport.GroupedTasks;
 import com.scylladb.cdc.transport.MasterTransport;
-import java.util.Collection;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
-import java.util.List;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -50,14 +51,36 @@ public class ScyllaMasterTransport implements MasterTransport {
   public boolean areTasksFullyConsumedUntil(Set<TaskId> tasks, Timestamp until) {
     OffsetStorageReader reader = context.offsetStorageReader();
 
-    List<Map<String, String>> partitions =
-        tasks.stream()
-            .map(taskId -> new SourceInfo(connectorConfig, taskId).partition())
-            .collect(Collectors.toList());
+    Map<TaskId, Map<String, String>> assignedPartitions = new HashMap<>();
+    Map<TaskId, Map<String, String>> legacyPartitions = new HashMap<>();
+    tasks.forEach(
+        taskId -> {
+          assignedPartitions.put(taskId, new SourceInfo(connectorConfig, taskId).partition());
+          TabletTaskOffsetMigration.legacyTaskId(taskId)
+              .ifPresent(
+                  legacyTaskId ->
+                      legacyPartitions.put(
+                          taskId, new SourceInfo(connectorConfig, legacyTaskId).partition()));
+        });
 
-    Collection<Map<String, Object>> offsets = reader.offsets(partitions).values();
+    LinkedHashSet<Map<String, String>> partitions =
+        new LinkedHashSet<>(assignedPartitions.values());
+    partitions.addAll(legacyPartitions.values());
+    Map<Map<String, String>, Map<String, Object>> offsets =
+        reader.offsets(new ArrayList<>(partitions));
 
-    return offsets.stream().allMatch(o -> isOffsetFullyConsumedUntil(o, until));
+    return tasks.stream()
+        .allMatch(
+            taskId -> {
+              Map<String, Object> offset = offsets.get(assignedPartitions.get(taskId));
+              if (offset == null) {
+                Map<String, String> legacyPartition = legacyPartitions.get(taskId);
+                if (legacyPartition != null) {
+                  offset = offsets.get(legacyPartition);
+                }
+              }
+              return isOffsetFullyConsumedUntil(offset, until);
+            });
   }
 
   private boolean isOffsetFullyConsumedUntil(Map<String, Object> offset, Timestamp until) {
