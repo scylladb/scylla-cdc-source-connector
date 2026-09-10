@@ -104,7 +104,9 @@ public class ScyllaConnector extends SourceConnector {
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
     Map<TaskId, SortedSet<StreamId>> tasks = masterTransport.getWorkerConfigurations();
-    List<String> workerConfigs = new TaskConfigBuilder(tasks).buildTaskConfigs(maxTasks);
+    int maxWorkerConfigBytes = config.getInteger(ScyllaConnectorConfig.MAX_WORKER_CONFIG_BYTES);
+    List<String> workerConfigs =
+        new TaskConfigBuilder(tasks, maxWorkerConfigBytes).buildTaskConfigs(maxTasks);
     return workerConfigs.stream()
         .map(
             c ->
