@@ -8,6 +8,8 @@ import com.scylladb.cdc.cql.driver3.Driver3Session;
 import com.scylladb.cdc.cql.driver3.Driver3WorkerCQL;
 import com.scylladb.cdc.model.GenerationId;
 import com.scylladb.cdc.model.RetryBackoff;
+import com.scylladb.cdc.model.StreamId;
+import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
 import com.scylladb.cdc.model.worker.Worker;
 import com.scylladb.cdc.model.worker.WorkerConfiguration;
@@ -17,7 +19,11 @@ import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
 import io.debezium.schema.DatabaseSchema;
 import io.debezium.util.Clock;
 import java.time.Duration;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.SortedSet;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.tuple.Pair;
@@ -124,9 +130,10 @@ public class ScyllaStreamingChangeEventSource
    * Runs the CDC worker with tasks from the task context, retrying transient startup failures for
    * both shared and dedicated sessions.
    *
-   * <p>Constructs {@link GroupedTasks} directly from the task context using the generation ID
-   * embedded in the tasks themselves, avoiding a redundant database query. The master already
-   * validated the generation when it assigned these tasks.
+   * <p>Constructs one {@link GroupedTasks} per generation directly from the task context, avoiding
+   * redundant database queries. A Kafka Connect task may contain assignments from several tablet
+   * tables whose current generations differ, while each library task group must remain
+   * generation-homogeneous.
    *
    * @param context the change event source context for checking if connector is still running
    * @param taskContext the task context containing assigned tasks
@@ -137,7 +144,7 @@ public class ScyllaStreamingChangeEventSource
   private void runWorker(
       ChangeEventSourceContext context, ScyllaTaskContext taskContext, Worker worker)
       throws InterruptedException {
-    GroupedTasks groupedTasks = createGroupedTasks(taskContext);
+    Collection<GroupedTasks> groupedTasks = createGroupedTasks(taskContext);
 
     RetryBackoff retryBackoff = configuration.createCDCWorkerRetryBackoff();
     int maxAttempts = configuration.getMaxWorkerAttempts();
@@ -148,7 +155,7 @@ public class ScyllaStreamingChangeEventSource
       }
 
       try {
-        worker.run(groupedTasks);
+        worker.runTaskGroups(groupedTasks);
         return;
       } catch (ExecutionException | RuntimeException e) {
         Throwable cause =
@@ -183,14 +190,23 @@ public class ScyllaStreamingChangeEventSource
     throw new ConnectException("Failed to execute CDC worker tasks after exhausting all retries");
   }
 
-  private GroupedTasks createGroupedTasks(ScyllaTaskContext taskContext) {
+  static List<GroupedTasks> createGroupedTasks(ScyllaTaskContext taskContext) {
     var taskList = taskContext.getTasks();
     if (taskList.isEmpty()) {
       throw new ConnectException("No tasks assigned to worker - cannot determine generation ID");
     }
-    var tasks = taskList.stream().collect(Collectors.toMap(Pair::getKey, Pair::getValue));
-    GenerationId generationId = taskList.get(0).getKey().getGenerationId();
-    return new GroupedTasks(tasks, generationId);
+
+    Map<GenerationId, Map<TaskId, SortedSet<StreamId>>> tasksByGeneration =
+        taskList.stream()
+            .collect(
+                Collectors.groupingBy(
+                    task -> task.getKey().getGenerationId(),
+                    LinkedHashMap::new,
+                    Collectors.toMap(Pair::getKey, Pair::getValue)));
+
+    return tasksByGeneration.entrySet().stream()
+        .map(entry -> new GroupedTasks(entry.getValue(), entry.getKey()))
+        .collect(Collectors.toList());
   }
 
   /**
