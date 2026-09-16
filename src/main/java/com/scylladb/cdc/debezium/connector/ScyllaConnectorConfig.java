@@ -48,6 +48,27 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withType(ConfigDef.Type.STRING)
           .withInvisibleRecommender();
 
+  /**
+   * Leaves headroom below Kafka's default one-mebibyte request/record limit for the remaining
+   * connector properties and the config-topic serialization envelope.
+   */
+  public static final int DEFAULT_MAX_WORKER_CONFIG_BYTES = 768 * 1024;
+
+  public static final Field MAX_WORKER_CONFIG_BYTES =
+      Field.create("scylla.worker.config.max.bytes")
+          .withDisplayName("Maximum serialized worker configuration size")
+          .withType(ConfigDef.Type.INT)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withValidation(Field::isPositiveInteger)
+          .withDefault(DEFAULT_MAX_WORKER_CONFIG_BYTES)
+          .withDescription(
+              "Maximum UTF-8 size of the internal tablet/vnode assignments placed in one Kafka "
+                  + "Connect task configuration. Assignments use conservative byte-aware packing; "
+                  + "increase tasks.max or split tables across connectors when this limit is "
+                  + "reached. Raise this limit only when Kafka's producer and config-topic record "
+                  + "limits are also increased.");
+
   public static final Field CLUSTER_IP_ADDRESSES =
       Field.create("scylla.cluster.ip.addresses")
           .withDisplayName("Hosts")
@@ -533,6 +554,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               QUERY_TIME_WINDOW_SIZE,
               CONFIDENCE_WINDOW_SIZE,
               MINIMAL_WAIT_FOR_WINDOW_MS,
+              MAX_WORKER_CONFIG_BYTES,
               INITIAL_LOOKBACK_MS,
               CDC_OUTPUT_FORMAT,
               PREIMAGES_ENABLED,
