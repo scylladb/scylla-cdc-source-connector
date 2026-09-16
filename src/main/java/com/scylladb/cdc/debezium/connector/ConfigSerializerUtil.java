@@ -7,10 +7,14 @@ import com.scylladb.cdc.model.TableName;
 import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.Timestamp;
 import com.scylladb.cdc.model.VNodeId;
+import com.scylladb.cdc.transport.CoordinationGroup;
 import io.debezium.config.Configuration;
 import io.debezium.config.Field;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
@@ -29,6 +33,7 @@ public class ConfigSerializerUtil {
 
   private static final String FIELD_DELIMITER = ";";
   private static final String STREAM_ID_DELIMITER = ",";
+  private static final String COORDINATION_GROUP_PREFIX = "@coordination;";
 
   /*
    * Serializes Task (Worker) config into String.
@@ -68,6 +73,80 @@ public class ConfigSerializerUtil {
             .collect(Collectors.toCollection(TreeSet<StreamId>::new));
 
     return Pair.of(taskId, streamIds);
+  }
+
+  /**
+   * Serializes a task-ID coordination group into one internal worker-config line.
+   *
+   * <p>Current coordination groups are table-scoped: their key and participants share one table and
+   * generation. Encoding that common identity once keeps tablet manifests compact enough for Kafka
+   * Connect's config topic.
+   */
+  public static String serializeCoordinationGroup(
+      CoordinationGroup<TaskId, TaskId> coordinationGroup) {
+    TaskId key = coordinationGroup.getKey();
+    if (coordinationGroup.getParticipants().stream()
+        .anyMatch(
+            participant ->
+                !participant.getGenerationId().equals(key.getGenerationId())
+                    || !participant.getTable().equals(key.getTable()))) {
+      throw new IllegalArgumentException(
+          "Coordination group participants must share the key's generation and table");
+    }
+
+    String participantIndexes =
+        coordinationGroup.getParticipants().stream()
+            .map(TaskId::getvNodeId)
+            .map(VNodeId::getIndex)
+            .sorted()
+            .map(String::valueOf)
+            .collect(Collectors.joining(STREAM_ID_DELIMITER));
+    return String.join(
+        FIELD_DELIMITER,
+        COORDINATION_GROUP_PREFIX.substring(0, COORDINATION_GROUP_PREFIX.length() - 1),
+        encodeConfigField(coordinationGroup.getNamespace()),
+        Long.toString(key.getGenerationId().getGenerationStart().toDate().getTime()),
+        Integer.toString(key.getvNodeId().getIndex()),
+        encodeConfigField(key.getTable().keyspace),
+        encodeConfigField(key.getTable().name),
+        participantIndexes);
+  }
+
+  public static boolean isSerializedCoordinationGroup(String serialized) {
+    return serialized.startsWith(COORDINATION_GROUP_PREFIX);
+  }
+
+  public static CoordinationGroup<TaskId, TaskId> deserializeCoordinationGroup(String serialized) {
+    if (!isSerializedCoordinationGroup(serialized)) {
+      throw new IllegalArgumentException("Not a serialized coordination group");
+    }
+    String[] fields = serialized.split(FIELD_DELIMITER, -1);
+    if (fields.length != 7) {
+      throw new IllegalArgumentException("Invalid serialized coordination group");
+    }
+
+    GenerationId generationId =
+        new GenerationId(new Timestamp(new Date(Long.parseLong(fields[2]))));
+    TableName table = new TableName(decodeConfigField(fields[4]), decodeConfigField(fields[5]));
+    TaskId key = new TaskId(generationId, new VNodeId(Integer.parseInt(fields[3])), table);
+    Set<TaskId> participants =
+        fields[6].isEmpty()
+            ? Collections.emptySet()
+            : Arrays.stream(fields[6].split(STREAM_ID_DELIMITER))
+                .map(Integer::parseInt)
+                .map(index -> new TaskId(generationId, new VNodeId(index), table))
+                .collect(Collectors.toSet());
+    return new CoordinationGroup<>(decodeConfigField(fields[1]), key, participants);
+  }
+
+  private static String encodeConfigField(String value) {
+    return Base64.getUrlEncoder()
+        .withoutPadding()
+        .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static String decodeConfigField(String value) {
+    return new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8);
   }
 
   /*

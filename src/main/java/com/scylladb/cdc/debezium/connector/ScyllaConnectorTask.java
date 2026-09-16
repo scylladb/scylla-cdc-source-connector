@@ -1,13 +1,8 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.datastax.driver.core.utils.Bytes;
-import com.datastax.driver.core.utils.UUIDs;
 import com.scylladb.cdc.model.StreamId;
 import com.scylladb.cdc.model.TaskId;
-import com.scylladb.cdc.model.Timestamp;
-import com.scylladb.cdc.model.worker.ChangeId;
-import com.scylladb.cdc.model.worker.ChangeTime;
-import com.scylladb.cdc.model.worker.TaskState;
+import com.scylladb.cdc.transport.CoordinationGroup;
 import io.debezium.config.Configuration;
 import io.debezium.config.Field;
 import io.debezium.connector.base.ChangeEventQueue;
@@ -21,7 +16,6 @@ import io.debezium.pipeline.metrics.DefaultChangeEventSourceMetricsFactory;
 import io.debezium.pipeline.notification.NotificationService;
 import io.debezium.pipeline.signal.SignalProcessor;
 import io.debezium.pipeline.spi.Offsets;
-import io.debezium.pipeline.txmetadata.TransactionContext;
 import io.debezium.schema.DatabaseSchema;
 import io.debezium.schema.DefaultTopicNamingStrategy;
 import io.debezium.schema.SchemaFactory;
@@ -34,8 +28,6 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.source.SourceRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaOffsetContext> {
   static {
@@ -48,7 +40,6 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
 
   private static final String CONTEXT_NAME = "scylla-connector-task";
 
-  private final Logger logger = LoggerFactory.getLogger(getClass());
   private volatile DatabaseSchema<CollectionId> schema;
   private volatile ScyllaTaskContext taskContext;
   private volatile ChangeEventQueue<DataChangeEvent> queue;
@@ -70,8 +61,10 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
     }
 
     List<Pair<TaskId, SortedSet<StreamId>>> tasks = getTasks(configuration);
+    Set<CoordinationGroup<TaskId, TaskId>> coordinationGroups =
+        getCoordinationGroups(configuration);
 
-    this.taskContext = new ScyllaTaskContext(configuration, tasks);
+    this.taskContext = new ScyllaTaskContext(configuration, tasks, coordinationGroups);
 
     this.queue =
         new ChangeEventQueue.Builder<DataChangeEvent>()
@@ -146,70 +139,24 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
   private List<Pair<TaskId, SortedSet<StreamId>>> getTasks(Configuration configuration) {
     String serializedTasks = configuration.getString(ScyllaConnectorConfig.WORKER_CONFIG);
     return Arrays.stream(serializedTasks.split("\n"))
+        .filter(line -> !ConfigSerializerUtil.isSerializedCoordinationGroup(line))
         .map(ConfigSerializerUtil::deserializeTaskConfig)
         .collect(Collectors.toList());
   }
 
+  private Set<CoordinationGroup<TaskId, TaskId>> getCoordinationGroups(
+      Configuration configuration) {
+    String serializedTasks = configuration.getString(ScyllaConnectorConfig.WORKER_CONFIG);
+    return Arrays.stream(serializedTasks.split("\n"))
+        .filter(ConfigSerializerUtil::isSerializedCoordinationGroup)
+        .map(ConfigSerializerUtil::deserializeCoordinationGroup)
+        .collect(Collectors.toSet());
+  }
+
   private ScyllaOffsetContext getPreviousOffsets(
       ScyllaConnectorConfig connectorConfig, List<Pair<TaskId, SortedSet<StreamId>>> tasks) {
-    Map<TaskId, SourceInfo> sourceInfos = new HashMap<>();
-    tasks.forEach(
-        t -> {
-          TaskId taskId = t.getLeft();
-          SourceInfo sourceInfo = new SourceInfo(connectorConfig, taskId);
-          sourceInfos.put(taskId, sourceInfo);
-        });
-
-    List<Map<String, String>> partitions =
-        sourceInfos.values().stream().map(SourceInfo::partition).collect(Collectors.toList());
-    Map<Map<String, String>, Map<String, Object>> offsetMap =
-        context.offsetStorageReader().offsets(partitions);
-
-    sourceInfos
-        .values()
-        .forEach(
-            sourceInfo -> {
-              Map<String, String> partition = sourceInfo.partition();
-              Map<String, Object> offset = offsetMap.get(partition);
-
-              if (offset != null) {
-                Timestamp windowStart =
-                    new Timestamp(
-                        new Date(
-                            UUIDs.unixTimestamp(
-                                UUID.fromString((String) offset.get(SourceInfo.WINDOW_START)))));
-                Timestamp windowEnd =
-                    new Timestamp(
-                        new Date(
-                            UUIDs.unixTimestamp(
-                                UUID.fromString((String) offset.get(SourceInfo.WINDOW_END)))));
-                Optional<ChangeId> changeId = Optional.empty();
-                if (offset.containsKey(SourceInfo.CHANGE_ID_STREAM_ID)
-                    && offset.containsKey(SourceInfo.CHANGE_ID_TIME)) {
-                  StreamId streamId =
-                      new StreamId(
-                          Bytes.fromHexString((String) offset.get(SourceInfo.CHANGE_ID_STREAM_ID)));
-                  UUID time = UUID.fromString((String) offset.get(SourceInfo.CHANGE_ID_TIME));
-                  changeId = Optional.of(new ChangeId(streamId, new ChangeTime(time)));
-                }
-                TaskState taskState = new TaskState(windowStart, windowEnd, changeId);
-                sourceInfo.setTaskState(taskState);
-              } else {
-                long lookbackMs = connectorConfig.getInitialLookbackMs();
-                if (lookbackMs > 0) {
-                  long queryWindowMs = connectorConfig.getQueryTimeWindowSizeMs();
-                  long nowMs = System.currentTimeMillis();
-                  long startMs = nowMs - lookbackMs;
-                  long endMs = Math.min(startMs + queryWindowMs, nowMs);
-                  Timestamp windowStart = new Timestamp(new Date(startMs));
-                  Timestamp windowEnd = new Timestamp(new Date(endMs));
-                  sourceInfo.setTaskState(new TaskState(windowStart, windowEnd, Optional.empty()));
-                  logger.info(
-                      "No saved offset for task, applying initial lookback of {} ms", lookbackMs);
-                }
-              }
-            });
-    return new ScyllaOffsetContext(sourceInfos, new TransactionContext());
+    return ScyllaOffsetContextLoader.load(
+        connectorConfig, tasks, context.offsetStorageReader(), System.currentTimeMillis());
   }
 
   @Override

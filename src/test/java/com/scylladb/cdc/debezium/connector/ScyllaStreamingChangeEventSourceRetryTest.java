@@ -89,17 +89,39 @@ public class ScyllaStreamingChangeEventSourceRetryTest {
     assertEquals(1, worker.prepareCalls());
   }
 
+  @Test
+  void runWorker_executesAssignmentsFromDifferentTableGenerations() throws Exception {
+    Configuration config = createConfiguration(1, "ks.table,ks.table2");
+    ScyllaConnectorConfig connectorConfig = new ScyllaConnectorConfig(config);
+    ScyllaTaskContext taskContext = new ScyllaTaskContext(config, createMixedGenerationTasks());
+    ScyllaStreamingChangeEventSource source = newSource(connectorConfig, taskContext);
+
+    ChangeEventSource.ChangeEventSourceContext context =
+        mock(ChangeEventSource.ChangeEventSourceContext.class);
+    when(context.isRunning()).thenReturn(true);
+
+    WorkerFixture worker = new WorkerFixture(0);
+
+    assertDoesNotThrow(() -> invokeRunWorker(source, context, taskContext, worker.worker()));
+    assertEquals(1, worker.prepareCalls());
+    assertEquals(Set.of(generation(0), generation(10_000)), worker.loadedTaskStateGenerations());
+  }
+
   private static ScyllaStreamingChangeEventSource newSource(
       ScyllaConnectorConfig config, ScyllaTaskContext taskContext) {
     return new ScyllaStreamingChangeEventSource(config, taskContext, null, null, null);
   }
 
   private static Configuration createConfiguration(int maxAttempts) {
+    return createConfiguration(maxAttempts, "ks.table");
+  }
+
+  private static Configuration createConfiguration(int maxAttempts, String tableNames) {
     return Configuration.create()
         .with("name", "test-connector")
         .with("topic.prefix", "test")
         .with("scylla.cluster.ip.addresses", HOST)
-        .with("scylla.table.names", "ks.table")
+        .with("scylla.table.names", tableNames)
         .with("worker.retry.backoff.base", 1)
         .with("worker.maximum.backoff", 1)
         .with("worker.jitter.percentage", 1)
@@ -109,12 +131,21 @@ public class ScyllaStreamingChangeEventSourceRetryTest {
 
   private static List<Pair<TaskId, SortedSet<StreamId>>> createTasks() {
     SortedSet<StreamId> streams = new TreeSet<>();
-    TaskId taskId =
-        new TaskId(
-            new GenerationId(new Timestamp(new Date(0))),
-            new VNodeId(0),
-            new TableName("ks", "table"));
+    TaskId taskId = new TaskId(generation(0), new VNodeId(0), new TableName("ks", "table"));
     return Collections.singletonList(Pair.of(taskId, streams));
+  }
+
+  private static List<Pair<TaskId, SortedSet<StreamId>>> createMixedGenerationTasks() {
+    SortedSet<StreamId> streams = new TreeSet<>();
+    return List.of(
+        Pair.of(new TaskId(generation(0), new VNodeId(0), new TableName("ks", "table")), streams),
+        Pair.of(
+            new TaskId(generation(10_000), new VNodeId(1), new TableName("ks", "table2")),
+            streams));
+  }
+
+  private static GenerationId generation(long timestampMs) {
+    return new GenerationId(new Timestamp(new Date(timestampMs)));
   }
 
   private static void invokeRunWorker(
@@ -148,12 +179,23 @@ public class ScyllaStreamingChangeEventSourceRetryTest {
 
   private static final class WorkerFixture implements WorkerCQL {
     private final AtomicInteger prepareCalls = new AtomicInteger();
+    private final int startupFailures;
+    private final Set<GenerationId> loadedTaskStateGenerations = new TreeSet<>();
+
+    WorkerFixture() {
+      this(1);
+    }
+
+    WorkerFixture(int startupFailures) {
+      this.startupFailures = startupFailures;
+    }
 
     Worker worker() {
       WorkerTransport transport =
           new WorkerTransport() {
             @Override
             public Map<TaskId, TaskState> getTaskStates(Set<TaskId> tasks) {
+              tasks.stream().map(TaskId::getGenerationId).forEach(loadedTaskStateGenerations::add);
               return Collections.emptyMap();
             }
 
@@ -189,9 +231,13 @@ public class ScyllaStreamingChangeEventSourceRetryTest {
       return prepareCalls.get();
     }
 
+    Set<GenerationId> loadedTaskStateGenerations() {
+      return loadedTaskStateGenerations;
+    }
+
     @Override
     public void prepare(Set<TableName> tables) throws InterruptedException, ExecutionException {
-      if (prepareCalls.getAndIncrement() == 0) {
+      if (prepareCalls.getAndIncrement() < startupFailures) {
         throw new ExecutionException(new BusyPoolException(TEST_ENDPOINT, 100));
       }
     }
