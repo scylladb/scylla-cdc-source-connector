@@ -22,6 +22,7 @@ public class ScyllaSessionBuilder {
     if (configuration.getLocalDCName() != null) {
       builder.withLocalDCName(configuration.getLocalDCName());
     }
+    builder.withAddressTranslator(configuration.getAddressTranslator());
     if (configuration.getSslEnabled()) {
       SslConfig.Builder sslBuilder = SslConfig.builder();
       sslBuilder.withSslProviderString(configuration.getSslProvider().toString());
