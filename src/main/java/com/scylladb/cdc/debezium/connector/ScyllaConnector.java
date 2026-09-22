@@ -4,9 +4,7 @@ import com.datastax.driver.core.Cluster;
 import com.scylladb.cdc.cql.driver3.Driver3MasterCQL;
 import com.scylladb.cdc.cql.driver3.Driver3Session;
 import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcIncludeMode;
-import com.scylladb.cdc.model.StreamId;
 import com.scylladb.cdc.model.TableName;
-import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.master.Master;
 import com.scylladb.cdc.model.master.MasterConfiguration;
 import io.debezium.config.Configuration;
@@ -17,7 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.SortedSet;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.config.Config;
@@ -103,8 +100,15 @@ public class ScyllaConnector extends SourceConnector {
 
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
-    Map<TaskId, SortedSet<StreamId>> tasks = masterTransport.getWorkerConfigurations();
-    List<String> workerConfigs = new TaskConfigBuilder(tasks).buildTaskConfigs(maxTasks);
+    ScyllaMasterTransport.WorkerConfigurations workerConfigurations =
+        masterTransport.getWorkerConfigurations();
+    int maxWorkerConfigBytes = config.getInteger(ScyllaConnectorConfig.MAX_WORKER_CONFIG_BYTES);
+    List<String> workerConfigs =
+        new TaskConfigBuilder(
+                workerConfigurations.getTasks(),
+                workerConfigurations.getCoordinationGroups(),
+                maxWorkerConfigBytes)
+            .buildTaskConfigs(maxTasks);
     return workerConfigs.stream()
         .map(
             c ->
