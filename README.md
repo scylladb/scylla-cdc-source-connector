@@ -1080,11 +1080,44 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | Property                         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 |----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `scylla.query.time.window.size`  | The size of windows queried by the connector. Changes are queried using `SELECT` statements with time restriction with width defined by this parameter. Value expressed in milliseconds.                                                                                                                                                                                                                                                                                                                              |
-| `scylla.confidence.window.size`  | The size of the confidence window. It is necessary for the connector to avoid reading too fresh data from the CDC log due to the eventual consistency of Scylla. The problem could appear when a newer write reaches a replica before some older write. For a short period of time, when reading, it is possible for the replica to return only the newer write. The connector mitigates this problem by not reading a window of most recent changes (controlled by this parameter). Value expressed in milliseconds. |
+| `scylla.confidence.window.size`  | Minimum age of a CDC query window before the connector reads it. Default: `30000` ms. See [Choosing the confidence window](#choosing-the-confidence-window) for sizing and limitations. |
 | `scylla.worker.config.max.bytes` | Maximum UTF-8 size of the internal stream assignments placed in one Kafka Connect task configuration. The default is `786432` (768 KiB), leaving headroom below Kafka's default 1 MiB request and record limits. Assignments use conservative byte-aware packing; if this limit is reached, increase `tasks.max` or split tables across connectors. Tablet migration manifests that do not fit are dropped with a warning instead of failing the reconfiguration, which only defers the retirement of the pre-tablet checkpoints. Raise this setting only after increasing the corresponding Kafka limits. |
 | `scylla.consistency.level`       | The consistency level of CDC table read queries. This consistency level is used only for read queries to the CDC log table. By default, `QUORUM` level is used.                                                                                                                                                                                                                                                                                                                                                       |
 | `scylla.local.dc`                | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.                                                                                                                                                                                                                                                                         |
 | `scylla.initial.lookback.ms`     | Maximum time in milliseconds to look back when the connector starts without saved offsets. When set to a positive value, the connector will begin reading CDC changes from (current time - this value) instead of from the beginning of the first CDC generation. This prevents the connector from scanning through a potentially large number of empty windows on first start, reducing cluster load. Set to `0` to start from the beginning of the first CDC generation (default behavior). |
+
+#### Choosing the confidence window
+
+`scylla.confidence.window.size` defaults to **30000 ms**. The connector waits until the end
+of a CDC query window is older than the connector host's clock by this amount before reading
+it and advancing to the next window. This allows an older CDC entry to become visible before
+the reader passes its timestamp.
+
+For any confidence-window setting, make sure it exceeds the effective end-to-end write
+latency for the original CDC-enabled **base table**, not the CDC log table. Check ScyllaDB's
+`write_request_timeout_in_ms` (2000 ms by default), applicable service levels, and the
+original CQL write queries for `USING TIMEOUT`. Include client retries and speculative
+executions: with driver-generated timestamps, they reuse the original write timestamp.
+Leave additional margin for clock skew between the connector host and whichever host
+assigns write timestamps (the application or a ScyllaDB node), and for late replica writes.
+No timeout or confidence-window setting guarantees visibility. A successful base-table write
+is guaranteed visible to a CDC read only when the acknowledged write replicas and the read
+replicas overlap: write CL + read CL > replication factor. For example, `ONE` writes and
+`QUORUM` reads do not guarantee overlap. Neither do `LOCAL_QUORUM` writes and `QUORUM` reads
+with replication factor 3 in each of two data centers (2 + 4 = 6, not greater than 6).
+Without overlap, entries can remain invisible past any window until hints or repair deliver
+them. An explicit old `USING TIMESTAMP` also puts `cdc$time` in a window the connector may
+have already read. Timed-out writes may complete later with their original timestamp,
+including through hints or batchlog replay, after the connector has passed that window.
+
+A shorter confidence window can reduce latency but increases the risk of missing late entries.
+CDC query windows advance in fixed steps of `scylla.query.time.window.size` (30000 ms by
+default) and are read only after the window end plus the confidence window. Thus the
+worst-case windowing delay is approximately the query-window size plus the confidence window
+(about 60 seconds with both defaults), before query and delivery time. The Debezium connector
+properties `poll.interval.ms`, `max.batch.size`, and `max.queue.size` also affect delivery
+(the last through backpressure); see
+[Throttling the connector on first start](#throttling-the-connector-on-first-start).
 
 ### SSL Configuration
 
