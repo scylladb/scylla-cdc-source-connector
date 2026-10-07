@@ -186,7 +186,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription(
               "The size of windows queried by the connector. Changes are queried using SELECT statements "
                   + "with time restriction with width defined by this parameter. Value expressed in milliseconds.")
-          .withValidation(Field::isNonNegativeInteger)
+          .withValidation(Field::isPositiveInteger)
           .withDefault(30000);
 
   public static final Field CONFIDENCE_WINDOW_SIZE =
@@ -196,12 +196,17 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
-              "The size of the confidence window. It is necessary for the connector to avoid reading too fresh "
-                  + "data from the CDC log due to the eventual consistency of Scylla. The problem could appear when a newer write "
-                  + "reaches a replica before some older write. For a short period of time, when reading, it "
-                  + "is possible for the replica to return only the newer write. The connector mitigates this problem "
-                  + "by not reading a window of most recent changes (controlled by this parameter). Value expressed in milliseconds.")
-          .withValidation(Field::isNonNegativeInteger)
+              "Minimum time between the end timestamp of a CDC query window and the connector host's current time "
+                  + "before the connector reads and advances through that window. This helps prevent a late older write "
+                  + "from being missed after a newer write becomes visible. Default: 30000 ms. For any setting, use a "
+                  + "window longer than the effective end-to-end write latency for the original CDC-enabled base table, "
+                  + "including service-level and CQL USING TIMEOUT overrides and client retries or speculative "
+                  + "executions (which reuse driver-generated timestamps), with margin for clock skew between the connector "
+                  + "and the host assigning write timestamps, and for late replica writes. ScyllaDB's default "
+                  + "write_request_timeout_in_ms is 2000 ms; it is not a safety guarantee. A shorter confidence window "
+                  + "can reduce latency but risks missing late entries. Query-window size and Debezium connector "
+                  + "polling and queue settings affect delivery separately. Value expressed in milliseconds.")
+          .withValidation(Field::isPositiveInteger)
           .withDefault(30000);
 
   public static final Field MINIMAL_WAIT_FOR_WINDOW_MS =
