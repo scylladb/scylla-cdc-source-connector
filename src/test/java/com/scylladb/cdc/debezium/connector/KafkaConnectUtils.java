@@ -714,9 +714,15 @@ public final class KafkaConnectUtils {
 
   static KafkaConsumer<String, String> buildPlainConnector(
       String connectorConfigName, String tableName) {
+    return buildPlainConnector(connectorConfigName, tableName, new Properties());
+  }
+
+  static KafkaConsumer<String, String> buildPlainConnector(
+      String connectorConfigName, String tableName, Properties additionalProperties) {
     KafkaConsumer<String, String> consumer = KafkaUtils.createStringConsumer();
     Properties connectorConfiguration = KafkaConnectUtils.createCommonConnectorProperties();
     applyAdvancedCdcConfig(connectorConfiguration, connectorConfigName, tableName);
+    connectorConfiguration.putAll(additionalProperties);
     registerAndSubscribe(consumer, connectorConfigName, tableName, connectorConfiguration);
     return consumer;
   }

@@ -1010,6 +1010,18 @@ Maps are represented as arrays of key-value structs:
 
 This representation is used instead of a JSON object to support non-string key types.
 
+### Non-Frozen Empty and Null Collections
+
+In the advanced output format (`cdc.output.format=advanced`), null non-frozen collection values in `before` and `after` images are emitted as `null` by default. Scylla CDC cannot always distinguish explicit `NULL` from an empty non-frozen collection.
+
+To emit null non-frozen collection values as empty arrays instead, set:
+
+```properties
+cdc.non-frozen-collections.empty-representation=empty
+```
+
+The default value is `null`. The `empty` mode emits `[]` for null non-frozen lists, sets, and maps in emitted image fields. Maps are still represented as arrays of key-value structs, so an empty map is also `[]`. Only applicable when `cdc.output.format=advanced`; the default legacy format ignores this setting.
+
 ### User Defined Types (UDT)
 
 UDTs are represented as structs with fields matching the UDT definition:
@@ -1166,6 +1178,7 @@ For detailed documentation with examples, see:
 | Property            | Default | Values | Description |
 |---------------------|---------|--------|-------------|
 | `cdc.output.format` | `legacy` | `legacy`, `advanced` | Specifies the output format for CDC messages. See format descriptions below. |
+| `cdc.non-frozen-collections.empty-representation` | `null` | `null`, `empty` | Controls whether null non-frozen collections in advanced `before` and `after` images are emitted as `null` or `[]`. Only applicable when `cdc.output.format=advanced`. |
 | `experimental.preimages.enabled` | `false` | `true`, `false` | Enable preimage support in legacy mode only. For advanced mode, use `cdc.include.before` instead. |
 
 #### Format Descriptions
