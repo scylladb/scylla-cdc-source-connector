@@ -973,15 +973,15 @@ This representation is used instead of a JSON object to support non-string key t
 
 ### Non-Frozen Empty and Null Collections
 
-Scylla CDC does not distinguish an explicit `NULL` from an explicit empty non-frozen collection when no element-level changes are present. By default, the connector preserves the existing behavior and emits these ambiguous values as `null`.
+In the advanced output format (`cdc.output.format=advanced`), null non-frozen collection values in `before` and `after` images are emitted as `null` by default. Scylla CDC cannot always distinguish explicit `NULL` from an empty non-frozen collection.
 
-To emit ambiguous non-frozen collection values as empty arrays instead, set:
+To emit null non-frozen collection values as empty arrays instead, set:
 
 ```properties
 cdc.non-frozen-collections.empty-representation=empty
 ```
 
-The default value is `null`. The `empty` mode emits `[]` for non-frozen lists, sets, and maps. Maps are still represented as arrays of key-value structs, so an empty map is also `[]`.
+The default value is `null`. The `empty` mode emits `[]` for null non-frozen lists, sets, and maps in emitted image fields. Maps are still represented as arrays of key-value structs, so an empty map is also `[]`. Only applicable when `cdc.output.format=advanced`; the default legacy format ignores this setting.
 
 ### User Defined Types (UDT)
 
@@ -1105,6 +1105,7 @@ For detailed documentation with examples, see:
 | Property            | Default | Values | Description |
 |---------------------|---------|--------|-------------|
 | `cdc.output.format` | `legacy` | `legacy`, `advanced` | Specifies the output format for CDC messages. See format descriptions below. |
+| `cdc.non-frozen-collections.empty-representation` | `null` | `null`, `empty` | Controls whether null non-frozen collections in advanced `before` and `after` images are emitted as `null` or `[]`. Only applicable when `cdc.output.format=advanced`. |
 | `experimental.preimages.enabled` | `false` | `true`, `false` | Enable preimage support in legacy mode only. For advanced mode, use `cdc.include.before` instead. |
 
 #### Format Descriptions
@@ -1191,7 +1192,6 @@ The connector supports including the complete row state before and/or after a ch
 | `cdc.include.after`  | `none`  | `none`, `full`, `only-updated` | Specifies whether to include the 'after' state of the row in CDC messages. Requires the Scylla table to have postimage enabled (`WITH cdc = {'postimage': true}`) for `full` or `only-updated` modes. |
 | `cdc.include.primary-key.placement` | `kafka-key,payload-after,payload-before` | Comma-separated list of: `kafka-key`, `payload-after`, `payload-before`, `payload-key`, `kafka-headers` | Specifies where primary key (PK) and clustering key (CK) columns should be included in the output. See [Primary Key Placement](#primary-key-placement) for details. |
 | `cdc.include.primary-key.payload-key-name` | `key` | Any valid field name | Specifies the field name for the primary key object in the message payload when `payload-key` is included in `cdc.include.primary-key.placement`. |
-| `cdc.non-frozen-collections.empty-representation` | `null` | `null`, `empty` | Controls how ambiguous NULL/empty values for non-frozen collection columns are emitted. Use `null` to preserve existing behavior, or `empty` to emit empty arrays. |
 | `cdc.incomplete.task.timeout.ms` | `15000` | Positive integer (milliseconds) | Timeout for incomplete CDC tasks waiting for preimage/postimage events. Tasks that remain incomplete longer than this duration are dropped and logged as errors. |
 
 #### Mode Descriptions

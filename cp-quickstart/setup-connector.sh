@@ -61,7 +61,6 @@ CONNECTOR_CONFIG_ONLY=$(cat <<'JSON'
   "topic.prefix": "scylla_cluster",
   "scylla.table.names": "demo_keyspace.users",
   "scylla.consistency.level": "ONE",
-  "cdc.non-frozen-collections.empty-representation": "null",
   "key.converter": "org.apache.kafka.connect.json.JsonConverter",
   "value.converter": "org.apache.kafka.connect.json.JsonConverter",
   "key.converter.schemas.enable": "false",

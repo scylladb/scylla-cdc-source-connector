@@ -319,10 +319,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
-              "Controls how ambiguous NULL/empty values for non-frozen collection columns are "
-                  + "emitted. Scylla CDC does not distinguish explicit NULL from an empty "
-                  + "non-frozen collection when no element-level changes are present. Use 'null' "
-                  + "to preserve the existing behavior, or 'empty' to emit an empty array. "
+              "Controls how null non-frozen list, set, and map values are emitted in before and "
+                  + "after images. Use 'null' to preserve the existing behavior, or 'empty' to "
+                  + "emit an empty array ([]). Only applicable when cdc.output.format=advanced. "
                   + "Default is 'null'.");
 
   public static final Field CDC_INCOMPLETE_TASK_TIMEOUT_MS =
