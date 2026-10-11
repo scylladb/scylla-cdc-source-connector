@@ -1,9 +1,12 @@
 package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.scylladb.cdc.cql.CQLConfiguration.AddressTranslatorType;
 import io.debezium.config.Configuration;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 
 public class ScyllaAddressTranslatorConfigTest {
@@ -30,6 +33,28 @@ public class ScyllaAddressTranslatorConfigTest {
   }
 
   @Test
+  public void testEc2MultiRegionTrimmed() {
+    ScyllaConnectorConfig config =
+        new ScyllaConnectorConfig(
+            baseConfig().with("scylla.address.translator", " EC2_MULTI_REGION ").build());
+    assertEquals(AddressTranslatorType.EC2_MULTI_REGION, config.getAddressTranslator());
+  }
+
+  @Test
+  public void testEc2MultiRegionWithTurkishLocale() {
+    Locale previous = Locale.getDefault();
+    try {
+      Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+      ScyllaConnectorConfig config =
+          new ScyllaConnectorConfig(
+              baseConfig().with("scylla.address.translator", "ec2_multi_region").build());
+      assertEquals(AddressTranslatorType.EC2_MULTI_REGION, config.getAddressTranslator());
+    } finally {
+      Locale.setDefault(previous);
+    }
+  }
+
+  @Test
   public void testExplicitNone() {
     ScyllaConnectorConfig config =
         new ScyllaConnectorConfig(baseConfig().with("scylla.address.translator", "NONE").build());
@@ -37,9 +62,25 @@ public class ScyllaAddressTranslatorConfigTest {
   }
 
   @Test
-  public void testInvalidValueFallsBackToDefault() {
-    ScyllaConnectorConfig config =
-        new ScyllaConnectorConfig(baseConfig().with("scylla.address.translator", "bogus").build());
-    assertEquals(AddressTranslatorType.NONE, config.getAddressTranslator());
+  public void testConnectValidationRejectsInvalidValue() {
+    Configuration config = baseConfig().with("scylla.address.translator", "bogus").build();
+    assertFalse(
+        config
+            .validate(ScyllaConnectorConfig.EXPOSED_FIELDS)
+            .get(ScyllaConnectorConfig.ADDRESS_TRANSLATOR.name())
+            .errorMessages()
+            .isEmpty());
+  }
+
+  @Test
+  public void testConnectValidationAcceptsTrimmedValue() {
+    Configuration config =
+        baseConfig().with("scylla.address.translator", " EC2_MULTI_REGION ").build();
+    assertTrue(
+        config
+            .validate(ScyllaConnectorConfig.EXPOSED_FIELDS)
+            .get(ScyllaConnectorConfig.ADDRESS_TRANSLATOR.name())
+            .errorMessages()
+            .isEmpty());
   }
 }

@@ -57,6 +57,18 @@ public class SharedSessionCacheTest {
     return new ScyllaConnectorConfig(config);
   }
 
+  private ScyllaConnectorConfig createConfigWithAddressTranslator(String translator) {
+    Configuration config =
+        Configuration.create()
+            .with("name", "test-connector")
+            .with("topic.prefix", "test")
+            .with("scylla.cluster.ip.addresses", "127.0.0.1:9042")
+            .with("scylla.table.names", "ks.table")
+            .with("scylla.address.translator", translator)
+            .build();
+    return new ScyllaConnectorConfig(config);
+  }
+
   private ScyllaConnectorConfig createConfigWithSsl(String contactPoints) {
     Configuration config =
         Configuration.create()
@@ -188,6 +200,17 @@ public class SharedSessionCacheTest {
     void differentLocalDC_produceDifferentKeys() {
       ScyllaConnectorConfig config1 = createConfigWithLocalDC("127.0.0.1:9042", "dc1");
       ScyllaConnectorConfig config2 = createConfigWithLocalDC("127.0.0.1:9042", "dc2");
+
+      SharedSessionCache.SessionKey key1 = SharedSessionCache.SessionKey.from(config1);
+      SharedSessionCache.SessionKey key2 = SharedSessionCache.SessionKey.from(config2);
+
+      assertNotEquals(key1, key2);
+    }
+
+    @Test
+    void differentAddressTranslator_producesDifferentKeys() {
+      ScyllaConnectorConfig config1 = createConfigWithAddressTranslator("NONE");
+      ScyllaConnectorConfig config2 = createConfigWithAddressTranslator("EC2_MULTI_REGION");
 
       SharedSessionCache.SessionKey key1 = SharedSessionCache.SessionKey.from(config1);
       SharedSessionCache.SessionKey key2 = SharedSessionCache.SessionKey.from(config2);
