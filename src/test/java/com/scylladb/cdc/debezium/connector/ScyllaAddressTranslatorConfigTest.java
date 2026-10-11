@@ -49,6 +49,14 @@ public class ScyllaAddressTranslatorConfigTest {
           new ScyllaConnectorConfig(
               baseConfig().with("scylla.address.translator", "ec2_multi_region").build());
       assertEquals(AddressTranslatorType.EC2_MULTI_REGION, config.getAddressTranslator());
+      assertTrue(
+          baseConfig()
+              .with("scylla.address.translator", "ec2_multi_region")
+              .build()
+              .validate(ScyllaConnectorConfig.EXPOSED_FIELDS)
+              .get(ScyllaConnectorConfig.ADDRESS_TRANSLATOR.name())
+              .errorMessages()
+              .isEmpty());
     } finally {
       Locale.setDefault(previous);
     }
