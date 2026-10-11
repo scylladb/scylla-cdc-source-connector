@@ -284,6 +284,21 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
       Field.create("scylla.address.translator")
           .withDisplayName("Address Translator")
           .withEnum(CQLConfiguration.AddressTranslatorType.class, DEFAULT_ADDRESS_TRANSLATOR)
+          .withNoValidation()
+          .withValidation(ScyllaConnectorConfig::validateAddressTranslator)
+          .withAllowedValues(Set.of("none", "ec2_multi_region"))
+          .withRecommender(
+              new Field.Recommender() {
+                @Override
+                public List<Object> validValues(Field field, Configuration config) {
+                  return List.of("none", "ec2_multi_region");
+                }
+
+                @Override
+                public boolean visible(Field field, Configuration config) {
+                  return true;
+                }
+              })
           .withWidth(ConfigDef.Width.SHORT)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
@@ -292,6 +307,22 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "peering, translating each public address to its private IP. This requires DNS "
                   + "resolution from the peer VPC on the peering connection and DNS hostnames and "
                   + "DNS support in the VPC. Defaults to NONE.");
+
+  private static int validateAddressTranslator(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String value = config.getString(field);
+    if (value == null) {
+      problems.accept(field, value, "Value must be one of none, ec2_multi_region");
+      return 1;
+    }
+    try {
+      CQLConfiguration.AddressTranslatorType.valueOf(value.trim().toUpperCase(Locale.ROOT));
+      return 0;
+    } catch (IllegalArgumentException ex) {
+      problems.accept(field, value, "Value must be one of none, ec2_multi_region");
+      return 1;
+    }
+  }
 
   public static final Field CDC_INCLUDE_BEFORE =
       Field.create(CDC_INCLUDE_BEFORE_KEY)
