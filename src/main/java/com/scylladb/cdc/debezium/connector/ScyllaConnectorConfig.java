@@ -289,7 +289,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription(
               "Translator applied to the rpc_address each node advertises. Set to EC2_MULTI_REGION "
                   + "to reach a cluster that advertises public addresses (e.g. Scylla Cloud) over VPC "
-                  + "peering, translating each public address to its private IP. Defaults to NONE.");
+                  + "peering, translating each public address to its private IP. This requires DNS "
+                  + "resolution from the peer VPC on the peering connection and DNS hostnames and "
+                  + "DNS support in the VPC. Defaults to NONE.");
 
   public static final Field CDC_INCLUDE_BEFORE =
       Field.create(CDC_INCLUDE_BEFORE_KEY)
@@ -768,7 +770,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   public CQLConfiguration.AddressTranslatorType getAddressTranslator() {
     String value = config.getString(ScyllaConnectorConfig.ADDRESS_TRANSLATOR);
     try {
-      return CQLConfiguration.AddressTranslatorType.valueOf(value.toUpperCase());
+      return CQLConfiguration.AddressTranslatorType.valueOf(value.trim().toUpperCase(Locale.ROOT));
     } catch (IllegalArgumentException ex) {
       return DEFAULT_ADDRESS_TRANSLATOR;
     }
