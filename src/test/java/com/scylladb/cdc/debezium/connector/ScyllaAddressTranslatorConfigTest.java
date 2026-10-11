@@ -8,7 +8,9 @@ import com.scylladb.cdc.cql.CQLConfiguration.AddressTranslatorType;
 import io.debezium.config.Configuration;
 import java.util.Locale;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 
+@Isolated
 public class ScyllaAddressTranslatorConfigTest {
   private static Configuration.Builder baseConfig() {
     return Configuration.create()
