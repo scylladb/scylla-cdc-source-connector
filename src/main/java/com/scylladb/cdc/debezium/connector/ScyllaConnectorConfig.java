@@ -313,7 +313,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "to reach a cluster that advertises public addresses (e.g. Scylla Cloud) over VPC "
                   + "peering, translating each public address to its private IP. This requires DNS "
                   + "resolution from the peer VPC on the peering connection and DNS hostnames and "
-                  + "DNS support in the VPC. Defaults to NONE.");
+                  + "DNS support in both VPCs. Defaults to NONE.");
 
   private static int validateAddressTranslator(
       Configuration config, Field field, Field.ValidationOutput problems) {
