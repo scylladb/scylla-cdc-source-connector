@@ -12,11 +12,14 @@ import io.debezium.connector.SourceInfoStructMaker;
 import io.debezium.heartbeat.Heartbeat;
 import io.netty.handler.ssl.SslProvider;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.kafka.common.config.ConfigDef;
 
@@ -280,18 +283,22 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public static final CQLConfiguration.AddressTranslatorType DEFAULT_ADDRESS_TRANSLATOR =
       CQLConfiguration.AddressTranslatorType.NONE;
+  private static final List<String> ADDRESS_TRANSLATOR_VALUES =
+      Arrays.stream(CQLConfiguration.AddressTranslatorType.values())
+          .map(type -> type.name().toLowerCase(Locale.ROOT))
+          .collect(Collectors.toList());
   public static final Field ADDRESS_TRANSLATOR =
       Field.create("scylla.address.translator")
           .withDisplayName("Address Translator")
-          .withEnum(CQLConfiguration.AddressTranslatorType.class, DEFAULT_ADDRESS_TRANSLATOR)
-          .withNoValidation()
+          .withType(ConfigDef.Type.STRING)
+          .withDefault(DEFAULT_ADDRESS_TRANSLATOR.name().toLowerCase(Locale.ROOT))
           .withValidation(ScyllaConnectorConfig::validateAddressTranslator)
-          .withAllowedValues(Set.of("none", "ec2_multi_region"))
+          .withAllowedValues(Set.copyOf(ADDRESS_TRANSLATOR_VALUES))
           .withRecommender(
               new Field.Recommender() {
                 @Override
                 public List<Object> validValues(Field field, Configuration config) {
-                  return List.of("none", "ec2_multi_region");
+                  return new ArrayList<>(ADDRESS_TRANSLATOR_VALUES);
                 }
 
                 @Override
@@ -311,16 +318,24 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   private static int validateAddressTranslator(
       Configuration config, Field field, Field.ValidationOutput problems) {
     String value = config.getString(field);
+    if (parseAddressTranslator(value).isPresent()) {
+      return 0;
+    }
+    problems.accept(
+        field, value, "Value must be one of " + String.join(", ", ADDRESS_TRANSLATOR_VALUES));
+    return 1;
+  }
+
+  private static Optional<CQLConfiguration.AddressTranslatorType> parseAddressTranslator(
+      String value) {
     if (value == null) {
-      problems.accept(field, value, "Value must be one of none, ec2_multi_region");
-      return 1;
+      return Optional.empty();
     }
     try {
-      CQLConfiguration.AddressTranslatorType.valueOf(value.trim().toUpperCase(Locale.ROOT));
-      return 0;
+      return Optional.of(
+          CQLConfiguration.AddressTranslatorType.valueOf(value.trim().toUpperCase(Locale.ROOT)));
     } catch (IllegalArgumentException ex) {
-      problems.accept(field, value, "Value must be one of none, ec2_multi_region");
-      return 1;
+      return Optional.empty();
     }
   }
 
@@ -799,12 +814,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   }
 
   public CQLConfiguration.AddressTranslatorType getAddressTranslator() {
-    String value = config.getString(ScyllaConnectorConfig.ADDRESS_TRANSLATOR);
-    try {
-      return CQLConfiguration.AddressTranslatorType.valueOf(value.trim().toUpperCase(Locale.ROOT));
-    } catch (IllegalArgumentException ex) {
-      return DEFAULT_ADDRESS_TRANSLATOR;
-    }
+    return parseAddressTranslator(config.getString(ScyllaConnectorConfig.ADDRESS_TRANSLATOR))
+        .orElse(DEFAULT_ADDRESS_TRANSLATOR);
   }
 
   public CdcOutputFormat getCdcOutputFormat() {
