@@ -252,6 +252,7 @@ public final class SharedSessionCache {
     private final String password;
     private final String consistencyLevel;
     private final String localDC;
+    private final String addressTranslator;
     private final boolean sslEnabled;
     private final String sslProvider;
     private final String trustStorePath;
@@ -275,6 +276,7 @@ public final class SharedSessionCache {
         String password,
         String consistencyLevel,
         String localDC,
+        String addressTranslator,
         boolean sslEnabled,
         String sslProvider,
         String trustStorePath,
@@ -296,6 +298,7 @@ public final class SharedSessionCache {
       this.password = password;
       this.consistencyLevel = consistencyLevel;
       this.localDC = localDC;
+      this.addressTranslator = addressTranslator;
       this.sslEnabled = sslEnabled;
       this.sslProvider = sslProvider;
       this.trustStorePath = trustStorePath;
@@ -324,6 +327,7 @@ public final class SharedSessionCache {
           config.getPassword(),
           config.getConsistencyLevel().name(),
           config.getLocalDCName(),
+          config.getAddressTranslator().name(),
           config.getSslEnabled(),
           config.getSslEnabled()
               ? (config.getSslProvider() != null
@@ -365,6 +369,7 @@ public final class SharedSessionCache {
           && Objects.equals(password, that.password)
           && Objects.equals(consistencyLevel, that.consistencyLevel)
           && Objects.equals(localDC, that.localDC)
+          && Objects.equals(addressTranslator, that.addressTranslator)
           && Objects.equals(sslProvider, that.sslProvider)
           && Objects.equals(trustStorePath, that.trustStorePath)
           && Objects.equals(trustStorePassword, that.trustStorePassword)
@@ -389,6 +394,7 @@ public final class SharedSessionCache {
           password,
           consistencyLevel,
           localDC,
+          addressTranslator,
           sslEnabled,
           sslProvider,
           trustStorePath,

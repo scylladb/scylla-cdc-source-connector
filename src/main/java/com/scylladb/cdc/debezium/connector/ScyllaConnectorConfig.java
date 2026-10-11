@@ -12,11 +12,14 @@ import io.debezium.connector.SourceInfoStructMaker;
 import io.debezium.heartbeat.Heartbeat;
 import io.netty.handler.ssl.SslProvider;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.kafka.common.config.ConfigDef;
 
@@ -277,6 +280,64 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               "The name of Scylla local datacenter. This local datacenter name will be used to setup "
                   + "the connection to Scylla to prioritize sending requests to "
                   + "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
+
+  public static final CQLConfiguration.AddressTranslatorType DEFAULT_ADDRESS_TRANSLATOR =
+      CQLConfiguration.AddressTranslatorType.NONE;
+  private static final List<String> ADDRESS_TRANSLATOR_VALUES =
+      Arrays.stream(CQLConfiguration.AddressTranslatorType.values())
+          .map(type -> type.name().toLowerCase(Locale.ROOT))
+          .collect(Collectors.toList());
+  public static final Field ADDRESS_TRANSLATOR =
+      Field.create("scylla.address.translator")
+          .withDisplayName("Address Translator")
+          .withType(ConfigDef.Type.STRING)
+          .withDefault(DEFAULT_ADDRESS_TRANSLATOR.name().toLowerCase(Locale.ROOT))
+          .withValidation(ScyllaConnectorConfig::validateAddressTranslator)
+          .withAllowedValues(Set.copyOf(ADDRESS_TRANSLATOR_VALUES))
+          .withRecommender(
+              new Field.Recommender() {
+                @Override
+                public List<Object> validValues(Field field, Configuration config) {
+                  return new ArrayList<>(ADDRESS_TRANSLATOR_VALUES);
+                }
+
+                @Override
+                public boolean visible(Field field, Configuration config) {
+                  return true;
+                }
+              })
+          .withWidth(ConfigDef.Width.SHORT)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDescription(
+              "Translator applied to the rpc_address each node advertises. Set to EC2_MULTI_REGION "
+                  + "to reach a cluster that advertises public addresses (e.g. Scylla Cloud) over VPC "
+                  + "peering, translating each public address to its private IP. This requires DNS "
+                  + "resolution from the peer VPC on the peering connection and DNS hostnames and "
+                  + "DNS support in the VPC. Defaults to NONE.");
+
+  private static int validateAddressTranslator(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String value = config.getString(field);
+    if (parseAddressTranslator(value).isPresent()) {
+      return 0;
+    }
+    problems.accept(
+        field, value, "Value must be one of " + String.join(", ", ADDRESS_TRANSLATOR_VALUES));
+    return 1;
+  }
+
+  private static Optional<CQLConfiguration.AddressTranslatorType> parseAddressTranslator(
+      String value) {
+    if (value == null) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(
+          CQLConfiguration.AddressTranslatorType.valueOf(value.trim().toUpperCase(Locale.ROOT)));
+    } catch (IllegalArgumentException ex) {
+      return Optional.empty();
+    }
+  }
 
   public static final Field CDC_INCLUDE_BEFORE =
       Field.create(CDC_INCLUDE_BEFORE_KEY)
@@ -564,6 +625,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               CONSISTENCY_LEVEL,
               QUERY_OPTIONS_FETCH_SIZE,
               LOCAL_DC_NAME,
+              ADDRESS_TRANSLATOR,
               SSL_ENABLED,
               SSL_PROVIDER,
               SSL_TRUSTSTORE_PATH,
@@ -749,6 +811,11 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public String getLocalDCName() {
     return config.getString(ScyllaConnectorConfig.LOCAL_DC_NAME);
+  }
+
+  public CQLConfiguration.AddressTranslatorType getAddressTranslator() {
+    return parseAddressTranslator(config.getString(ScyllaConnectorConfig.ADDRESS_TRANSLATOR))
+        .orElse(DEFAULT_ADDRESS_TRANSLATOR);
   }
 
   public CdcOutputFormat getCdcOutputFormat() {
