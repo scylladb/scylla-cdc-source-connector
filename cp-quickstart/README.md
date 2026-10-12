@@ -45,6 +45,13 @@ This will launch the connector configured to monitor changes to the `demo_keyspa
 If you wish to adjust the configuration you can simply edit the configuration inside `setup-connector.sh`.
 Default configuration assumes the same setup as in `setup-containers.sh` script.
 
+For a cluster reached through AWS VPC peering that advertises public peer addresses, add
+`"scylla.address.translator": "EC2_MULTI_REGION"` to the config object in
+`setup-connector.sh` and set `scylla.cluster.ip.addresses` to a reachable contact point.
+Enable DNS resolution from the peer VPC on the peering connection, and enable DNS
+hostnames and DNS support in both VPCs. The local Docker setup needs no translator;
+the default is `NONE`.
+
 ### 4. Test the connector
 
 After setting up the connector, you can test it by making changes to the Scylla database and observing the messages in the Kafka topic.
