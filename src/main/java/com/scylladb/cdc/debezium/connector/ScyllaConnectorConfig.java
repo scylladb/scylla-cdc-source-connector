@@ -309,8 +309,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withWidth(ConfigDef.Width.SHORT)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
-              "Translator applied to the rpc_address each node advertises. Set to EC2_MULTI_REGION "
-                  + "to reach a cluster that advertises public addresses (e.g. Scylla Cloud) over VPC "
+              "Translator applied to the rpc_address each node advertises. Values are "
+                  + "case-insensitive. Set to EC2_MULTI_REGION to reach a cluster that advertises "
+                  + "public addresses (e.g. Scylla Cloud) over VPC "
                   + "peering, translating each public address to its private IP. This requires DNS "
                   + "resolution from the peer VPC on the peering connection and DNS hostnames and "
                   + "DNS support in both VPCs. Defaults to NONE.");

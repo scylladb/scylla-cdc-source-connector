@@ -36,9 +36,9 @@ import org.slf4j.LoggerFactory;
  * than treating it as a fatal error.
  *
  * <p>The session cache key is derived from connection-identity properties and the pool sizing
- * settings (contact points, port, credentials, SSL, consistency level, local DC, fetch size, and
- * pooling parameters). Two tasks only share a session when they are actually configured the same
- * way.
+ * settings (contact points, port, credentials, SSL, consistency level, local DC, address
+ * translator, fetch size, and pooling parameters). Two tasks only share a session when they are
+ * configured the same way.
  *
  * <p>This class is thread-safe.
  */
