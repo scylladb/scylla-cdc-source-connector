@@ -215,6 +215,7 @@
     </build>
 
     <properties>
+        <gpg.bestPractices>true</gpg.bestPractices>
         <release.autopublish>false</release.autopublish>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>11</maven.compiler.release>
