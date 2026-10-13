@@ -33,7 +33,7 @@ jobs:
       issues: write
 
     env:
-      MVNCMD: mvn -B -X -ntp
+      MVNCMD: mvn -B -ntp
 
     steps:
       - name: Check for open release blockers
@@ -82,6 +82,20 @@ jobs:
           server-username: SONATYPE_TOKEN_USERNAME
           server-password: SONATYPE_TOKEN_PASSWORD
           cache: maven
+
+      # Maven 3.10 adds repository metadata to the Central publishing bundle.
+      # Sonatype rejects the resulting bundle; see apache/maven#13388.
+      - name: Set up Maven 3.9.16
+        run: |
+          set -euo pipefail
+          maven_version=3.9.16
+          archive="$RUNNER_TEMP/apache-maven-${maven_version}-bin.tar.gz"
+          curl --fail --location --silent --show-error \
+            "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${maven_version}/apache-maven-${maven_version}-bin.tar.gz" \
+            --output "$archive"
+          echo "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6  $archive" | sha512sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-${maven_version}/bin" >> "$GITHUB_PATH"
 
       - name: Configure Git user
         run: |
@@ -144,21 +158,7 @@ jobs:
             MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
           fi
           export MAVEN_OPTS
-          $MVNCMD release:perform $CMD_OPTS -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }} > >(tee /tmp/logs-stdout.log) 2> >(tee /tmp/logs-stderr.log)
-
-      - name: Upload stdout.log
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: maven-stdout
-          path: /tmp/logs-stdout.log
-
-      - name: Upload stderr.log
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: maven-stderr
-          path: /tmp/logs-stderr.log
+          $MVNCMD release:perform $CMD_OPTS -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
 
       - name: Push changes to SCM
         if: inputs.dry-run == false && inputs.target-tag == 'master'
