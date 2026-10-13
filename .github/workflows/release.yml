@@ -110,7 +110,7 @@ jobs:
 
       - name: Prepare release
         env:
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
             MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
@@ -120,7 +120,7 @@ jobs:
             NEXT_RELEASE="-DreleaseVersion=${{ inputs.release-version }}"
           fi
           export MAVEN_OPTS
-          $MVNCMD release:prepare -DpushChanges=false ${NEXT_RELEASE} -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
+          $MVNCMD release:prepare -DpushChanges=false ${NEXT_RELEASE}
 
       - name: Recheck for open release blockers
         if: inputs.dry-run == false
@@ -146,7 +146,7 @@ jobs:
 
       - name: Perform release
         env:
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
           SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
         run: |
@@ -158,7 +158,7 @@ jobs:
             MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
           fi
           export MAVEN_OPTS
-          $MVNCMD release:perform $CMD_OPTS -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
+          $MVNCMD release:perform $CMD_OPTS
 
       - name: Push changes to SCM
         if: inputs.dry-run == false && inputs.target-tag == 'master'
