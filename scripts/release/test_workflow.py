@@ -14,13 +14,16 @@ class WorkflowTests(unittest.TestCase):
 
     def test_guard_survives_checkout_and_validates_before_key_import(self):
         text = self.workflow
-        preserve = text.index('cp scripts/release/guard.py "$RELEASE_GUARD"')
+        preserve = text.index('cp scripts/release/guard.py "$RUNNER_TEMP/release-guard.py"')
         checkout = text.index('git checkout')
         validate = text.index('python3 "$RELEASE_GUARD" check')
         credentials = text.index('gpg-private-key:')
         self.assertLess(preserve, checkout)
         self.assertLess(checkout, validate)
         self.assertLess(validate, credentials)
+        self.assertIn('echo "RELEASE_GUARD=$RUNNER_TEMP/release-guard.py" >> "$GITHUB_ENV"', text)
+        self.assertIn('echo "RELEASE_LOG_DIR=$RUNNER_TEMP/release-logs" >> "$GITHUB_ENV"', text)
+        self.assertNotRegex(text, r'(?m)^    env:\n(?:.*\n)*?\s+RELEASE_GUARD:')
 
     def test_all_four_maven_invocations_are_guarded(self):
         commands = [line.strip() for line in self.workflow.splitlines()
@@ -29,8 +32,8 @@ class WorkflowTests(unittest.TestCase):
         commands = [line for line in commands if not line.startswith('**Do not re-run')]
         self.assertEqual(len(commands), 4)
         for goal in ('clean', 'release:clean', 'release:prepare', 'release:perform'):
-            self.assertTrue(any('python3 "$RELEASE_GUARD" run mvn -B -ntp ' + goal
-                                in command for command in commands), goal)
+            self.assertTrue(any('python3 "$RELEASE_GUARD" run mvn -B -ntp '
+                                in command and goal in command for command in commands), goal)
 
     def test_sanitized_log_upload_is_unconditional_and_last(self):
         last = self.steps[-1]

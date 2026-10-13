@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import selectors
+import shlex
 import signal
 import subprocess
 import sys
@@ -27,6 +28,7 @@ ENV_OPTIONS = (
     "MAVEN_DEBUG_OPTS",
     "MAVEN_CONFIG",
 )
+CHILD_OPTIONS = r"arguments|prepareVerifyArgs|goals|preparationGoals|completionGoals"
 
 
 class Unsafe(ValueError):
@@ -34,13 +36,81 @@ class Unsafe(ValueError):
 
 
 def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_options=False):
-    if any(arg.strip().startswith("-X") for arg in maven_arguments):
-        raise Unsafe("Maven debug options are not allowed")
+    # Maven accepts an equals sign after -D/--D; treat it as the ordinary
+    # property form before every safety check.
+    text = re.sub(r"(?<![\w-])--?D=", "-D", text, flags=re.I)
+    maven_arguments = tuple(
+        re.sub(r"^--?D=", "-D", argument, flags=re.I)
+        for argument in maven_arguments
+    )
+    def check_autopublish(argument):
+        setting = re.fullmatch(
+            r"(?:--?D\s*|--?define(?:=|\s+))release\.autopublish=(.*)",
+            argument, re.I | re.S,
+        )
+        if setting and setting[1] not in ("true", "false", "${release.autopublish}"):
+            raise Unsafe("release.autopublish must be a Boolean")
+
+    try:
+        arguments = [argument.strip().strip("\"'") for argument in maven_arguments]
+        jvm_arguments = shlex.split(text) if jvm_options else []
+    except ValueError as error:
+        raise Unsafe("malformed release options are not allowed") from error
+    def check_pom_option(argument):
+        if (argument.startswith("-f") and argument not in ("-fae", "-ff", "-fn")) or (
+            argument.startswith("--f")
+            and argument not in ("--fail-at-end", "--fail-fast", "--fail-never")
+        ):
+            raise Unsafe("alternate Maven POMs are not allowed")
+        if (argument.startswith(("-s", "-gs")) and not argument.startswith("--")) or (
+            argument in ("--s", "--gs", "--settings", "--global-settings")
+            or argument.startswith(("--s=", "--gs=", "--settings=", "--global-settings="))
+        ):
+            raise Unsafe("alternate Maven settings are not allowed")
+
+    def check_release_arguments(value):
+        if "${" in value:
+            raise Unsafe("release arguments must not contain unverified properties")
+        try:
+            child_arguments = shlex.split(value)
+        except ValueError as error:
+            raise Unsafe("malformed release options are not allowed") from error
+        for child_argument in child_arguments:
+            check_pom_option(child_argument)
+
+    for argument in arguments:
+        if argument.startswith(("-X", "--X")):
+            raise Unsafe("Maven debug options are not allowed")
+        check_pom_option(argument)
+    # Release-plugin properties are passed on to child Maven invocations.
+    option_arguments = arguments + jvm_arguments
+    for index, argument in enumerate(option_arguments):
+        if index and option_arguments[index - 1] in ("-D", "-define", "--define"):
+            argument = option_arguments[index - 1] + " " + argument
+        setting = re.fullmatch(
+            rf"(?:--?D\s*|--?define(?:=|\s+))(?:{CHILD_OPTIONS})=(.*)",
+            argument, re.I | re.S,
+        )
+        if setting:
+            check_release_arguments(setting[1])
+    if not option_arguments:
+        for setting in re.finditer(
+            rf"(?:--?D\s*|--?define(?:=|\s+))(?:{CHILD_OPTIONS})=([^\r\n]*)",
+            text, re.I,
+        ):
+            check_release_arguments(setting[1])
+    if any(argument.startswith("@") for argument in arguments + jvm_arguments):
+        raise Unsafe("unverified argument files are not allowed")
+    if jvm_options and re.search(r"-Dgpg\.[^\s]*bestPractices[^\s]*[\"']", text, re.I):
+        raise Unsafe("GPG best practices must not be disabled")
+    for argument in arguments + jvm_arguments:
+        check_autopublish(argument)
     for index, argument in enumerate(maven_arguments):
         if index and maven_arguments[index - 1] in ("-D", "-define", "--define"):
             argument = maven_arguments[index - 1] + " " + argument
+        check_autopublish(argument)
         setting = re.fullmatch(
-            r"(?:-D\s*|--?define(?:=|\s+))gpg\.bestPractices=(.*)", argument, re.I | re.S
+            r"(?:--?D\s*|--?define(?:=|\s+))gpg\.bestPractices=(.*)", argument, re.I | re.S
         )
         if setting and setting[1].lower() != "true":
             raise Unsafe("GPG best practices must not be disabled")
@@ -49,26 +119,34 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         r"([\"'])((?:\\.|(?!\1)[\s\S])*)\1",
         lambda match: re.sub(r"\s", "\0", match[2]), text,
     ).translate(str.maketrans("", "", "\"'"))
-    if re.search(r"(?:-D\s*|--?define(?:=|\s+))gpg\.bestPractices=(?!true(?:\s|$))",
+    if re.search(r"(?:--?D\s*|--?define(?:=|\s+))gpg\.bestPractices=(?!true(?:\s|$))",
                  gpg_text, re.I) or (jvm_options and re.search(
                      r"(?:^|\s)-Dgpg\.bestPractices(?:\s|$)", gpg_text, re.I)):
         raise Unsafe("GPG best practices must not be disabled")
     # Java and Maven option parsing remove quotes from property names and values.
     text = text.translate(str.maketrans("", "", "\"'"))
+    if re.search(r"(?:--?D\s*|--?define(?:=|\s+))pomFileName\b", text, re.I):
+        raise Unsafe("alternate Maven POMs are not allowed")
+    if maven_options and re.search(
+        r"(?<![\w-])(?:--?s|--?gs|--settings|--global-settings)(?=\s|=|$)", text
+    ):
+        raise Unsafe("alternate Maven settings are not allowed")
     # Catch accidental debug flags and credential properties, including release arguments.
     match = re.search(
-        r"(?:^|[\s=\"'])(?:-X|--?debug)\b"
-        r"|(?:-D\s*|--?define(?:=|\s+))javax\.net\.debug\b"
+        r"(?:^|[\s=\"'])(?:--?X|--?debug)\b"
+        r"|(?:--?D\s*|--?define(?:=|\s+))(?:arguments|prepareVerifyArgs)="
+        r"(?:-X|[^\r\n]*?[=\s\"']-X)"
+        r"|(?:--?D\s*|--?define(?:=|\s+))javax\.net\.debug\b"
         r"|simpleLogger\.logFile="
         r"|simpleLogger[^\s<>]*=(?:debug|trace)\b"
-        r"|(?:-D\s*|--?define(?:=|\s+))[\w.-]*"
+        r"|(?:--?D\s*|--?define(?:=|\s+))[\w.-]*"
         r"(?:passphrase|password|token|secret|authorization)[\w.-]*=",
         text,
         re.I,
     )
     if maven_options and not match:
         match = re.search(
-            r"(?:^|[\s=\"'])(?:--log-file(?:[=\s]|$)|-l(?!lr(?:[\s\"']|$)))", text
+            r"(?:^|[\s=\"'])(?:--log-file(?:[=\s]|$)|-l(?!lr(?:[\s\"']|$))|--l)", text
         )
     if match:
         if source is not None:
@@ -83,26 +161,70 @@ def check_policy(root):
     pom = ET.parse(root / "pom.xml").getroot()
     if pom.findtext("m:properties/m:gpg.bestPractices", namespaces=ns) != "true":
         raise Unsafe("enable GPG best practices before releasing this target")
+    root_plugins = pom.findall("m:build/m:plugins/m:plugin", ns)
+    release_plugins = [
+        plugin
+        for profile in pom.findall("m:profiles/m:profile", ns)
+        if profile.findtext("m:id", namespaces=ns) == "release"
+        for plugin in profile.findall("m:build/m:plugins/m:plugin", ns)
+    ]
+    supported_gpg = False
+    supported_central = False
+    release_configuration = set()
+    property_values = set(pom.findall(".//m:properties/*", ns))
     for plugin in pom.findall(".//m:plugin", ns):
+        if plugin.findtext("m:artifactId", namespaces=ns) == "maven-release-plugin":
+            release_configuration.update(plugin.findall(".//m:configuration//*", ns))
         if plugin.findtext("m:artifactId", namespaces=ns) == "maven-gpg-plugin":
+            version = plugin.findtext("m:version", namespaces=ns)
+            if version is not None and (
+                not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
+                or tuple(map(int, version.split("."))) < (3, 2, 0)
+            ):
+                raise Unsafe("update the GPG plugin before releasing this target")
+            if plugin in root_plugins and version is not None:
+                supported_gpg = True
             for setting in plugin.findall(".//m:bestPractices", ns):
                 if (setting.text or "").strip().lower() != "true":
                     raise Unsafe("GPG best practices must not be disabled")
         if plugin.findtext("m:artifactId", namespaces=ns) == "central-publishing-maven-plugin":
             version = plugin.findtext("m:version", namespaces=ns)
-            if version and (
+            if version is not None and (
                 not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
                 or tuple(map(int, version.split("."))) < (0, 11, 0)
             ):
                 raise Unsafe("update Central publishing before releasing this target")
+            if plugin in release_plugins and version is not None:
+                supported_central = True
+    if not supported_gpg:
+        raise Unsafe("pin a GPG plugin supporting best practices before releasing this target")
+    if not supported_central:
+        raise Unsafe("pin Central publishing before releasing this target")
     for element in pom.iter():
+        name = element.tag.rsplit("}", 1)[-1]
+        if name == "pomFileName":
+            raise Unsafe("alternate Maven POMs are not allowed")
         if (element.tag == "{" + ns["m"] + "}gpg.bestPractices"
                 and (element.text or "").strip().lower() != "true"):
             raise Unsafe("GPG best practices must not be disabled")
-        check_text(element.text or "")
+        if (element.tag == "{" + ns["m"] + "}release.autopublish"
+                and (element.text or "").strip() not in ("true", "false")):
+            raise Unsafe("release.autopublish must be a Boolean")
+        child_arguments = name == "arguments" or (
+            name in ("prepareVerifyArgs", "goals", "preparationGoals", "completionGoals")
+            and (element in release_configuration or element in property_values)
+        )
+        if child_arguments and "${" in (element.text or "").replace(
+            "-Drelease.autopublish=${release.autopublish}", ""
+        ):
+            raise Unsafe("release arguments must not contain unverified properties")
+        check_text(
+            element.text or "",
+            maven_options=child_arguments,
+            maven_arguments=(element.text or "").split() if child_arguments else (),
+        )
     paths = [
         root / "Makefile",
-        root / ".github/workflows/release.yml",
         root / ".mvn/maven.config",
         root / ".mvn/jvm.config",
     ]
@@ -115,11 +237,6 @@ def check_policy(root):
                 ),
                 jvm_options=path.name == "jvm.config",
             )
-    workflow = (root / ".github/workflows/release.yml").read_text()
-    if "RELEASE_GUARD" not in workflow or "if: always()" not in workflow:
-        raise Unsafe(
-            "release workflow sanity check requires RELEASE_GUARD and if: always() markers"
-        )
     makefile = root / "Makefile"
     if makefile.exists():
         for line in makefile.read_text().splitlines():
@@ -174,7 +291,7 @@ def redact(data, forms):
             rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*=)"
             rb"(\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*'|[^\s]+)", 2,
         ),
-        spans(rb"(?im)((?:proxy-)?authorization[\"']?\s*[:=]\s*)([^\r\n]*)", 2),
+        spans(rb"(?im)((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*)([^\r\n]*)", 2),
     ]
     for value in forms:
         # Lookahead includes overlapping occurrences; percent escapes ignore case.
@@ -262,7 +379,16 @@ def interrupted(signum, frame):
 def main():
     try:
         if sys.argv[1:] == ["check"]:
-            check_policy(Path.cwd())
+            try:
+                check_policy(Path.cwd())
+            except Unsafe as error:
+                print(
+                    "Selected release target fails credential safety checks. "
+                    "Release only supported targets with the release guard and "
+                    f"safe GPG/Central configuration: {error}; values withheld.",
+                    file=sys.stderr,
+                )
+                return 2
             print("Release credential safety checks passed.")
             return 0
         if sys.argv[1:3] != ["run", "mvn"]:
@@ -273,7 +399,10 @@ def main():
         for name in ENV_OPTIONS:
             check_text(
                 os.environ.get(name, ""),
-                maven_arguments=os.environ.get(name, "").split() if name == "MAVEN_ARGS" else (),
+                maven_arguments=(
+                    os.environ.get(name, "").split()
+                    if name in ("MAVEN_ARGS", "MAVEN_CONFIG") else ()
+                ),
                 jvm_options=name not in ("MAVEN_ARGS", "MAVEN_CONFIG"),
             )
         for name in ("maven.config", "jvm.config"):

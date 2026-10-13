@@ -15,7 +15,7 @@ on:
 
       target-tag:
         type: string
-        description: 'target-tag: tag or branch name to release. Use to to re-release failed releases'
+        description: 'target-tag: re-release a compatible semver tag; unsafe historical targets are rejected'
         default: master
 
       release-version:
@@ -31,10 +31,6 @@ jobs:
     permissions:
       contents: write
       issues: write
-
-    env:
-      RELEASE_GUARD: ${{ runner.temp }}/release-guard.py
-      RELEASE_LOG_DIR: ${{ runner.temp }}/release-logs
 
     steps:
       - name: Check for open release blockers
@@ -63,7 +59,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Preserve release guard
-        run: cp scripts/release/guard.py "$RELEASE_GUARD"
+        run: |
+          cp scripts/release/guard.py "$RUNNER_TEMP/release-guard.py"
+          mkdir -p "$RUNNER_TEMP/release-logs"
+          echo "RELEASE_GUARD=$RUNNER_TEMP/release-guard.py" >> "$GITHUB_ENV"
+          echo "RELEASE_LOG_DIR=$RUNNER_TEMP/release-logs" >> "$GITHUB_ENV"
 
       - name: Checkout historical release target
         if: inputs.target-tag != 'master'

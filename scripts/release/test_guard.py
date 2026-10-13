@@ -23,6 +23,40 @@ class ReleaseTests(unittest.TestCase):
     def test_repository_defaults(self):
         guard.check_policy(ROOT)
 
+    def test_run_redacts_and_appends_sanitized_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "mvn"
+            binary.write_text(
+                "#!/bin/sh\n"
+                "printf 'stdout:%s\\n' \"$MAVEN_GPG_PASSPHRASE\"\n"
+                "printf 'stderr:%s\\n' \"$MAVEN_GPG_PASSPHRASE\" >&2\n"
+            )
+            binary.chmod(0o755)
+            logs = root / "logs"
+            env = {key: value for key, value in os.environ.items()
+                   if key not in guard.ENV_OPTIONS}
+            env.update(
+                PATH=str(root) + os.pathsep + env.get("PATH", ""),
+                RELEASE_LOG_DIR=str(logs),
+                MAVEN_GPG_PASSPHRASE="dummy-secret",
+            )
+            command = [sys.executable, str(ROOT / "scripts/release/guard.py"),
+                       "run", "mvn", "-B", "-ntp", "release:perform",
+                       "-Drelease.autopublish=true"]
+            for _ in range(2):
+                result = subprocess.run(command, cwd=root, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "stdout:[REDACTED]\n")
+                self.assertEqual(result.stderr, "stderr:[REDACTED]\n")
+            self.assertEqual(
+                (logs / "stdout.log").read_text(), "stdout:[REDACTED]\n" * 2
+            )
+            self.assertEqual(
+                (logs / "stderr.log").read_text(), "stderr:[REDACTED]\n" * 2
+            )
+
     def test_unsafe_options(self):
         for value in (
             "-X",
@@ -52,11 +86,14 @@ class ReleaseTests(unittest.TestCase):
             "-Dorg.slf4j.simpleLogger.logFile=System.err",
             "-Dorg.slf4j.simpleLogger.logFile=System.out raw.log",
             "--debug",
+            "--X",
+            "--l=raw.log",
             "-debug",
             '-Dorg.slf4j.simpleLogger.log.org.apache.http="debug"',
             '-Dorg.slf4j.simpleLogger."logFile"=raw.log',
             "-Dorg.slf4j.simpleLogger.log.org.apache.http='trace'",
             '-Darguments="-X"',
+            '-Darguments=-Xverify',
             "-Dgpg.passphrase=dummy",
             "-Dhttp.authorization=dummy",
             "--define=gpg.passphrase=dummy",
@@ -84,12 +121,16 @@ class ReleaseTests(unittest.TestCase):
                 guard.check_text(value, jvm_options=True)
         for value in (
             '-Dgpg.bestPractices=true',
+        ):
+            guard.check_text(value, jvm_options=True)
+        for value in (
             '-Dgpg.bestPractices="true"',
             "-Dgpg.bestPractices='true'",
             '"-Dgpg.bestPractices=true"',
             '-Dgpg."bestPractices"="true"',
         ):
-            guard.check_text(value, jvm_options=True)
+            with self.subTest(value=value), self.assertRaises(guard.Unsafe):
+                guard.check_text(value, jvm_options=True)
         guard.check_text("-Dgpg.bestPractices")  # Maven CLI bare properties mean true.
         for name in ("MAVEN_OPTS", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"):
             for value in ('-Dgpg.bestPractices="true false"', "-Dgpg.bestPractices"):
@@ -100,6 +141,14 @@ class ReleaseTests(unittest.TestCase):
                 ), patch.object(guard, "capture") as capture, patch("sys.stderr", io.StringIO()):
                     self.assertEqual(guard.main(), 2)
                     capture.assert_not_called()
+        for name in guard.ENV_OPTIONS:
+            with self.subTest(name=name), patch.dict(
+                os.environ, {name: "-Dorg.slf4j.simpleLogger.logFile=raw.log"}, clear=True
+            ), patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
+                guard, "capture"
+            ) as capture, patch("sys.stderr", io.StringIO()):
+                self.assertEqual(guard.main(), 2)
+                capture.assert_not_called()
 
     def test_direct_gpg_argument_boundaries(self):
         for value, expected in (("true false", 2), ("true ", 2), ("true", 0)):
@@ -140,9 +189,10 @@ class ReleaseTests(unittest.TestCase):
             ), patch.object(guard, "capture", return_value=0) as capture, patch(
                 "sys.stderr", io.StringIO()
             ):
-                with patch.dict(os.environ, {"MAVEN_ARGS": "-Xvalidate"}, clear=True):
-                    self.assertEqual(guard.main(), 2)
-                    capture.assert_not_called()
+                for value in ("-Xvalidate", '"-Xverify"'):
+                    with patch.dict(os.environ, {"MAVEN_ARGS": value}, clear=True):
+                        self.assertEqual(guard.main(), 2)
+                        capture.assert_not_called()
                 with patch.dict(os.environ, {}, clear=True), patch.object(
                     guard, "Path",
                     side_effect=lambda value: root / value if value == ".mvn" else Path(value)
@@ -170,6 +220,8 @@ class ReleaseTests(unittest.TestCase):
                 with patch.dict(os.environ, {"MAVEN_OPTS": "-Xmx1g"}, clear=True):
                     self.assertEqual(guard.main(), 0)
                     capture.assert_called_once()
+                with patch.dict(os.environ, {"MAVEN_OPTS": "@.mvn/extra.options"}, clear=True):
+                    self.assertEqual(guard.main(), 2)
 
     def test_unwrapped_release_goals(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -190,6 +242,281 @@ class ReleaseTests(unittest.TestCase):
                 (root / "pom.xml").write_text(pom.replace(old, "<version>0.8.0</version>"))
                 with self.subTest(old=old), self.assertRaises(guard.Unsafe):
                     guard.check_policy(root)
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts/release/guard.py"), "check"],
+                    cwd=root, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("Release only supported targets", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_target_validation_uses_checked_out_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            workflow = root / ".github/workflows/release.yml"
+            original = workflow.read_text()
+            workflow.write_text("name: Old workflow without a release guard\n")
+            guard.check_policy(root)
+            self.assertIn("RELEASE_GUARD", original)
+
+    def test_release_target_requires_pinned_central_publishing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            pom = (ROOT / "pom.xml").read_text()
+            start = pom.index("                    <plugin>\n"
+                              "                        <groupId>org.sonatype.central</groupId>")
+            end = pom.index("                    </plugin>", start) + len("                    </plugin>")
+            central_plugin = pom[start:end]
+            self.assertIn(central_plugin, pom)
+            (root / "pom.xml").write_text(pom.replace(central_plugin, ""))
+            with self.assertRaisesRegex(guard.Unsafe, "pin Central publishing"):
+                guard.check_policy(root)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/release/guard.py"), "check"],
+                cwd=root, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("pin Central publishing", result.stderr)
+            (root / "pom.xml").write_text(pom.replace(
+                "<version>0.11.0</version>", "<version></version>", 1
+            ))
+            with self.assertRaisesRegex(guard.Unsafe, "update Central publishing"):
+                guard.check_policy(root)
+
+    def test_alternate_maven_settings_are_rejected(self):
+        for option in ("-s", "-gs", "--s", "--gs", "--settings", "--global-settings"):
+            with self.subTest(option=option), self.assertRaisesRegex(
+                guard.Unsafe, "alternate Maven settings"
+            ):
+                guard.check_text(option + " unsafe.xml", maven_arguments=[option, "unsafe.xml"])
+            with self.subTest(nested=option), self.assertRaises(guard.Unsafe):
+                guard.check_text(
+                    "-Darguments=" + option + " unsafe.xml",
+                    maven_arguments=["-Darguments=" + option + " unsafe.xml"],
+                )
+        for option in ("--s=unsafe.xml", "--gs=unsafe.xml"):
+            with self.subTest(option=option), self.assertRaisesRegex(
+                guard.Unsafe, "alternate Maven settings"
+            ):
+                guard.check_text(option, maven_arguments=[option])
+        guard.check_text("--show-version", maven_arguments=["--show-version"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            (root / ".mvn").mkdir()
+            for option in ("-s\nunsafe.xml\n", "--s=unsafe.xml\n", "--gs=unsafe.xml\n"):
+                with self.subTest(config=option):
+                    (root / ".mvn/maven.config").write_text(option)
+                    with self.assertRaisesRegex(guard.Unsafe, "alternate Maven settings"):
+                        guard.check_policy(root)
+            (root / ".mvn/maven.config").unlink()
+            workflow = root / ".github/workflows/release.yml"
+            workflow.write_text(workflow.read_text() + "\n# curl -s is not a Maven setting\n")
+            guard.check_policy(root)
+
+    def test_old_gpg_plugin_cannot_pass_target_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            pom = (ROOT / "pom.xml").read_text()
+            for version in ("1.6", "3.1.0", "${gpg.version}"):
+                (root / "pom.xml").write_text(pom.replace("<version>3.2.8</version>",
+                                                        f"<version>{version}</version>"))
+                with self.subTest(version=version), self.assertRaises(guard.Unsafe):
+                    guard.check_policy(root)
+            (root / "pom.xml").write_text(pom.replace("<version>3.2.8</version>",
+                                                    "<version>3.2.0</version>"))
+            guard.check_policy(root)
+
+    def test_pom_nested_release_debug_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            pom = (ROOT / "pom.xml").read_text().replace(
+                "<arguments>-Drelease.autopublish=${release.autopublish}</arguments>",
+                "<arguments>-Xverify</arguments>",
+            )
+            (root / "pom.xml").write_text(pom)
+            with self.assertRaises(guard.Unsafe):
+                guard.check_policy(root)
+
+    def test_pom_nested_release_property_cannot_hide_debug(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            pom = (ROOT / "pom.xml").read_text().replace(
+                "<arguments>-Drelease.autopublish=${release.autopublish}</arguments>",
+                "<arguments>${release.extraArgs}</arguments>",
+            ).replace("<properties>", "<properties><release.extraArgs>-Xverify</release.extraArgs>")
+            (root / "pom.xml").write_text(pom)
+            with self.assertRaises(guard.Unsafe):
+                guard.check_policy(root)
+
+    def test_release_child_argument_aliases_are_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            pom = (ROOT / "pom.xml").read_text()
+            for element, value in (
+                ("prepareVerifyArgs", "-Xverify"),
+                ("prepareVerifyArgs", "${release.extraArgs}"),
+                ("goals", "deploy -Xverify"),
+                ("preparationGoals", "verify -Xverify"),
+                ("completionGoals", "deploy -f unsafe.xml"),
+            ):
+                with self.subTest(element=element, value=value):
+                    (root / "pom.xml").write_text(pom.replace(
+                        "<arguments>-Drelease.autopublish=${release.autopublish}</arguments>",
+                        f"<{element}>{value}</{element}>",
+                    ))
+                    with self.assertRaises(guard.Unsafe):
+                        guard.check_policy(root)
+            for element in ("goals", "preparationGoals", "completionGoals"):
+                with self.subTest(property=element):
+                    (root / "pom.xml").write_text(pom.replace(
+                        "<properties>",
+                        f"<properties><{element}>deploy -f unsafe.xml</{element}>",
+                        1,
+                    ))
+                    with self.assertRaises(guard.Unsafe):
+                        guard.check_policy(root)
+            (root / "pom.xml").write_text(pom.replace(
+                "<arguments>-Drelease.autopublish=${release.autopublish}</arguments>",
+                "<prepareVerifyArgs>-DskipTests=true</prepareVerifyArgs>",
+            ))
+            guard.check_policy(root)
+
+    def test_release_pom_file_name_override_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            pom = (ROOT / "pom.xml").read_text()
+            for value in ("unsafe-pom.xml", "pom.xml", "${release.pom}"):
+                with self.subTest(value=value):
+                    (root / "pom.xml").write_text(pom.replace(
+                        "<arguments>-Drelease.autopublish=${release.autopublish}</arguments>",
+                        f"<pomFileName>{value}</pomFileName>",
+                    ))
+                    with self.assertRaises(guard.Unsafe):
+                        guard.check_policy(root)
+            (root / "pom.xml").write_text(pom.replace(
+                "<properties>", "<properties><pomFileName>unsafe.xml</pomFileName>", 1
+            ))
+            with self.assertRaises(guard.Unsafe):
+                guard.check_policy(root)
+            (root / "pom.xml").write_text(pom)
+            (root / ".mvn").mkdir()
+            for option in ("-DpomFileName=unsafe-pom.xml", "--define=pomFileName=unsafe-pom.xml"):
+                with self.subTest(option=option):
+                    (root / ".mvn/maven.config").write_text(option)
+                    with self.assertRaises(guard.Unsafe):
+                        guard.check_policy(root)
+
+    def test_release_child_properties_are_rejected_before_run(self):
+        for option in (
+            "-DpomFileName=unsafe-pom.xml",
+            "-DprepareVerifyArgs=-Xverify",
+            "-DprepareVerifyArgs=-f unsafe.xml",
+            "-Darguments=--file=unsafe.xml",
+            "-DprepareVerifyArgs=${release.extraArgs}",
+            "-Darguments=-l raw.log",
+            "-Dgoals=deploy -f unsafe.xml",
+            "-DcompletionGoals=deploy -f unsafe.xml",
+            "-D=arguments=-funsafe.xml",
+            "--D=arguments=-funsafe.xml",
+            "-D=gpg.bestPractices=false",
+            "--D=gpg.bestPractices=false",
+        ):
+            with self.subTest(option=option), patch.dict(os.environ, {}, clear=True), patch.object(
+                sys, "argv", ["guard.py", "run", "mvn", option]
+            ), patch.object(guard, "capture") as capture, patch("sys.stderr", io.StringIO()):
+                self.assertEqual(guard.main(), 2)
+                capture.assert_not_called()
+        for option in ("-Darguments=-f unsafe.xml", "--define=prepareVerifyArgs=${extra}"):
+            with self.subTest(option=option), self.assertRaises(guard.Unsafe):
+                guard.check_text(option)
+        guard.check_text("-Darguments=-DskipTests=true")
+        guard.check_text("-DprepareVerifyArgs=-fae")
+
+    def test_nested_release_properties_in_environment_and_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".mvn").mkdir()
+            with patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
+                guard, "capture"
+            ) as capture, patch("sys.stderr", io.StringIO()):
+                for name, option in (
+                    ("MAVEN_ARGS", "-Darguments=-funsafe.xml"),
+                    ("MAVEN_OPTS", "-DprepareVerifyArgs='-f unsafe.xml'"),
+                    ("MAVEN_CONFIG", "-Darguments=${release.extraArgs}"),
+                    ("MAVEN_CONFIG", "-D=gpg.bestPractices=false"),
+                ):
+                    with self.subTest(name=name), patch.dict(
+                        os.environ, {name: option}, clear=True
+                    ):
+                        self.assertEqual(guard.main(), 2)
+                        capture.assert_not_called()
+                with patch.dict(os.environ, {}, clear=True), patch.object(
+                    guard, "Path",
+                    side_effect=lambda value: root / value if value == ".mvn" else Path(value)
+                ):
+                    for name, option in (
+                        ("maven.config", "-DprepareVerifyArgs=--file unsafe.xml"),
+                        ("maven.config", "-D=gpg.bestPractices=false"),
+                        ("jvm.config", "-Darguments='-f unsafe.xml'"),
+                    ):
+                        with self.subTest(name=name):
+                            (root / ".mvn" / name).write_text(option)
+                            self.assertEqual(guard.main(), 2)
+                            capture.assert_not_called()
+                            (root / ".mvn" / name).unlink()
+
+    def test_release_autopublish_property_must_be_boolean(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            pom = (ROOT / "pom.xml").read_text()
+            (root / "pom.xml").write_text(pom.replace(
+                "<release.autopublish>false</release.autopublish>",
+                "<release.autopublish>false -Xverify</release.autopublish>",
+            ))
+            with self.assertRaises(guard.Unsafe):
+                guard.check_policy(root)
+            for option in ("-Drelease.autopublish=-Xverify", "-Drelease.autopublish=maybe",
+                           "--define=release.autopublish=false -Xverify",
+                           "--Drelease.autopublish=false -Xverify"):
+                with self.subTest(option=option), self.assertRaises(guard.Unsafe):
+                    guard.check_text(option, maven_arguments=[option])
+
+    def test_alternate_maven_pom_is_rejected_before_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            (root / ".mvn").mkdir()
+            for option in ("--file=unsafe-pom.xml", "--file unsafe-pom.xml",
+                           "-f unsafe-pom.xml", "-funsafe-pom.xml", "-ff.xml",
+                           "--f=unsafe-pom.xml"):
+                (root / ".mvn/maven.config").write_text(option)
+                with self.subTest(option=option), self.assertRaises(guard.Unsafe):
+                    guard.check_policy(root)
+
+    def test_jvm_argument_file_is_rejected_before_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            (root / ".mvn").mkdir()
+            (root / ".mvn/extra.options").write_text(
+                "-Dorg.slf4j.simpleLogger.logFile=raw.log"
+            )
+            (root / ".mvn/jvm.config").write_text("@.mvn/extra.options")
+            with self.assertRaises(guard.Unsafe):
+                guard.check_policy(root)
 
     def test_disabled_gpg_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -240,7 +567,7 @@ class ReleaseTests(unittest.TestCase):
                     guard.check_text(text, "Makefile")
                 self.assertIn("Makefile:2", output.getvalue())
                 self.assertNotIn("secret", output.getvalue())
-        for text in ("-Dmaven.repo.local=/x/repo-f", "-Dfoo=a-s", "-fae -ff -llr"):
+        for text in ("-Dmaven.repo.local=/x/repo-f", "-Dfoo=a-s", "-fae -ff -fn -llr"):
             guard.check_text(text)
 
     def test_termination_signals_stop_maven(self):
@@ -298,6 +625,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(
             guard.redact(b'Authorization: Bearer unknown\n-Dpassword="a\nb"', []),
             b"Authorization: [REDACTED]\n-Dpassword=[REDACTED]",
+        )
+        self.assertEqual(
+            guard.redact(b"Authorization:\nordinary log line\n", []),
+            b"Authorization:\nordinary log line\n",
         )
 
     def test_quoted_credential_arguments(self):
