@@ -77,6 +77,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
             raise Unsafe("malformed release options are not allowed") from error
         for child_argument in child_arguments:
             check_pom_option(child_argument)
+        check_text(value, maven_arguments=child_arguments)
 
     for argument in arguments:
         if argument.startswith(("-X", "--X")):
