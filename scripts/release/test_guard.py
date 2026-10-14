@@ -287,7 +287,8 @@ class ReleaseTests(unittest.TestCase):
                 guard.check_policy(root)
 
     def test_alternate_maven_settings_are_rejected(self):
-        for option in ("-s", "-gs", "--s", "--gs", "--settings", "--global-settings"):
+        for option in ("-s", "-gs", "--s", "--gs", "--settings",
+                       "-global-settings", "--global-settings"):
             with self.subTest(option=option), self.assertRaisesRegex(
                 guard.Unsafe, "alternate Maven settings"
             ):
@@ -297,7 +298,8 @@ class ReleaseTests(unittest.TestCase):
                     "-Darguments=" + option + " unsafe.xml",
                     maven_arguments=["-Darguments=" + option + " unsafe.xml"],
                 )
-        for option in ("--s=unsafe.xml", "--gs=unsafe.xml"):
+        for option in ("--s=unsafe.xml", "--gs=unsafe.xml",
+                       "-global-settings=unsafe.xml"):
             with self.subTest(option=option), self.assertRaisesRegex(
                 guard.Unsafe, "alternate Maven settings"
             ):
@@ -308,7 +310,8 @@ class ReleaseTests(unittest.TestCase):
             shutil.copytree(ROOT / ".github", root / ".github")
             shutil.copy(ROOT / "pom.xml", root / "pom.xml")
             (root / ".mvn").mkdir()
-            for option in ("-s\nunsafe.xml\n", "--s=unsafe.xml\n", "--gs=unsafe.xml\n"):
+            for option in ("-s\nunsafe.xml\n", "--s=unsafe.xml\n", "--gs=unsafe.xml\n",
+                           "-global-settings=unsafe.xml\n"):
                 with self.subTest(config=option):
                     (root / ".mvn/maven.config").write_text(option)
                     with self.assertRaisesRegex(guard.Unsafe, "alternate Maven settings"):

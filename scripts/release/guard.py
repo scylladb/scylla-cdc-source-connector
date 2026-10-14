@@ -63,8 +63,9 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         ):
             raise Unsafe("alternate Maven POMs are not allowed")
         if (argument.startswith(("-s", "-gs")) and not argument.startswith("--")) or (
-            argument in ("--s", "--gs", "--settings", "--global-settings")
-            or argument.startswith(("--s=", "--gs=", "--settings=", "--global-settings="))
+            argument in ("--s", "--gs", "--settings", "--global-settings", "-global-settings")
+            or argument.startswith(("--s=", "--gs=", "--settings=", "--global-settings=",
+                                    "-global-settings="))
         ):
             raise Unsafe("alternate Maven settings are not allowed")
 
@@ -130,7 +131,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     if re.search(r"(?:--?D\s*|--?define(?:=|\s+))pomFileName\b", text, re.I):
         raise Unsafe("alternate Maven POMs are not allowed")
     if maven_options and re.search(
-        r"(?<![\w-])(?:--?s|--?gs|--settings|--global-settings)(?=\s|=|$)", text
+        r"(?<![\w-])(?:--?s|--?gs|--settings|--?global-settings)(?=\s|=|$)", text
     ):
         raise Unsafe("alternate Maven settings are not allowed")
     # Catch accidental debug flags and credential properties, including release arguments.
