@@ -44,6 +44,10 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     def normalize_property(value):
         value = re.sub(r"(?<![\w-])--?D=", "-D", value, flags=re.I)
         value = re.sub(r"(?i)(?<![\w-])(--?define=)\s+", r"\1", value)
+        value = re.sub(
+            r"(?i)(?<![\w-])((?:--?D\s*|--?define(?:=|\s+)))([\"'])([\w.-]+)\s+=",
+            r"\1\2\3=", value,
+        )
         return re.sub(
             r"(?i)(?<![\w-])((?:--?D\s*|--?define(?:=|\s+))[\w.-]+)\s+=",
             r"\1=", value,
@@ -146,7 +150,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
                      r"(?:^|\s)-Dgpg\.bestPractices(?:\s|$)", gpg_text, re.I)):
         raise Unsafe("GPG best practices must not be disabled")
     # Java and Maven option parsing remove quotes from property names and values.
-    text = text.translate(str.maketrans("", "", "\"'"))
+    text = normalize_property(text.translate(str.maketrans("", "", "\"'")))
     if re.search(r"(?:--?D\s*|--?define(?:=|\s+))pomFileName\b", text, re.I):
         raise Unsafe("alternate Maven POMs are not allowed")
     if maven_options and re.search(
@@ -339,12 +343,12 @@ def redact(data, forms):
 
     matches = [
         spans(
-            rb"(?i)([\"'])((?:--?D[=\s]*|--?define[=\s]+)[\w.-]*"
+            rb"(?i)([\"'])((?:--?D[=\s]*|--?define[=\s]+)[\"']?[\w.-]*"
             rb"(?:passphrase|password|username|token|secret|credentials?|authorization)[\w.-]*[ \t]*=[ \t]*)"
             rb"((?:\\[\s\S]|(?!\1)[^\\])*)\1", 3,
         ),
         spans(
-            rb"(?i)((?:--?D[=\s]*|--?define[=\s]+)[\w.-]*"
+            rb"(?i)((?:--?D[=\s]*|--?define[=\s]+)[\"']?[\w.-]*"
             rb"(?:passphrase|password|username|token|secret|credentials?|authorization)[\w.-]*[ \t]*=[ \t]*)"
             rb"(\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*'|[^\s]+)", 2,
         ),

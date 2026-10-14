@@ -430,9 +430,24 @@ class ReleaseTests(unittest.TestCase):
                       "-Dpassword =unknown", "-Darguments =-Xverify",
                       "-DpomFileName =unsafe.xml", "-Drelease.autopublish =maybe",
                       "--define= gpg.bestPractices=false", "--define= password=unknown",
-                      "--define= arguments=-Xverify", "--define= pomFileName=unsafe.xml"):
+                      "--define= arguments=-Xverify", "--define= pomFileName=unsafe.xml",
+                      '--define "gpg.passphrase =dummy"',
+                      '--define "org.slf4j.simpleLogger.log.org.apache.http =debug"',
+                      '--define "gpg.bestPractices =false"',
+                      '--define "gpg.bestPractices =true false"'):
             with self.subTest(value=value), self.assertRaises(guard.Unsafe):
                 guard.check_text(value, maven_arguments=[value])
+
+    def test_quoted_maven_property_is_rejected_before_capture(self):
+        for value in ('--define "gpg.passphrase =dummy"',
+                      '--define "org.slf4j.simpleLogger.log.org.apache.http =debug"'):
+            with self.subTest(value=value), patch.dict(
+                os.environ, {"MAVEN_ARGS": value}, clear=True
+            ), patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
+                guard, "capture"
+            ) as capture, patch("sys.stderr", io.StringIO()):
+                self.assertEqual(guard.main(), 2)
+                capture.assert_not_called()
         with self.assertRaises(guard.Unsafe):
             guard.check_text("--D gpg.bestPractices =false",
                              maven_arguments=["--D", "gpg.bestPractices =false"])
@@ -804,6 +819,10 @@ class ReleaseTests(unittest.TestCase):
                     guard.redact(escaped.encode(), guard.secret_forms({"TOKEN": secret})),
                     b"[REDACTED]",
                 )
+
+    def test_quoted_property_fallback_redaction(self):
+        output = b'--define "gpg.passphrase =dummy"'
+        self.assertNotIn(b"dummy", guard.redact(output, []))
 
     def test_inherited_output_pipe_fails_closed_after_maven_exits(self):
         with tempfile.TemporaryDirectory() as directory:
