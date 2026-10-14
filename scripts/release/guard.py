@@ -40,6 +40,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     # property form before every safety check.
     def normalize_property(value):
         value = re.sub(r"(?<![\w-])--?D=", "-D", value, flags=re.I)
+        value = re.sub(r"(?i)(?<![\w-])(--?define=)\s+", r"\1", value)
         return re.sub(
             r"(?i)(?<![\w-])((?:--?D\s*|--?define(?:=|\s+))[\w.-]+)\s+=",
             r"\1=", value,
@@ -294,13 +295,13 @@ def redact(data, forms):
 
     matches = [
         spans(
-            rb"(?i)([\"'])((?:--?D(?:\s*|=)|--?define[=\s]+)[\w.-]*"
-            rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*=)"
+            rb"(?i)([\"'])((?:--?D[=\s]*|--?define[=\s]+)[\w.-]*"
+            rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*[ \t]*=)"
             rb"((?:\\[\s\S]|(?!\1)[^\\])*)\1", 3,
         ),
         spans(
-            rb"(?i)((?:--?D(?:\s*|=)|--?define[=\s]+)[\w.-]*"
-            rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*=)"
+            rb"(?i)((?:--?D[=\s]*|--?define[=\s]+)[\w.-]*"
+            rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*[ \t]*=)"
             rb"(\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*'|[^\s]+)", 2,
         ),
         spans(rb"(?im)((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*)([^\r\n]*)", 2),

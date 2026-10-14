@@ -343,7 +343,9 @@ class ReleaseTests(unittest.TestCase):
     def test_whitespace_before_maven_property_equals_is_rejected(self):
         for value in ("-Dgpg.bestPractices =false", "--D gpg.bestPractices =false",
                       "-Dpassword =unknown", "-Darguments =-Xverify",
-                      "-DpomFileName =unsafe.xml", "-Drelease.autopublish =maybe"):
+                      "-DpomFileName =unsafe.xml", "-Drelease.autopublish =maybe",
+                      "--define= gpg.bestPractices=false", "--define= password=unknown",
+                      "--define= arguments=-Xverify", "--define= pomFileName=unsafe.xml"):
             with self.subTest(value=value), self.assertRaises(guard.Unsafe):
                 guard.check_text(value, maven_arguments=[value])
         with self.assertRaises(guard.Unsafe):
@@ -687,7 +689,8 @@ class ReleaseTests(unittest.TestCase):
                     self.assertIn(b"[REDACTED]", result)
 
     def test_equals_prefixed_credential_arguments(self):
-        for option in (b"-D=password=", b"--D=password="):
+        for option in (b"-D=password=", b"--D=password=",
+                       b"--define= password=", b"--define= password ="):
             with self.subTest(option=option):
                 self.assertEqual(
                     guard.redact(option + b"unregistered-value", []),
