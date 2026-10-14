@@ -645,13 +645,22 @@ class ReleaseTests(unittest.TestCase):
 
     def test_quoted_credential_arguments(self):
         for quote in (b"'", b'"'):
-            for option in (b"-Dpassword=", b"--define=token=", b"--define secret=",
+            for option in (b"-Dpassword=", b"-D=password=", b"--D=password=",
+                           b"--define=token=", b"--define secret=",
                            b"-define=token=", b"-define secret="):
                 with self.subTest(quote=quote, option=option):
                     result = guard.redact(quote + option + b"two words\nlast" + quote, [])
                     self.assertNotIn(b"words", result)
                     self.assertNotIn(b"last", result)
                     self.assertIn(b"[REDACTED]", result)
+
+    def test_equals_prefixed_credential_arguments(self):
+        for option in (b"-D=password=", b"--D=password="):
+            with self.subTest(option=option):
+                self.assertEqual(
+                    guard.redact(option + b"unregistered-value", []),
+                    option + b"[REDACTED]",
+                )
 
     def test_escaped_quotes_in_credential_arguments(self):
         for quote in (b"'", b'"'):

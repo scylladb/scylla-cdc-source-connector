@@ -284,12 +284,12 @@ def redact(data, forms):
 
     matches = [
         spans(
-            rb"(?i)([\"'])((?:-D\s*|--?define[=\s]+)[\w.-]*"
+            rb"(?i)([\"'])((?:--?D(?:\s*|=)|--?define[=\s]+)[\w.-]*"
             rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*=)"
             rb"((?:\\[\s\S]|(?!\1)[^\\])*)\1", 3,
         ),
         spans(
-            rb"(?i)((?:-D\s*|--?define[=\s]+)[\w.-]*"
+            rb"(?i)((?:--?D(?:\s*|=)|--?define[=\s]+)[\w.-]*"
             rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*=)"
             rb"(\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*'|[^\s]+)", 2,
         ),
