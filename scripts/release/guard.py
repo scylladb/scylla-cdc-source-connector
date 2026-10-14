@@ -296,17 +296,35 @@ def secret_forms(env):
                 json.dumps(value)[1:-1],
                 html.escape(value, quote=True),
                 shlex.quote(value),
+                re.sub(r"([^\w@%+=:,./-])", r"\\\1", value),
                 value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'"),
                 urllib.parse.quote(value, safe=""),
                 urllib.parse.quote(value),
                 urllib.parse.quote_plus(value, safe=""),
             )
         )
-        # XML serializers differ in whether they escape > and attribute quotes.
-        for greater in (">", "&gt;"):
-            for double in ('"', "&quot;"):
-                for single in ("'", "&apos;", "&#39;", "&#x27;"):
-                    forms.add(xml_text.replace(">", greater).replace('"', double).replace("'", single))
+        # XML serializers differ in escaping >, attribute quotes, and whitespace.
+        xml_variants = {xml_text}
+        for character, entities in (
+            ("\t", ("&#9;", "&#09;", "&#x9;", "&#x09;")),
+            ("\n", ("&#10;", "&#010;", "&#xA;", "&#x0A;")),
+            ("\r", ("&#13;", "&#013;", "&#xD;", "&#x0D;")),
+        ):
+            if character in xml_text:
+                xml_variants = {
+                    variant.replace(character, entity)
+                    for variant in xml_variants
+                    for entity in (character, *entities)
+                }
+        for xml_variant in xml_variants:
+            for greater in (">", "&gt;"):
+                for double in ('"', "&quot;"):
+                    for single in ("'", "&apos;", "&#39;", "&#x27;"):
+                        forms.add(
+                            xml_variant.replace(">", greater)
+                            .replace('"', double)
+                            .replace("'", single)
+                        )
     for value in tuple(forms):
         forms.add(urllib.parse.quote(value, safe=""))
         forms.add(urllib.parse.quote(value))

@@ -782,6 +782,22 @@ class ReleaseTests(unittest.TestCase):
             ('alpha"<&beta', 'alpha&quot;&lt;&amp;beta'),
             ("a'\"&b", "a&#39;&quot;&amp;b"),
             ("alpha>&beta", "alpha>&amp;beta"),
+            ("alpha\tbeta", "alpha&#9;beta"),
+            ("alpha\tbeta", "alpha&#09;beta"),
+            ("alpha\nbeta", "alpha&#10;beta"),
+            ("alpha\rbeta", "alpha&#13;beta"),
+        ):
+            with self.subTest(escaped=escaped):
+                self.assertEqual(
+                    guard.redact(escaped.encode(), guard.secret_forms({"TOKEN": secret})),
+                    b"[REDACTED]",
+                )
+
+    def test_shell_backslash_credential_forms(self):
+        for secret, escaped in (
+            ("alpha beta", r"alpha\ beta"),
+            ("alpha&beta", r"alpha\&beta"),
+            ("alpha'beta", r"alpha\'beta"),
         ):
             with self.subTest(escaped=escaped):
                 self.assertEqual(
