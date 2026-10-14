@@ -321,6 +321,31 @@ class ReleaseTests(unittest.TestCase):
             workflow.write_text(workflow.read_text() + "\n# curl -s is not a Maven setting\n")
             guard.check_policy(root)
 
+    def test_combined_short_options_are_rejected(self):
+        for value in ("-B-X", "-B--settings=unsafe.xml", "-B-lraw.log"):
+            with self.subTest(value=value), self.assertRaises(guard.Unsafe):
+                guard.check_text(value, maven_arguments=[value])
+            with self.subTest(nested=value), self.assertRaises(guard.Unsafe):
+                guard.check_text("-Darguments=" + value,
+                                 maven_arguments=["-Darguments=" + value])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            (root / ".mvn").mkdir()
+            (root / ".mvn/maven.config").write_text("-B-X\n")
+            with self.assertRaises(guard.Unsafe):
+                guard.check_policy(root)
+
+    def test_whitespace_before_maven_property_equals_is_rejected(self):
+        for value in ("-Dgpg.bestPractices =false", "--D gpg.bestPractices =false",
+                      "-Dpassword =unknown", "-Darguments =-Xverify",
+                      "-DpomFileName =unsafe.xml", "-Drelease.autopublish =maybe"):
+            with self.subTest(value=value), self.assertRaises(guard.Unsafe):
+                guard.check_text(value, maven_arguments=[value])
+        with self.assertRaises(guard.Unsafe):
+            guard.check_text("--D gpg.bestPractices =false",
+                             maven_arguments=["--D", "gpg.bestPractices =false"])
+
     def test_old_gpg_plugin_cannot_pass_target_validation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

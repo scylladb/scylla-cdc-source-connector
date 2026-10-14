@@ -38,11 +38,20 @@ class Unsafe(ValueError):
 def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_options=False):
     # Maven accepts an equals sign after -D/--D; treat it as the ordinary
     # property form before every safety check.
-    text = re.sub(r"(?<![\w-])--?D=", "-D", text, flags=re.I)
+    def normalize_property(value):
+        value = re.sub(r"(?<![\w-])--?D=", "-D", value, flags=re.I)
+        return re.sub(
+            r"(?i)(?<![\w-])((?:--?D\s*|--?define(?:=|\s+))[\w.-]+)\s+=",
+            r"\1=", value,
+        )
+
+    text = normalize_property(text)
     maven_arguments = tuple(
-        re.sub(r"^--?D=", "-D", argument, flags=re.I)
+        normalize_property(argument)
         for argument in maven_arguments
     )
+    if re.search(r"(?<![\w-])-[A-Za-z]-(?=[A-Za-z-])", text):
+        raise Unsafe("combined Maven options are not allowed")
     def check_autopublish(argument):
         setting = re.fullmatch(
             r"(?:--?D\s*|--?define(?:=|\s+))release\.autopublish=(.*)",
@@ -88,7 +97,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     option_arguments = arguments + jvm_arguments
     for index, argument in enumerate(option_arguments):
         if index and option_arguments[index - 1] in ("-D", "--D", "-define", "--define"):
-            argument = option_arguments[index - 1] + " " + argument
+            argument = normalize_property(option_arguments[index - 1] + " " + argument)
         check_autopublish(argument)
         setting = re.fullmatch(
             rf"(?:--?D\s*|--?define(?:=|\s+))(?:{CHILD_OPTIONS})=(.*)",
@@ -110,7 +119,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         check_autopublish(argument)
     for index, argument in enumerate(maven_arguments):
         if index and maven_arguments[index - 1] in ("-D", "--D", "-define", "--define"):
-            argument = maven_arguments[index - 1] + " " + argument
+            argument = normalize_property(maven_arguments[index - 1] + " " + argument)
         check_autopublish(argument)
         setting = re.fullmatch(
             r"(?:--?D\s*|--?define(?:=|\s+))gpg\.bestPractices=(.*)", argument, re.I | re.S
