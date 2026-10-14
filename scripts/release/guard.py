@@ -287,7 +287,7 @@ def secret_forms(env):
     forms = set(values)
     for value in values:
         raw = value.encode()
-        xml_text = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        xml_text = value.replace("&", "&amp;").replace("<", "&lt;")
         forms.update(
             (
                 base64.b64encode(raw).decode(),
@@ -295,11 +295,6 @@ def secret_forms(env):
                 json.dumps(value),
                 json.dumps(value)[1:-1],
                 html.escape(value, quote=True),
-                xml_text,
-                xml_text.replace('"', "&quot;"),
-                xml_text.replace("'", "&apos;"),
-                xml_text.replace("'", "&#39;"),
-                xml_text.replace('"', "&quot;").replace("'", "&apos;"),
                 shlex.quote(value),
                 value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'"),
                 urllib.parse.quote(value, safe=""),
@@ -307,6 +302,11 @@ def secret_forms(env):
                 urllib.parse.quote_plus(value, safe=""),
             )
         )
+        # XML serializers differ in whether they escape > and attribute quotes.
+        for greater in (">", "&gt;"):
+            for double in ('"', "&quot;"):
+                for single in ("'", "&apos;", "&#39;", "&#x27;"):
+                    forms.add(xml_text.replace(">", greater).replace('"', double).replace("'", single))
     for value in tuple(forms):
         forms.add(urllib.parse.quote(value, safe=""))
         forms.add(urllib.parse.quote(value))

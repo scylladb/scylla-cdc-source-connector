@@ -780,6 +780,8 @@ class ReleaseTests(unittest.TestCase):
             ("a'b&c", "a&#39;b&amp;c"),
             ('alpha"<&beta', 'alpha"&lt;&amp;beta'),
             ('alpha"<&beta', 'alpha&quot;&lt;&amp;beta'),
+            ("a'\"&b", "a&#39;&quot;&amp;b"),
+            ("alpha>&beta", "alpha>&amp;beta"),
         ):
             with self.subTest(escaped=escaped):
                 self.assertEqual(
