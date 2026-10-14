@@ -86,8 +86,9 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     # Release-plugin properties are passed on to child Maven invocations.
     option_arguments = arguments + jvm_arguments
     for index, argument in enumerate(option_arguments):
-        if index and option_arguments[index - 1] in ("-D", "-define", "--define"):
+        if index and option_arguments[index - 1] in ("-D", "--D", "-define", "--define"):
             argument = option_arguments[index - 1] + " " + argument
+        check_autopublish(argument)
         setting = re.fullmatch(
             rf"(?:--?D\s*|--?define(?:=|\s+))(?:{CHILD_OPTIONS})=(.*)",
             argument, re.I | re.S,
@@ -107,7 +108,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     for argument in arguments + jvm_arguments:
         check_autopublish(argument)
     for index, argument in enumerate(maven_arguments):
-        if index and maven_arguments[index - 1] in ("-D", "-define", "--define"):
+        if index and maven_arguments[index - 1] in ("-D", "--D", "-define", "--define"):
             argument = maven_arguments[index - 1] + " " + argument
         check_autopublish(argument)
         setting = re.fullmatch(

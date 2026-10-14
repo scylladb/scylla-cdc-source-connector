@@ -442,6 +442,13 @@ class ReleaseTests(unittest.TestCase):
         for option in ("-Darguments=-f unsafe.xml", "--define=prepareVerifyArgs=${extra}"):
             with self.subTest(option=option), self.assertRaises(guard.Unsafe):
                 guard.check_text(option)
+        for name, value in (("arguments", "-funsafe.xml"),
+                            ("goals", "-Xverify"),
+                            ("release.autopublish", "maybe"),
+                            ("gpg.bestPractices", "false")):
+            with self.subTest(split_property=name), self.assertRaises(guard.Unsafe):
+                guard.check_text("--D " + name + "=" + value,
+                                 maven_arguments=["--D", name + "=" + value])
         guard.check_text("-Darguments=-DskipTests=true")
         guard.check_text("-DprepareVerifyArgs=-fae")
 
@@ -470,6 +477,8 @@ class ReleaseTests(unittest.TestCase):
                     for name, option in (
                         ("maven.config", "-DprepareVerifyArgs=--file unsafe.xml"),
                         ("maven.config", "-D=gpg.bestPractices=false"),
+                        ("maven.config", "--D\narguments=-funsafe.xml\n"),
+                        ("maven.config", "--D\ngoals=-Xverify\n"),
                         ("jvm.config", "-Darguments='-f unsafe.xml'"),
                     ):
                         with self.subTest(name=name):
