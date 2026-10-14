@@ -161,6 +161,9 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         r"|(?:--?D\s*|--?define(?:=|\s+))javax\.net\.debug\b"
         r"|(?:--?D\s*|--?define(?:=|\s+))"
         r"(?:user\.dir|file\.encoding|sun\.std(?:out|err)\.encoding)\b"
+        # These properties can redirect Maven to unchecked configuration.
+        r"|(?:--?D\s*|--?define(?:=|\s+))"
+        r"(?:maven\.multiModuleProjectDirectory|maven\.(?:conf|home)|user\.home)\b"
         r"|simpleLogger\.logFile\b"
         r"|simpleLogger[^\s<>]*=(?:debug|trace)\b"
         r"|simpleLogger[^\s<>]*=[^\s<>]*\$\{"
@@ -284,6 +287,7 @@ def secret_forms(env):
     forms = set(values)
     for value in values:
         raw = value.encode()
+        xml_text = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         forms.update(
             (
                 base64.b64encode(raw).decode(),
@@ -291,6 +295,11 @@ def secret_forms(env):
                 json.dumps(value),
                 json.dumps(value)[1:-1],
                 html.escape(value, quote=True),
+                xml_text,
+                xml_text.replace('"', "&quot;"),
+                xml_text.replace("'", "&apos;"),
+                xml_text.replace("'", "&#39;"),
+                xml_text.replace('"', "&quot;").replace("'", "&apos;"),
                 shlex.quote(value),
                 value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'"),
                 urllib.parse.quote(value, safe=""),

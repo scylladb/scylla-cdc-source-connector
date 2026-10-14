@@ -174,6 +174,17 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(guard.main(), 2)
                     capture.assert_not_called()
 
+    def test_maven_configuration_redirects_are_rejected(self):
+        for name in ("maven.multiModuleProjectDirectory", "maven.conf", "maven.home",
+                     "user.home"):
+            for option in (f"-D{name}=/tmp/unchecked",
+                           f"--define={name}=/tmp/unchecked"):
+                for jvm_options in (False, True):
+                    with self.subTest(option=option, jvm_options=jvm_options), self.assertRaises(
+                        guard.Unsafe
+                    ):
+                        guard.check_text(option, jvm_options=jvm_options)
+
     def test_direct_gpg_argument_boundaries(self):
         for value, expected in (("true false", 2), ("true ", 2), ("true", 0)):
             with self.subTest(value=value), patch.dict(os.environ, {}, clear=True), patch.object(
@@ -761,6 +772,20 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(guard.redact(escaped.encode(), forms), b"[REDACTED]")
         short = guard.secret_forms({"SKIP_TOKEN": "1"})
         self.assertEqual(guard.redact(b"1.2.3", short), b"[REDACTED].2.3")
+
+    def test_xml_credential_forms(self):
+        for secret, escaped in (
+            ("a'b&c", "a'b&amp;c"),
+            ("a'b&c", "a&apos;b&amp;c"),
+            ("a'b&c", "a&#39;b&amp;c"),
+            ('alpha"<&beta', 'alpha"&lt;&amp;beta'),
+            ('alpha"<&beta', 'alpha&quot;&lt;&amp;beta'),
+        ):
+            with self.subTest(escaped=escaped):
+                self.assertEqual(
+                    guard.redact(escaped.encode(), guard.secret_forms({"TOKEN": secret})),
+                    b"[REDACTED]",
+                )
 
     def test_inherited_output_pipe_fails_closed_after_maven_exits(self):
         with tempfile.TemporaryDirectory() as directory:
