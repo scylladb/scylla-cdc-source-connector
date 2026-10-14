@@ -340,6 +340,27 @@ class ReleaseTests(unittest.TestCase):
                 with self.subTest(config=value), self.assertRaises(guard.Unsafe):
                     guard.check_policy(root)
 
+    def test_equals_combined_long_options_are_rejected(self):
+        for option in ("--B=-f", "--batch-mode=-f", "--batch-mode=-X",
+                       "--batch-mode=--settings"):
+            with self.subTest(direct=option), self.assertRaises(guard.Unsafe):
+                guard.check_text(option + " unsafe.xml", maven_arguments=[option, "unsafe.xml"])
+            with self.subTest(child=option), self.assertRaises(guard.Unsafe):
+                guard.check_text("-Darguments=" + option + " unsafe.xml",
+                                 maven_arguments=["-Darguments=" + option + " unsafe.xml"])
+        for option in ("-Dsafe=-f", "--define=safe=-f"):
+            with self.subTest(property=option):
+                guard.check_text(option, maven_arguments=[option])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            (root / ".mvn").mkdir()
+            for option in ("--B=-f", "--batch-mode=-f"):
+                with self.subTest(config=option):
+                    (root / ".mvn/maven.config").write_text(option + "\nunsafe.xml\n")
+                    with self.assertRaises(guard.Unsafe):
+                        guard.check_policy(root)
+
     def test_whitespace_before_maven_property_equals_is_rejected(self):
         for value in ("-Dgpg.bestPractices =false", "--D gpg.bestPractices =false",
                       "-Dpassword =unknown", "-Darguments =-Xverify",

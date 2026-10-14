@@ -67,6 +67,11 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     except ValueError as error:
         raise Unsafe("malformed release options are not allowed") from error
     def check_pom_option(argument):
+        # Maven can split an equals-separated option into a second flag.
+        # Keep property values such as -Dsafe=-f intact.
+        if (re.match(r"^--?[A-Za-z][\w-]*=--?[A-Za-z]", argument)
+            and not re.match(r"^--?D[\w.-]*=|^--?define=", argument, re.I)):
+            raise Unsafe("combined Maven options are not allowed")
         if (argument.startswith("-f") and argument not in ("-fae", "-ff", "-fn")) or (
             argument.startswith("--f")
             and argument not in ("--fail-at-end", "--fail-fast", "--fail-never")
