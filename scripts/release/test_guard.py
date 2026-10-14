@@ -728,6 +728,17 @@ class ReleaseTests(unittest.TestCase):
                     option + b"[REDACTED]",
                 )
 
+    def test_whitespace_after_credential_equals_is_redacted(self):
+        for prefix in (b"-Dpassword=", b"--define=token=", b'"-Dpassword='):
+            for value in (b"unregistered-value", b'"unregistered value"'):
+                with self.subTest(prefix=prefix, value=value):
+                    raw = prefix + b" \t" + value
+                    if prefix.startswith(b'"'):
+                        raw += b'"'
+                    result = guard.redact(raw, [])
+                    self.assertNotIn(b"unregistered", result)
+                    self.assertIn(b"[REDACTED]", result)
+
     def test_escaped_quotes_in_credential_arguments(self):
         for quote in (b"'", b'"'):
             secret = b"alpha" + b"\\" + quote + b"beta gamma"
