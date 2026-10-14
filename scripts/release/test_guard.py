@@ -322,19 +322,23 @@ class ReleaseTests(unittest.TestCase):
             guard.check_policy(root)
 
     def test_combined_short_options_are_rejected(self):
-        for value in ("-B-X", "-B--settings=unsafe.xml", "-B-lraw.log"):
+        for value in ("-B-X", "-B--settings=unsafe.xml", "-B-lraw.log",
+                      "-B=-f", "-B=--settings=unsafe.xml"):
             with self.subTest(value=value), self.assertRaises(guard.Unsafe):
                 guard.check_text(value, maven_arguments=[value])
             with self.subTest(nested=value), self.assertRaises(guard.Unsafe):
                 guard.check_text("-Darguments=" + value,
                                  maven_arguments=["-Darguments=" + value])
+        with self.assertRaises(guard.Unsafe):
+            guard.check_text("-B=-f unsafe.xml", maven_arguments=["-B=-f", "unsafe.xml"])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             shutil.copy(ROOT / "pom.xml", root / "pom.xml")
             (root / ".mvn").mkdir()
-            (root / ".mvn/maven.config").write_text("-B-X\n")
-            with self.assertRaises(guard.Unsafe):
-                guard.check_policy(root)
+            for value in ("-B-X", "-B=-f\nunsafe.xml"):
+                (root / ".mvn/maven.config").write_text(value + "\n")
+                with self.subTest(config=value), self.assertRaises(guard.Unsafe):
+                    guard.check_policy(root)
 
     def test_whitespace_before_maven_property_equals_is_rejected(self):
         for value in ("-Dgpg.bestPractices =false", "--D gpg.bestPractices =false",

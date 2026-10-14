@@ -50,7 +50,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         normalize_property(argument)
         for argument in maven_arguments
     )
-    if re.search(r"(?<![\w-])-[A-Za-z]-(?=[A-Za-z-])", text):
+    if re.search(r"(?<![\w-])-[A-Za-z](?:=\s*)?-(?=[A-Za-z-])", text):
         raise Unsafe("combined Maven options are not allowed")
     def check_autopublish(argument):
         setting = re.fullmatch(
