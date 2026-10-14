@@ -361,6 +361,16 @@ class ReleaseTests(unittest.TestCase):
                     with self.assertRaises(guard.Unsafe):
                         guard.check_policy(root)
 
+    def test_logger_level_interpolation_is_rejected(self):
+        for option in ("-Dorg.slf4j.simpleLogger.defaultLogLevel=${level}",
+                       "-Dorg.slf4j.simpleLogger.defaultLogLevel=INFO${level}"):
+            with self.subTest(option=option), self.assertRaises(guard.Unsafe):
+                guard.check_text(option + " -Dlevel=debug",
+                                 maven_arguments=[option, "-Dlevel=debug"])
+            with self.subTest(child=option), self.assertRaises(guard.Unsafe):
+                guard.check_text("-Darguments=" + option,
+                                 maven_arguments=["-Darguments=" + option])
+
     def test_whitespace_before_maven_property_equals_is_rejected(self):
         for value in ("-Dgpg.bestPractices =false", "--D gpg.bestPractices =false",
                       "-Dpassword =unknown", "-Darguments =-Xverify",
