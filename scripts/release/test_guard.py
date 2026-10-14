@@ -1,10 +1,13 @@
 """Focused checks for release configuration and sanitized output."""
 
 import base64
+import html
 import io
+import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -733,6 +736,37 @@ class ReleaseTests(unittest.TestCase):
             guard.redact(b"Authorization:\nordinary log line\n", []),
             b"Authorization:\nordinary log line\n",
         )
+
+    def test_escaped_credential_forms_and_short_values(self):
+        secret = 'a"b\\c&d\'e'
+        forms = guard.secret_forms({"MAVEN_GPG_PASSPHRASE": secret})
+        for escaped in (json.dumps(secret), json.dumps(secret)[1:-1],
+                        html.escape(secret, quote=True), shlex.quote(secret),
+                        secret.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")):
+            with self.subTest(escaped=escaped):
+                self.assertEqual(guard.redact(escaped.encode(), forms), b"[REDACTED]")
+        short = guard.secret_forms({"SKIP_TOKEN": "1"})
+        self.assertEqual(guard.redact(b"1.2.3", short), b"[REDACTED].2.3")
+
+    def test_inherited_output_pipe_fails_closed_after_maven_exits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "mvn"
+            binary.write_text(
+                f"#!{sys.executable}\nimport os, subprocess, sys\n"
+                "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+                "print(os.environ['MAVEN_GPG_PASSPHRASE'])\n"
+            )
+            binary.chmod(0o755)
+            env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"],
+                       MAVEN_GPG_PASSPHRASE="dummy-secret", RELEASE_LOG_DIR=str(root / "logs"))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/release/guard.py"), "run", "mvn"],
+                cwd=root, env=env, capture_output=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertNotIn(b"dummy-secret", result.stdout + result.stderr)
+            self.assertFalse((root / "logs").exists())
 
     def test_quoted_credential_arguments(self):
         for quote in (b"'", b'"'):

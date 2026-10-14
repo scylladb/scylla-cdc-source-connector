@@ -7,6 +7,8 @@ console and log artifacts. Child Maven processes run normally; they are not inte
 
 import base64
 import heapq
+import html
+import json
 import os
 from pathlib import Path
 import re
@@ -15,6 +17,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -285,6 +288,11 @@ def secret_forms(env):
             (
                 base64.b64encode(raw).decode(),
                 base64.urlsafe_b64encode(raw).decode(),
+                json.dumps(value),
+                json.dumps(value)[1:-1],
+                html.escape(value, quote=True),
+                shlex.quote(value),
+                value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'"),
                 urllib.parse.quote(value, safe=""),
                 urllib.parse.quote(value),
                 urllib.parse.quote_plus(value, safe=""),
@@ -343,8 +351,9 @@ def capture(command, env, forms, logs):
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ, 0)
             selector.register(process.stderr, selectors.EVENT_READ, 1)
+            drain_deadline = None
             while selector.get_map():
-                for key, _ in selector.select():
+                for key, _ in selector.select(timeout=0.2):
                     chunk = os.read(key.fileobj.fileno(), 65536)
                     if not chunk:
                         selector.unregister(key.fileobj)
@@ -352,6 +361,11 @@ def capture(command, env, forms, logs):
                         buffers[key.data].extend(chunk)
                         if sum(map(len, buffers)) > LIMIT:
                             raise Unsafe("release output exceeds memory limit")
+                if process.poll() is not None:
+                    if drain_deadline is None:
+                        drain_deadline = time.monotonic() + 5
+                    elif time.monotonic() > drain_deadline:
+                        raise Unsafe("release output capture did not finish")
         status = process.wait()
         # Sanitize both streams completely before opening artifacts or emitting output.
         clean = [redact(bytes(buffer), forms) for buffer in buffers]
