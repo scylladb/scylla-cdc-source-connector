@@ -124,8 +124,9 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     for argument in arguments + jvm_arguments:
         check_autopublish(argument)
     for index, argument in enumerate(maven_arguments):
-        if index and maven_arguments[index - 1] in ("-D", "--D", "-define", "--define"):
-            argument = normalize_property(maven_arguments[index - 1] + " " + argument)
+        previous = maven_arguments[index - 1].strip().strip("\"'") if index else ""
+        if previous in ("-D", "--D", "-define", "--define"):
+            argument = normalize_property(previous + " " + argument.strip("\"'"))
         check_autopublish(argument)
         setting = re.fullmatch(
             r"(?:--?D\s*|--?define(?:=|\s+))gpg\.bestPractices=(.*)", argument, re.I | re.S
@@ -155,6 +156,8 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         r"|(?:--?D\s*|--?define(?:=|\s+))(?:arguments|prepareVerifyArgs)="
         r"(?:-X|[^\r\n]*?[=\s\"']-X)"
         r"|(?:--?D\s*|--?define(?:=|\s+))javax\.net\.debug\b"
+        r"|(?:--?D\s*|--?define(?:=|\s+))"
+        r"(?:user\.dir|file\.encoding|sun\.std(?:out|err)\.encoding)\b"
         r"|simpleLogger\.logFile\b"
         r"|simpleLogger[^\s<>]*=(?:debug|trace)\b"
         r"|simpleLogger[^\s<>]*=[^\s<>]*\$\{"

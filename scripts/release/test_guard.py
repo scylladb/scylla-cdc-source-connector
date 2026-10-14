@@ -77,6 +77,10 @@ class ReleaseTests(unittest.TestCase):
             "-Djavax.net.debug=all",
             "-Djavax.net.debug=ssl:record:plaintext",
             "-Djavax.net.debug",
+            "-Duser.dir=/tmp/unchecked",
+            "-Dfile.encoding=UTF-16LE",
+            "-Dsun.stdout.encoding=UTF-16LE",
+            "-Dsun.stderr.encoding=UTF-16LE",
             '--define=javax.net.debug="all"',
             '-Dgpg.bestPractices="false"',
             "-Dgpg.bestPractices='false'",
@@ -171,6 +175,9 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(guard.Unsafe):
             guard.check_text("-D gpg.bestPractices=true false",
                              maven_arguments=["-D", "gpg.bestPractices=true false"])
+        with self.assertRaises(guard.Unsafe):
+            guard.check_text('--define\n"gpg.bestPractices =false"',
+                             maven_arguments=["--define", '"gpg.bestPractices =false"'])
         nested = "-Darguments=-Dgpg.bestPractices=true -DskipTests=true"
         guard.check_text(nested, maven_arguments=[nested])
 
