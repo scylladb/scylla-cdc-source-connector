@@ -155,7 +155,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         r"|(?:--?D\s*|--?define(?:=|\s+))(?:arguments|prepareVerifyArgs)="
         r"(?:-X|[^\r\n]*?[=\s\"']-X)"
         r"|(?:--?D\s*|--?define(?:=|\s+))javax\.net\.debug\b"
-        r"|simpleLogger\.logFile="
+        r"|simpleLogger\.logFile\b"
         r"|simpleLogger[^\s<>]*=(?:debug|trace)\b"
         r"|simpleLogger[^\s<>]*=[^\s<>]*\$\{"
         r"|(?:--?D\s*|--?define(?:=|\s+))[\w.-]*"

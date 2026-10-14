@@ -81,6 +81,7 @@ class ReleaseTests(unittest.TestCase):
             '-Dgpg.bestPractices="false"',
             "-Dgpg.bestPractices='false'",
             "-Dorg.slf4j.simpleLogger.logFile=raw.log",
+            "-Dorg.slf4j.simpleLogger.logFile",
             "-Dorg.slf4j.simpleLogger.logFile=SYSTEM.OUT",
             "-Dorg.slf4j.simpleLogger.logFile=System.out",
             "-Dorg.slf4j.simpleLogger.logFile=System.err",
@@ -142,13 +143,15 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(guard.main(), 2)
                     capture.assert_not_called()
         for name in guard.ENV_OPTIONS:
-            with self.subTest(name=name), patch.dict(
-                os.environ, {name: "-Dorg.slf4j.simpleLogger.logFile=raw.log"}, clear=True
-            ), patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
-                guard, "capture"
-            ) as capture, patch("sys.stderr", io.StringIO()):
-                self.assertEqual(guard.main(), 2)
-                capture.assert_not_called()
+            for value in ("-Dorg.slf4j.simpleLogger.logFile=raw.log",
+                          "-Dorg.slf4j.simpleLogger.logFile"):
+                with self.subTest(name=name, value=value), patch.dict(
+                    os.environ, {name: value}, clear=True
+                ), patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
+                    guard, "capture"
+                ) as capture, patch("sys.stderr", io.StringIO()):
+                    self.assertEqual(guard.main(), 2)
+                    capture.assert_not_called()
 
     def test_direct_gpg_argument_boundaries(self):
         for value, expected in (("true false", 2), ("true ", 2), ("true", 0)):
