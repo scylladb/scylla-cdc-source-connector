@@ -264,6 +264,22 @@ class ReleaseTests(unittest.TestCase):
             guard.check_policy(root)
             self.assertIn("RELEASE_GUARD", original)
 
+    def test_alternate_maven_base_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / ".mvn").mkdir()
+            (base / ".mvn/jvm.config").write_text(
+                "-Dorg.slf4j.simpleLogger.logFile=raw.log\n"
+            )
+            for arguments in (["check"], ["run", "mvn", "validate"]):
+                with self.subTest(arguments=arguments), patch.dict(
+                    os.environ, {"MAVEN_BASEDIR": str(base)}, clear=True
+                ), patch.object(sys, "argv", ["guard.py", *arguments]), patch.object(
+                    guard, "capture"
+                ) as capture, patch("sys.stderr", io.StringIO()):
+                    self.assertEqual(guard.main(), 2)
+                    capture.assert_not_called()
+
     def test_release_target_requires_pinned_central_publishing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -397,6 +397,10 @@ def interrupted(signum, frame):
 
 def main():
     try:
+        # The Maven launcher reads .mvn/jvm.config from MAVEN_BASEDIR when set,
+        # which can bypass the configuration checked in this checkout.
+        if os.environ.get("MAVEN_BASEDIR"):
+            raise Unsafe("alternate Maven base directories are not allowed")
         if sys.argv[1:] == ["check"]:
             try:
                 check_policy(Path.cwd())
