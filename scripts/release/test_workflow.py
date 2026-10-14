@@ -35,13 +35,24 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any('python3 "$RELEASE_GUARD" run mvn -B -ntp '
                                 in command and goal in command for command in commands), goal)
 
-    def test_sanitized_log_upload_is_unconditional_and_last(self):
-        last = self.steps[-1]
-        self.assertTrue(last.startswith('Upload sanitized release logs\n'))
-        self.assertIn('if: always()', last)
-        self.assertIn('path: ${{ runner.temp }}/release-logs/*.log', last)
-        self.assertIn('if-no-files-found: ignore', last)
-        self.assertRegex(last, r'uses: actions/upload-artifact@[0-9a-f]{40}')
+    def test_sanitized_log_upload_does_not_fail_published_release(self):
+        upload, warning = self.steps[-2:]
+        self.assertTrue(upload.startswith('Upload sanitized release logs\n'))
+        self.assertIn('id: upload-release-logs', upload)
+        self.assertIn('if: always()', upload)
+        self.assertIn('continue-on-error: true', upload)
+        self.assertIn('path: ${{ runner.temp }}/release-logs/*.log', upload)
+        self.assertIn('if-no-files-found: ignore', upload)
+        self.assertRegex(upload, r'uses: actions/upload-artifact@[0-9a-f]{40}')
+        self.assertIn("steps.upload-release-logs.outcome == 'failure'", warning)
+        self.assertIn('::warning::', warning)
+        self.assertIn('do not rerun', warning)
+
+    def test_invalid_target_tag_stops_before_credentials(self):
+        checkout = self.steps[3]
+        self.assertIn('if: inputs.target-tag != \'master\'', checkout)
+        self.assertIn('Unsupported target tag', checkout)
+        self.assertRegex(checkout, r'else\n\s+echo [^\n]+\n\s+exit 1')
 
     def test_inputs_are_not_interpolated_into_shell(self):
         for step in self.steps:

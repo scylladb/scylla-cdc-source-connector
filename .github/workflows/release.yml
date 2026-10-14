@@ -75,7 +75,8 @@ jobs:
             git checkout --detach "${TARGET_TAG}~1" --
             git tag -d -- "$TARGET_TAG"
           else
-            echo "Skipping: $TARGET_TAG is not a semver tag"
+            echo "::error::Unsupported target tag; expected master or vX.Y.Z"
+            exit 1
           fi
 
       - name: Validate release target before importing credentials
@@ -270,9 +271,15 @@ jobs:
             --body "$BODY"
 
       - name: Upload sanitized release logs
+        id: upload-release-logs
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: maven-stdout
           path: ${{ runner.temp }}/release-logs/*.log
           if-no-files-found: ignore
+
+      - name: Warn if sanitized release logs could not be uploaded
+        if: always() && steps.upload-release-logs.outcome == 'failure'
+        run: echo "::warning::Sanitized release logs could not be uploaded; do not rerun the release workflow."
