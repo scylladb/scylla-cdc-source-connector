@@ -165,7 +165,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         r"|simpleLogger[^\s<>]*=(?:debug|trace)\b"
         r"|simpleLogger[^\s<>]*=[^\s<>]*\$\{"
         r"|(?:--?D\s*|--?define(?:=|\s+))[\w.-]*"
-        r"(?:passphrase|password|token|secret|authorization)[\w.-]*=",
+        r"(?:passphrase|password|token|secret|credentials?|authorization)[\w.-]*=",
         text,
         re.I,
     )
@@ -273,7 +273,7 @@ def secret_forms(env):
     values = {
         v
         for k, v in env.items()
-        if v and re.search(r"PASSWORD|PASSPHRASE|TOKEN|SECRET|PRIVATE_KEY|AUTHORIZATION", k, re.I)
+        if v and re.search(r"PASSWORD|PASSPHRASE|TOKEN|SECRET|CREDENTIALS?|PRIVATE_KEY|AUTHORIZATION", k, re.I)
     }
     user, password = env.get("SONATYPE_TOKEN_USERNAME"), env.get("SONATYPE_TOKEN_PASSWORD")
     if user and password:
@@ -313,12 +313,12 @@ def redact(data, forms):
     matches = [
         spans(
             rb"(?i)([\"'])((?:--?D[=\s]*|--?define[=\s]+)[\w.-]*"
-            rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*[ \t]*=[ \t]*)"
+            rb"(?:passphrase|password|username|token|secret|credentials?|authorization)[\w.-]*[ \t]*=[ \t]*)"
             rb"((?:\\[\s\S]|(?!\1)[^\\])*)\1", 3,
         ),
         spans(
             rb"(?i)((?:--?D[=\s]*|--?define[=\s]+)[\w.-]*"
-            rb"(?:passphrase|password|username|token|secret|authorization)[\w.-]*[ \t]*=[ \t]*)"
+            rb"(?:passphrase|password|username|token|secret|credentials?|authorization)[\w.-]*[ \t]*=[ \t]*)"
             rb"(\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*'|[^\s]+)", 2,
         ),
         spans(rb"(?im)((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*)([^\r\n]*)", 2),
@@ -418,6 +418,15 @@ def main():
         # which can bypass the configuration checked in this checkout.
         if os.environ.get("MAVEN_BASEDIR"):
             raise Unsafe("alternate Maven base directories are not allowed")
+        for name in ENV_OPTIONS:
+            check_text(
+                os.environ.get(name, ""),
+                maven_arguments=(
+                    os.environ.get(name, "").split()
+                    if name in ("MAVEN_ARGS", "MAVEN_CONFIG") else ()
+                ),
+                jvm_options=name not in ("MAVEN_ARGS", "MAVEN_CONFIG"),
+            )
         if sys.argv[1:] == ["check"]:
             try:
                 check_policy(Path.cwd())
@@ -436,15 +445,6 @@ def main():
         if any(arg.startswith("-X") for arg in sys.argv[3:]):
             raise Unsafe("Maven debug options are not allowed")
         check_text(" ".join(sys.argv[3:]), maven_arguments=sys.argv[3:])
-        for name in ENV_OPTIONS:
-            check_text(
-                os.environ.get(name, ""),
-                maven_arguments=(
-                    os.environ.get(name, "").split()
-                    if name in ("MAVEN_ARGS", "MAVEN_CONFIG") else ()
-                ),
-                jvm_options=name not in ("MAVEN_ARGS", "MAVEN_CONFIG"),
-            )
         for name in ("maven.config", "jvm.config"):
             path = Path(".mvn") / name
             if path.exists():
@@ -455,10 +455,12 @@ def main():
                 )
         for signum in (signal.SIGTERM, signal.SIGHUP):
             signal.signal(signum, interrupted)
+        # The Maven launcher otherwise sources unchecked system and user mavenrc files.
+        maven_env = dict(os.environ, MAVEN_SKIP_RC="1")
         return capture(
             sys.argv[2:],
-            os.environ,
-            secret_forms(os.environ),
+            maven_env,
+            secret_forms(maven_env),
             Path(os.environ.get("RELEASE_LOG_DIR", "/tmp/release-logs")),
         )
     except Exception:

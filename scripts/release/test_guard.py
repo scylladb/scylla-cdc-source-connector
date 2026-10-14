@@ -26,6 +26,19 @@ class ReleaseTests(unittest.TestCase):
     def test_repository_defaults(self):
         guard.check_policy(ROOT)
 
+    def test_check_rejects_unsafe_environment_before_credentials(self):
+        with patch.dict(os.environ, {"MAVEN_OPTS": "-Dgpg.bestPractices=false"}, clear=True), \
+             patch.object(sys, "argv", ["guard.py", "check"]), \
+             patch("sys.stderr", io.StringIO()), patch("sys.stdout", io.StringIO()):
+            self.assertEqual(guard.main(), 2)
+
+    def test_maven_launcher_skips_unchecked_rc_files(self):
+        with patch.dict(os.environ, {"MAVEN_SKIP_RC": ""}, clear=True), \
+             patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), \
+             patch.object(guard, "capture", return_value=0) as capture:
+            self.assertEqual(guard.main(), 0)
+            self.assertEqual(capture.call_args.args[1]["MAVEN_SKIP_RC"], "1")
+
     def test_run_redacts_and_appends_sanitized_logs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -84,6 +97,7 @@ class ReleaseTests(unittest.TestCase):
             "-Dfile.encoding=UTF-16LE",
             "-Dsun.stdout.encoding=UTF-16LE",
             "-Dsun.stderr.encoding=UTF-16LE",
+            "-Dcredentials=dummy-value",
             '--define=javax.net.debug="all"',
             '-Dgpg.bestPractices="false"',
             "-Dgpg.bestPractices='false'",
@@ -781,7 +795,8 @@ class ReleaseTests(unittest.TestCase):
 
     def test_equals_prefixed_credential_arguments(self):
         for option in (b"-D=password=", b"--D=password=",
-                       b"--define= password=", b"--define= password ="):
+                       b"--define= password=", b"--define= password =",
+                       b"-Dcredentials=", b"--define=credential="):
             with self.subTest(option=option):
                 self.assertEqual(
                     guard.redact(option + b"unregistered-value", []),
