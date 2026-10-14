@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import shlex
 import signal
@@ -20,6 +21,18 @@ import urllib.parse
 import guard
 
 ROOT = Path(__file__).resolve().parents[2]
+CENTRAL_VERSION = re.compile(
+    r"(<artifactId>central-publishing-maven-plugin</artifactId>\s*<version>)[^<]*(</version>)"
+)
+
+
+def with_central_version(pom, version):
+    # Locate the pin by plugin, not by its current value, so dependency bumps can't
+    # turn these tests into silent no-ops.
+    updated, count = CENTRAL_VERSION.subn(rf"\g<1>{version}\g<2>", pom)
+    if count != 1:
+        raise AssertionError(f"expected one central-publishing version pin, found {count}")
+    return updated
 
 
 class ReleaseTests(unittest.TestCase):
@@ -276,8 +289,12 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pom = (ROOT / "pom.xml").read_text()
-            for old in ("<gpg.bestPractices>true</gpg.bestPractices>", "<version>0.11.0</version>"):
-                (root / "pom.xml").write_text(pom.replace(old, "<version>0.8.0</version>"))
+            for old, text in (
+                ("bestPractices", pom.replace("<gpg.bestPractices>true</gpg.bestPractices>",
+                                              "<version>0.8.0</version>")),
+                ("central", with_central_version(pom, "0.8.0")),
+            ):
+                (root / "pom.xml").write_text(text)
                 with self.subTest(old=old), self.assertRaises(guard.Unsafe):
                     guard.check_policy(root)
                 result = subprocess.run(
@@ -334,9 +351,7 @@ class ReleaseTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2)
             self.assertIn("pin Central publishing", result.stderr)
-            (root / "pom.xml").write_text(pom.replace(
-                "<version>0.11.0</version>", "<version></version>", 1
-            ))
+            (root / "pom.xml").write_text(with_central_version(pom, ""))
             with self.assertRaisesRegex(guard.Unsafe, "update Central publishing"):
                 guard.check_policy(root)
 
@@ -701,8 +716,7 @@ class ReleaseTests(unittest.TestCase):
             shutil.copytree(ROOT / ".github", root / ".github")
             pom = (ROOT / "pom.xml").read_text()
             for version in ("0.11.0", "0.11.1", "0.12.0", "1.0.0"):
-                (root / "pom.xml").write_text(pom.replace("<version>0.11.0</version>",
-                                                        f"<version>{version}</version>"))
+                (root / "pom.xml").write_text(with_central_version(pom, version))
                 with self.subTest(version=version):
                     guard.check_policy(root)
 
