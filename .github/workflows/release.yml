@@ -15,7 +15,7 @@ on:
 
       target-tag:
         type: string
-        description: 'target-tag: tag or branch name to release. Use to to re-release failed releases'
+        description: 'target-tag: re-release a compatible semver tag; unsafe historical targets are rejected'
         default: master
 
       release-version:
@@ -31,9 +31,6 @@ jobs:
     permissions:
       contents: write
       issues: write
-
-    env:
-      MVNCMD: mvn -B -ntp
 
     steps:
       - name: Check for open release blockers
@@ -61,16 +58,29 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Checkout Code One Commit Before ${{ inputs.target-tag }}
-        if: inputs.target-tag != 'master'
+      - name: Preserve release guard
         run: |
-          if [[ "${{ inputs.target-tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          cp scripts/release/guard.py "$RUNNER_TEMP/release-guard.py"
+          mkdir -p "$RUNNER_TEMP/release-logs"
+          echo "RELEASE_GUARD=$RUNNER_TEMP/release-guard.py" >> "$GITHUB_ENV"
+          echo "RELEASE_LOG_DIR=$RUNNER_TEMP/release-logs" >> "$GITHUB_ENV"
+
+      - name: Checkout historical release target
+        if: inputs.target-tag != 'master'
+        env:
+          TARGET_TAG: ${{ inputs.target-tag }}
+        run: |
+          if [[ "$TARGET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             git fetch --prune --unshallow || true
-            git checkout ${{ inputs.target-tag }}~1
-            git tag -d ${{ inputs.target-tag }}
+            git checkout --detach "${TARGET_TAG}~1" --
+            git tag -d -- "$TARGET_TAG"
           else
-            echo "Skipping: ${{ inputs.target-tag }} is not a semver tag"
+            echo "::error::Unsupported target tag; expected master or vX.Y.Z"
+            exit 1
           fi
+
+      - name: Validate release target before importing credentials
+        run: python3 "$RELEASE_GUARD" check
 
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -106,24 +116,26 @@ jobs:
           git config user.email "github-promoter@scylladb.com"
 
       - name: Clean project
-        run: $MVNCMD clean
+        run: python3 "$RELEASE_GUARD" run mvn -B -ntp clean
 
       - name: Clean release
-        run: $MVNCMD release:clean
+        run: python3 "$RELEASE_GUARD" run mvn -B -ntp release:clean
 
       - name: Prepare release
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          SKIP_TESTS: ${{ inputs.skip-tests }}
+          RELEASE_VERSION: ${{ inputs.release-version }}
         run: |
-          if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
-            MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
+          args=(-DpushChanges=false)
+          if [[ "$SKIP_TESTS" == "true" ]]; then
+            MAVEN_OPTS="${MAVEN_OPTS:-} -DskipTests=true -DskipITs=true"
           fi
-          NEXT_RELEASE=""
-          if [[ "${{ inputs.release-version }}" != "" ]]; then
-            NEXT_RELEASE="-DreleaseVersion=${{ inputs.release-version }}"
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            args+=("-DreleaseVersion=$RELEASE_VERSION")
           fi
           export MAVEN_OPTS
-          $MVNCMD release:prepare -DpushChanges=false ${NEXT_RELEASE}
+          python3 "$RELEASE_GUARD" run mvn -B -ntp release:prepare "${args[@]}"
 
       - name: Recheck for open release blockers
         if: inputs.dry-run == false
@@ -152,16 +164,18 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
           SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          SKIP_TESTS: ${{ inputs.skip-tests }}
         run: |
-          CMD_OPTS=""
-          if [[ "${{ inputs.dry-run }}" != "true" ]]; then
-            CMD_OPTS="-Drelease.autopublish=true"
+          args=()
+          if [[ "$DRY_RUN" != "true" ]]; then
+            args+=(-Drelease.autopublish=true)
           fi
-          if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
-            MAVEN_OPTS="${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
+          if [[ "$SKIP_TESTS" == "true" ]]; then
+            MAVEN_OPTS="${MAVEN_OPTS:-} -DskipTests=true -DskipITs=true"
           fi
           export MAVEN_OPTS
-          $MVNCMD release:perform $CMD_OPTS
+          python3 "$RELEASE_GUARD" run mvn -B -ntp release:perform "${args[@]}"
 
       - name: Push changes to SCM
         if: inputs.dry-run == false && inputs.target-tag == 'master'
@@ -175,7 +189,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make github-release
 
-      # Every step below is continue-on-error: a bounced email must not turn a
+      # Notification steps are continue-on-error: a bounced email must not turn a
       # published release red, because a red release invites a re-run, and
       # re-running this single-job workflow calls mvn release:prepare again and
       # cuts a spurious version.
@@ -255,3 +269,17 @@ jobs:
             --assignee "${GITHUB_ACTOR}" \
             --title "Manual action: notify Confluent Hub about ${RELEASE_TAG:-the latest release}" \
             --body "$BODY"
+
+      - name: Upload sanitized release logs
+        id: upload-release-logs
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: maven-stdout
+          path: ${{ runner.temp }}/release-logs/*.log
+          if-no-files-found: ignore
+
+      - name: Warn if sanitized release logs could not be uploaded
+        if: always() && steps.upload-release-logs.outcome == 'failure'
+        run: echo "::warning::Sanitized release logs could not be uploaded; do not rerun the release workflow."
