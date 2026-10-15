@@ -1,0 +1,98 @@
+# Runs the integration tests against one Kafka provider version and one ScyllaDB version.
+# Called by pr-verify.yml (version matrix) and integration-test-manually.yml (single run).
+# Versions may be aliases; see resolve-kafka-version and resolve-scylla-version in the Makefile.
+name: Integration tests (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      kafka_provider:
+        description: "apache, confluent or debezium"
+        type: string
+        required: true
+      kafka_version:
+        description: "LATEST, PREVIOUS, <MAJOR>-LATEST, MAJOR.MINOR or a full version"
+        type: string
+        default: LATEST
+      kafka_connect_mode:
+        description: "distributed or standalone"
+        type: string
+        default: distributed
+      scylla_version:
+        description: "LATEST, PRIOR, LTS-LATEST, LTS-PRIOR, MAJOR.MINOR or a full version"
+        type: string
+        default: LATEST
+      ref:
+        description: "Branch, tag or SHA to test; empty means the ref that triggered the workflow"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  run-tests:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Resolve versions
+        id: versions
+        env:
+          KAFKA_PROVIDER: ${{ inputs.kafka_provider }}
+          KAFKA_VERSION: ${{ inputs.kafka_version }}
+          SCYLLA_VERSION: ${{ inputs.scylla_version }}
+          GH_TOKEN: ${{ github.token }}
+        run: make resolve-kafka-version resolve-scylla-version
+
+      - name: Increase fs.aio-max-nr limit
+        run: |
+          echo "Current fs.aio-max-nr value:"
+          cat /proc/sys/fs/aio-max-nr
+          sudo sysctl -w fs.aio-max-nr=1048576
+          echo "New fs.aio-max-nr value:"
+          cat /proc/sys/fs/aio-max-nr
+
+      - name: Maven verify
+        env:
+          KAFKA_PROVIDER: ${{ inputs.kafka_provider }}
+          KAFKA_VERSION: ${{ steps.versions.outputs.kafka_version }}
+          KAFKA_CONNECT_MODE: ${{ inputs.kafka_connect_mode }}
+          SCYLLA_VERSION: ${{ steps.versions.outputs.scylla_version }}
+        run: >-
+          mvn -B -ntp verify
+          -Dit.kafka.provider="$KAFKA_PROVIDER"
+          -Dit.provider.image.version="$KAFKA_VERSION"
+          -Dit.kafka.connect.mode="$KAFKA_CONNECT_MODE"
+          -Dit.scylla.version="$SCYLLA_VERSION"
+
+      - name: Parse test results
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # v6.4.1
+        if: always()
+        with:
+          check_name: Integration test report for ${{ inputs.kafka_provider }}:${{ steps.versions.outputs.kafka_version }} running in ${{ inputs.kafka_connect_mode }} mode on ScyllaDB ${{ steps.versions.outputs.scylla_version }} version
+          require_tests: false
+          report_paths: "target/*-reports/TEST-*.xml"
+          follow_symlink: true
+          detailed_summary: true
+          updateComment: false
+          # Avoid errors on fork PRs where checks: write is not available
+          annotate_only: true

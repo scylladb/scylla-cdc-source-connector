@@ -1,0 +1,49 @@
+name: Integration tests (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kafka_provider:
+        description: "Kafka provider"
+        type: choice
+        options:
+          - apache
+          - confluent
+          - debezium
+        default: confluent
+      kafka_version:
+        description: "Kafka provider version: LATEST, PREVIOUS, <MAJOR>-LATEST (e.g. 7-LATEST), MAJOR.MINOR or a full version"
+        type: string
+        default: LATEST
+      kafka_connect_mode:
+        description: "Kafka Connect mode"
+        type: choice
+        options:
+          - distributed
+          - standalone
+        default: distributed
+      scylla_version:
+        description: "ScyllaDB version: LATEST, PRIOR, LTS-LATEST, LTS-PRIOR, MAJOR.MINOR or a full version"
+        type: string
+        default: LATEST
+      ref:
+        description: "Branch, tag or SHA to test (default: the branch selected above)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  integration-tests:
+    name: ${{ inputs.kafka_provider }} ${{ inputs.kafka_version }} (${{ inputs.kafka_connect_mode }}), ScyllaDB ${{ inputs.scylla_version }}
+    permissions:
+      contents: read
+      checks: write
+    uses: ./.github/workflows/lib-integration-test.yml
+    with:
+      kafka_provider: ${{ inputs.kafka_provider }}
+      kafka_version: ${{ inputs.kafka_version }}
+      kafka_connect_mode: ${{ inputs.kafka_connect_mode }}
+      scylla_version: ${{ inputs.scylla_version }}
+      ref: ${{ inputs.ref }}

@@ -30,3 +30,6 @@ claude_history.json
 claude_config.json
 CLAUDE.md
 .mcp.json
+
+# Tools downloaded by the Makefile
+/bin/
