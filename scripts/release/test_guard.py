@@ -21,17 +21,20 @@ import urllib.parse
 import guard
 
 ROOT = Path(__file__).resolve().parents[2]
-CENTRAL_VERSION = re.compile(
-    r"(<artifactId>central-publishing-maven-plugin</artifactId>\s*<version>)[^<]*(</version>)"
-)
+CENTRAL = "central-publishing-maven-plugin"
+GPG = "maven-gpg-plugin"
 
 
-def with_central_version(pom, version):
+def with_plugin_version(pom, artifact_id, version):
     # Locate the pin by plugin, not by its current value, so dependency bumps can't
     # turn these tests into silent no-ops.
-    updated, count = CENTRAL_VERSION.subn(rf"\g<1>{version}\g<2>", pom)
+    updated, count = re.subn(
+        rf"(<artifactId>{re.escape(artifact_id)}</artifactId>\s*<version>)[^<]*(</version>)",
+        lambda match: match[1] + version + match[2],
+        pom,
+    )
     if count != 1:
-        raise AssertionError(f"expected one central-publishing version pin, found {count}")
+        raise AssertionError(f"expected one {artifact_id} version pin, found {count}")
     return updated
 
 
@@ -289,21 +292,26 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pom = (ROOT / "pom.xml").read_text()
-            for old, text in (
-                ("bestPractices", pom.replace("<gpg.bestPractices>true</gpg.bestPractices>",
-                                              "<version>0.8.0</version>")),
-                ("central", with_central_version(pom, "0.8.0")),
+            for case, edit, message in (
+                ("bestPractices",
+                 lambda: pom.replace("<gpg.bestPractices>true</gpg.bestPractices>", ""),
+                 "enable GPG best practices"),
+                ("central 0.8.0", lambda: with_plugin_version(pom, CENTRAL, "0.8.0"),
+                 "update Central publishing"),
+                ("central 0.10.0", lambda: with_plugin_version(pom, CENTRAL, "0.10.0"),
+                 "update Central publishing"),
             ):
-                (root / "pom.xml").write_text(text)
-                with self.subTest(old=old), self.assertRaises(guard.Unsafe):
-                    guard.check_policy(root)
-                result = subprocess.run(
-                    [sys.executable, str(ROOT / "scripts/release/guard.py"), "check"],
-                    cwd=root, capture_output=True, text=True,
-                )
-                self.assertEqual(result.returncode, 2)
-                self.assertIn("Release only supported targets", result.stderr)
-                self.assertNotIn("Traceback", result.stderr)
+                with self.subTest(case=case):
+                    (root / "pom.xml").write_text(edit())
+                    with self.assertRaisesRegex(guard.Unsafe, message):
+                        guard.check_policy(root)
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts/release/guard.py"), "check"],
+                        cwd=root, capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("Release only supported targets", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
 
     def test_target_validation_uses_checked_out_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -351,7 +359,7 @@ class ReleaseTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2)
             self.assertIn("pin Central publishing", result.stderr)
-            (root / "pom.xml").write_text(with_central_version(pom, ""))
+            (root / "pom.xml").write_text(with_plugin_version(pom, CENTRAL, ""))
             with self.assertRaisesRegex(guard.Unsafe, "update Central publishing"):
                 guard.check_policy(root)
 
@@ -473,12 +481,10 @@ class ReleaseTests(unittest.TestCase):
             shutil.copytree(ROOT / ".github", root / ".github")
             pom = (ROOT / "pom.xml").read_text()
             for version in ("1.6", "3.1.0", "${gpg.version}"):
-                (root / "pom.xml").write_text(pom.replace("<version>3.2.8</version>",
-                                                        f"<version>{version}</version>"))
+                (root / "pom.xml").write_text(with_plugin_version(pom, GPG, version))
                 with self.subTest(version=version), self.assertRaises(guard.Unsafe):
                     guard.check_policy(root)
-            (root / "pom.xml").write_text(pom.replace("<version>3.2.8</version>",
-                                                    "<version>3.2.0</version>"))
+            (root / "pom.xml").write_text(with_plugin_version(pom, GPG, "3.2.0"))
             guard.check_policy(root)
 
     def test_pom_nested_release_debug_is_rejected(self):
@@ -716,7 +722,7 @@ class ReleaseTests(unittest.TestCase):
             shutil.copytree(ROOT / ".github", root / ".github")
             pom = (ROOT / "pom.xml").read_text()
             for version in ("0.11.0", "0.11.1", "0.12.0", "1.0.0"):
-                (root / "pom.xml").write_text(with_central_version(pom, version))
+                (root / "pom.xml").write_text(with_plugin_version(pom, CENTRAL, version))
                 with self.subTest(version=version):
                     guard.check_policy(root)
 
