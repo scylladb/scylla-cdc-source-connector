@@ -1,5 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,6 +12,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
@@ -60,10 +62,19 @@ public class ScyllaVersionCheckerTest {
     return method.invoke(checker);
   }
 
-  private static long countOpenFileDescriptors() throws IOException {
-    Path fdDir = Path.of("/proc/self/fd");
-    try (Stream<Path> entries = Files.list(fdDir)) {
-      return entries.count();
+  private static void assertNoOpenFileDescriptors(Path file) throws IOException {
+    Path realPath = file.toRealPath();
+    try (Stream<Path> entries = Files.list(Path.of("/proc/self/fd"))) {
+      for (Path fd : entries.toList()) {
+        Path target;
+        try {
+          target = Files.readSymbolicLink(fd);
+        } catch (NoSuchFileException e) {
+          // Other tests may close unrelated descriptors while this test scans them.
+          continue;
+        }
+        assertNotEquals(realPath, target, "Expected PEM input stream to be closed: " + file);
+      }
     }
   }
 
@@ -132,17 +143,10 @@ public class ScyllaVersionCheckerTest {
         new ScyllaVersionChecker(
             createSslConfig(certPath.toString(), privateKeyPath.toString(), null, null));
 
-    long before = countOpenFileDescriptors();
     for (int i = 0; i < 10; i++) {
       assertNotNull(invokeBuildSslOptionsSuccessfully(checker));
+      assertNoOpenFileDescriptors(certPath);
+      assertNoOpenFileDescriptors(privateKeyPath);
     }
-    long after = countOpenFileDescriptors();
-
-    assertTrue(
-        after - before <= 2,
-        "Expected PEM input streams to be closed, but open FDs grew from "
-            + before
-            + " to "
-            + after);
   }
 }
