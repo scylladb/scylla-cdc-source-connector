@@ -679,6 +679,8 @@ class ReleaseTests(unittest.TestCase):
     def test_nested_release_properties_in_environment_and_config(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            shutil.copytree(ROOT / ".github", root / ".github")
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
             (root / ".mvn").mkdir()
             with patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
                 guard, "run_maven"
@@ -705,13 +707,29 @@ class ReleaseTests(unittest.TestCase):
                         ("maven.config", "-D=gpg.bestPractices=false"),
                         ("maven.config", "--D\narguments=-funsafe.xml\n"),
                         ("maven.config", "--D\ngoals=-Xverify\n"),
+                        ("maven.config", "  -Darguments=-f unsafe.xml  \n"),
+                        ("maven.config", "\t-DprepareVerifyArgs=--settings unsafe.xml\n"),
+                        ("maven.config", "  -Dgpg.bestPractices=tr'ue'\n"),
+                        ("maven.config", "  -Drelease.autopublish=fal'se'\n"),
                         ("jvm.config", "-Darguments='-f unsafe.xml'"),
                     ):
-                        with self.subTest(name=name):
+                        with self.subTest(name=name, option=option):
                             (root / ".mvn" / name).write_text(option)
+                            with self.assertRaises(guard.Unsafe):
+                                guard.check_policy(root)
                             self.assertEqual(guard.main(), 2)
                             run_maven.assert_not_called()
                             (root / ".mvn" / name).unlink()
+                    for option in ("  -Darguments=-DskipTests=true  \n",
+                                   "\t-Dgpg.bestPractices=true\n",
+                                   "  -Drelease.autopublish=false\n"):
+                        with self.subTest(safe_option=option):
+                            (root / ".mvn/maven.config").write_text(option)
+                            guard.check_policy(root)
+                            run_maven.return_value = 0
+                            self.assertEqual(guard.main(), 0)
+                            run_maven.assert_called_once()
+                            run_maven.reset_mock()
 
     def test_release_autopublish_property_must_be_boolean(self):
         with tempfile.TemporaryDirectory() as directory:

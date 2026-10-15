@@ -51,7 +51,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     # Maven removes quotes before interpreting property names and values.
     original_maven_arguments = tuple(maven_arguments)
     maven_arguments = tuple(
-        normalize_property(argument.translate(str.maketrans("", "", "\"'")))
+        normalize_property(argument.lstrip().translate(str.maketrans("", "", "\"'")))
         for argument in original_maven_arguments
     )
     if re.search(r"(?<![\w-])-[A-Za-z](?:=\s*)?-(?=[A-Za-z-])", text):
