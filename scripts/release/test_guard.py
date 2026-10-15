@@ -1,14 +1,10 @@
-"""Focused checks for release configuration and sanitized output."""
+"""Focused checks for release configuration and output suppression."""
 
-import base64
-import html
 import io
-import json
 import os
 from pathlib import Path
 import re
 import shutil
-import shlex
 import signal
 import subprocess
 import sys
@@ -16,7 +12,6 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
-import urllib.parse
 
 import guard
 
@@ -42,52 +37,84 @@ class ReleaseTests(unittest.TestCase):
     def test_repository_defaults(self):
         guard.check_policy(ROOT)
 
+    def test_ancestor_maven_configuration_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "target"
+            root.mkdir()
+            (parent / ".mvn").mkdir()
+            (parent / ".mvn/maven.config").write_text("-X\n--log-file=/tmp/raw.log\n")
+            shutil.copytree(ROOT / ".github", root / ".github")
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            with self.assertRaisesRegex(guard.Unsafe, "ancestor Maven configuration"):
+                guard.check_policy(root)
+            with patch.object(guard, "run_maven", return_value=0) as run_maven, \
+                 patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), \
+                 patch("pathlib.Path.cwd", return_value=root), \
+                 patch("sys.stderr", io.StringIO()):
+                self.assertEqual(guard.main(), 2)
+                run_maven.assert_not_called()
+            (root / ".mvn").mkdir()
+            guard.check_policy(root)
+
+    def test_nearest_empty_maven_directory_stops_ancestor_search(self):
+        with tempfile.TemporaryDirectory() as directory:
+            top = Path(directory)
+            (top / ".mvn").mkdir()
+            (top / ".mvn/maven.config").write_text("-X\n")
+            middle = top / "middle"
+            (middle / ".mvn").mkdir(parents=True)
+            root = middle / "target"
+            root.mkdir()
+            shutil.copytree(ROOT / ".github", root / ".github")
+            shutil.copy(ROOT / "pom.xml", root / "pom.xml")
+            guard.check_policy(root)
+
+    def test_parent_pom_cannot_supply_unchecked_gpg_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "child"
+            root.mkdir()
+            parent = Path(directory) / "parent"
+            parent.mkdir()
+            (parent / "pom.xml").write_text(
+                '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+                '<modelVersion>4.0.0</modelVersion><groupId>example</groupId>'
+                '<artifactId>parent</artifactId><version>1</version><build><plugins>'
+                '<plugin><artifactId>maven-gpg-plugin</artifactId><configuration>'
+                '<bestPractices>false</bestPractices></configuration></plugin>'
+                '</plugins></build></project>'
+            )
+            pom = (ROOT / "pom.xml").read_text().replace(
+                "<modelVersion>4.0.0</modelVersion>",
+                "<modelVersion>4.0.0</modelVersion>"
+                "<parent><groupId>example</groupId><artifactId>parent</artifactId>"
+                "<version>1</version><relativePath>../parent/pom.xml</relativePath></parent>",
+                1,
+            )
+            (root / "pom.xml").write_text(pom)
+            with self.assertRaisesRegex(guard.Unsafe, "parent Maven POMs"):
+                guard.check_policy(root)
+
     def test_check_rejects_unsafe_environment_before_credentials(self):
         with patch.dict(os.environ, {"MAVEN_OPTS": "-Dgpg.bestPractices=false"}, clear=True), \
              patch.object(sys, "argv", ["guard.py", "check"]), \
              patch("sys.stderr", io.StringIO()), patch("sys.stdout", io.StringIO()):
             self.assertEqual(guard.main(), 2)
 
+    def test_jvm_options_file_cannot_hide_release_properties(self):
+        for name in ("MAVEN_OPTS", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"):
+            with self.subTest(name=name), patch.dict(
+                os.environ, {name: "-XX:VMOptionsFile=/tmp/unchecked.options"}, clear=True
+            ), patch.object(sys, "argv", ["guard.py", "check"]), \
+                 patch("sys.stderr", io.StringIO()), patch("sys.stdout", io.StringIO()):
+                self.assertEqual(guard.main(), 2)
+
     def test_maven_launcher_skips_unchecked_rc_files(self):
         with patch.dict(os.environ, {"MAVEN_SKIP_RC": ""}, clear=True), \
              patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), \
-             patch.object(guard, "capture", return_value=0) as capture:
+             patch.object(guard, "run_maven", return_value=0) as run_maven:
             self.assertEqual(guard.main(), 0)
-            self.assertEqual(capture.call_args.args[1]["MAVEN_SKIP_RC"], "1")
-
-    def test_run_redacts_and_appends_sanitized_logs(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            binary = root / "mvn"
-            binary.write_text(
-                "#!/bin/sh\n"
-                "printf 'stdout:%s\\n' \"$MAVEN_GPG_PASSPHRASE\"\n"
-                "printf 'stderr:%s\\n' \"$MAVEN_GPG_PASSPHRASE\" >&2\n"
-            )
-            binary.chmod(0o755)
-            logs = root / "logs"
-            env = {key: value for key, value in os.environ.items()
-                   if key not in guard.ENV_OPTIONS}
-            env.update(
-                PATH=str(root) + os.pathsep + env.get("PATH", ""),
-                RELEASE_LOG_DIR=str(logs),
-                MAVEN_GPG_PASSPHRASE="dummy-secret",
-            )
-            command = [sys.executable, str(ROOT / "scripts/release/guard.py"),
-                       "run", "mvn", "-B", "-ntp", "release:perform",
-                       "-Drelease.autopublish=true"]
-            for _ in range(2):
-                result = subprocess.run(command, cwd=root, env=env,
-                                        capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0)
-                self.assertEqual(result.stdout, "stdout:[REDACTED]\n")
-                self.assertEqual(result.stderr, "stderr:[REDACTED]\n")
-            self.assertEqual(
-                (logs / "stdout.log").read_text(), "stdout:[REDACTED]\n" * 2
-            )
-            self.assertEqual(
-                (logs / "stderr.log").read_text(), "stderr:[REDACTED]\n" * 2
-            )
+            self.assertEqual(run_maven.call_args.args[1]["MAVEN_SKIP_RC"], "1")
 
     def test_unsafe_options(self):
         for value in (
@@ -176,19 +203,19 @@ class ReleaseTests(unittest.TestCase):
                     os.environ, {name: value}, clear=True
                 ), patch.object(
                     sys, "argv", ["guard.py", "run", "mvn", "validate"]
-                ), patch.object(guard, "capture") as capture, patch("sys.stderr", io.StringIO()):
+                ), patch.object(guard, "run_maven") as run_maven, patch("sys.stderr", io.StringIO()):
                     self.assertEqual(guard.main(), 2)
-                    capture.assert_not_called()
+                    run_maven.assert_not_called()
         for name in guard.ENV_OPTIONS:
             for value in ("-Dorg.slf4j.simpleLogger.logFile=raw.log",
                           "-Dorg.slf4j.simpleLogger.logFile"):
                 with self.subTest(name=name, value=value), patch.dict(
                     os.environ, {name: value}, clear=True
                 ), patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
-                    guard, "capture"
-                ) as capture, patch("sys.stderr", io.StringIO()):
+                    guard, "run_maven"
+                ) as run_maven, patch("sys.stderr", io.StringIO()):
                     self.assertEqual(guard.main(), 2)
-                    capture.assert_not_called()
+                    run_maven.assert_not_called()
 
     def test_maven_configuration_redirects_are_rejected(self):
         for name in ("maven.multiModuleProjectDirectory", "maven.conf", "maven.home",
@@ -205,11 +232,11 @@ class ReleaseTests(unittest.TestCase):
         for value, expected in (("true false", 2), ("true ", 2), ("true", 0)):
             with self.subTest(value=value), patch.dict(os.environ, {}, clear=True), patch.object(
                 sys, "argv", ["guard.py", "run", "mvn", "-Dgpg.bestPractices=" + value]
-            ), patch.object(guard, "capture", return_value=0) as capture, patch(
+            ), patch.object(guard, "run_maven", return_value=0) as run_maven, patch(
                 "sys.stderr", io.StringIO()
             ):
                 self.assertEqual(guard.main(), expected)
-                self.assertEqual(capture.called, expected == 0)
+                self.assertEqual(run_maven.called, expected == 0)
 
     def test_direct_gpg_aliases_and_nested_arguments(self):
         for option in ("-D", "-define=", "--define="):
@@ -224,15 +251,56 @@ class ReleaseTests(unittest.TestCase):
                              maven_arguments=["--define", '"gpg.bestPractices =false"'])
         nested = "-Darguments=-Dgpg.bestPractices=true -DskipTests=true"
         guard.check_text(nested, maven_arguments=[nested])
+        for nested in (
+            "-Darguments=-Dsafe=ok# -funsafe.xml",
+            r'-Darguments=-Dsafe=a\" -funsafe.xml -Dother=b\"',
+        ):
+            with self.subTest(nested=nested), self.assertRaises(guard.Unsafe):
+                guard.check_text(nested, maven_arguments=[nested])
+
+    def test_literal_quotes_do_not_make_gpg_boolean_true(self):
+        for arguments in (
+            ["-Dgpg.bestPractices=tr'ue"],
+            ["-D", "gpg.bestPractices=tr'ue"],
+            ['-D"gpg.bestPractices=tr\'ue"'],
+        ):
+            with self.subTest(arguments=arguments), self.assertRaises(guard.Unsafe):
+                guard.check_text(" ".join(arguments), maven_arguments=arguments)
+        for argument in ('-Dgpg.bestPractices="true"',
+                         "-Dgpg.bestPractices='true'"):
+            with self.subTest(argument=argument), self.assertRaises(guard.Unsafe):
+                guard.check_text(argument, maven_arguments=[argument])
+        for argument in ("-Dgpg.bestPractices=true", '-D"gpg.bestPractices=true"'):
+            guard.check_text(argument, maven_arguments=[argument])
+        for argument in (
+            '-Darguments=-Dgpg.bestPractices="tr\'ue"',
+            '-DprepareVerifyArgs=-Dgpg.bestPractices="tr\'ue"',
+        ):
+            with self.subTest(argument=argument), self.assertRaises(guard.Unsafe):
+                guard.check_text(argument, maven_arguments=[argument])
+        for value in ("TRUE", "True"):
+            argument = "-Dgpg.bestPractices=" + value
+            guard.check_text(argument, maven_arguments=[argument])
+        for argument in ('-D=arguments=-DskipTests=true',
+                         '-D"arguments=-DskipTests=true"',
+                         '-D=prepareVerifyArgs=-DskipTests=true'):
+            with self.subTest(argument=argument):
+                guard.check_text(argument, maven_arguments=[argument])
+        for argument in ('-D"arguments=-Dsafe=bar\\ -funsafe.xml"',
+                         '-Darguments=-Dsafe=bar\\ -funsafe.xml'):
+            with self.subTest(argument=argument), self.assertRaises(guard.Unsafe):
+                guard.check_text(argument, maven_arguments=[argument])
+        safe = '-Darguments=-Dsafe="hello -fvalue" -DskipTests=true'
+        guard.check_text(safe, maven_arguments=[safe])
 
     def test_direct_debug_options(self):
         guard.check_text("-Xmx1g -Xms256m")
         for option in ("-Xq", "-debug"):
             with self.subTest(option=option), patch.object(
                 sys, "argv", ["guard.py", "run", "mvn", option]
-            ), patch.object(guard, "capture") as capture, patch("sys.stderr", io.StringIO()):
+            ), patch.object(guard, "run_maven") as run_maven, patch("sys.stderr", io.StringIO()):
                 self.assertEqual(guard.main(), 2)
-                capture.assert_not_called()
+                run_maven.assert_not_called()
 
     def test_maven_argument_sources_reject_debug_prefix(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -240,23 +308,23 @@ class ReleaseTests(unittest.TestCase):
             (root / ".mvn").mkdir()
             with patch.object(
                 sys, "argv", ["guard.py", "run", "mvn", "validate"]
-            ), patch.object(guard, "capture", return_value=0) as capture, patch(
+            ), patch.object(guard, "run_maven", return_value=0) as run_maven, patch(
                 "sys.stderr", io.StringIO()
             ):
                 for value in ("-Xvalidate", '"-Xverify"'):
                     with patch.dict(os.environ, {"MAVEN_ARGS": value}, clear=True):
                         self.assertEqual(guard.main(), 2)
-                        capture.assert_not_called()
+                        run_maven.assert_not_called()
                 with patch.dict(os.environ, {}, clear=True), patch.object(
                     guard, "Path",
                     side_effect=lambda value: root / value if value == ".mvn" else Path(value)
                 ):
                     (root / ".mvn/maven.config").write_text("-Xvalidate")
                     self.assertEqual(guard.main(), 2)
-                    capture.assert_not_called()
+                    run_maven.assert_not_called()
                     (root / ".mvn/maven.config").write_text("-Dgpg.bestPractices=true false")
                     self.assertEqual(guard.main(), 2)
-                    capture.assert_not_called()
+                    run_maven.assert_not_called()
                     (root / ".mvn/maven.config").write_text("-DargLine=-Xmx512m -XX:+UseG1GC")
                     self.assertEqual(guard.main(), 0)
                     (root / ".mvn/maven.config").unlink()
@@ -264,16 +332,16 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(guard.main(), 2)
                     (root / ".mvn/jvm.config").write_text("-Xmx1g")
                     self.assertEqual(guard.main(), 0)
-                capture.reset_mock()
+                run_maven.reset_mock()
                 with patch.dict(
                     os.environ, {"MAVEN_ARGS": "-DargLine='-Xmx512m -XX:+UseG1GC'"}, clear=True
                 ):
                     self.assertEqual(guard.main(), 2)
-                    capture.assert_not_called()
-                capture.reset_mock()
+                    run_maven.assert_not_called()
+                run_maven.reset_mock()
                 with patch.dict(os.environ, {"MAVEN_OPTS": "-Xmx1g"}, clear=True):
                     self.assertEqual(guard.main(), 0)
-                    capture.assert_called_once()
+                    run_maven.assert_called_once()
                 with patch.dict(os.environ, {"MAVEN_OPTS": "@.mvn/extra.options"}, clear=True):
                     self.assertEqual(guard.main(), 2)
 
@@ -335,10 +403,10 @@ class ReleaseTests(unittest.TestCase):
                 with self.subTest(arguments=arguments), patch.dict(
                     os.environ, {"MAVEN_BASEDIR": str(base)}, clear=True
                 ), patch.object(sys, "argv", ["guard.py", *arguments]), patch.object(
-                    guard, "capture"
-                ) as capture, patch("sys.stderr", io.StringIO()):
+                    guard, "run_maven"
+                ) as run_maven, patch("sys.stderr", io.StringIO()):
                     self.assertEqual(guard.main(), 2)
-                    capture.assert_not_called()
+                    run_maven.assert_not_called()
 
     def test_release_target_requires_pinned_central_publishing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -461,16 +529,16 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(guard.Unsafe):
                 guard.check_text(value, maven_arguments=[value])
 
-    def test_quoted_maven_property_is_rejected_before_capture(self):
+    def test_quoted_maven_property_is_rejected_before_execution(self):
         for value in ('--define "gpg.passphrase =dummy"',
                       '--define "org.slf4j.simpleLogger.log.org.apache.http =debug"'):
             with self.subTest(value=value), patch.dict(
                 os.environ, {"MAVEN_ARGS": value}, clear=True
             ), patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
-                guard, "capture"
-            ) as capture, patch("sys.stderr", io.StringIO()):
+                guard, "run_maven"
+            ) as run_maven, patch("sys.stderr", io.StringIO()):
                 self.assertEqual(guard.main(), 2)
-                capture.assert_not_called()
+                run_maven.assert_not_called()
         with self.assertRaises(guard.Unsafe):
             guard.check_text("--D gpg.bestPractices =false",
                              maven_arguments=["--D", "gpg.bestPractices =false"])
@@ -584,6 +652,7 @@ class ReleaseTests(unittest.TestCase):
             "-DpreparationGoals=verify -Xverify",
             "-DcompletionGoals=deploy -Xverify",
             "-DcompletionGoals=deploy -f unsafe.xml",
+            '-D"arguments=-Dsafe=bar\\ -funsafe.xml"',
             "-D=arguments=-funsafe.xml",
             "--D=arguments=-funsafe.xml",
             "-D=gpg.bestPractices=false",
@@ -591,9 +660,9 @@ class ReleaseTests(unittest.TestCase):
         ):
             with self.subTest(option=option), patch.dict(os.environ, {}, clear=True), patch.object(
                 sys, "argv", ["guard.py", "run", "mvn", option]
-            ), patch.object(guard, "capture") as capture, patch("sys.stderr", io.StringIO()):
+            ), patch.object(guard, "run_maven") as run_maven, patch("sys.stderr", io.StringIO()):
                 self.assertEqual(guard.main(), 2)
-                capture.assert_not_called()
+                run_maven.assert_not_called()
         for option in ("-Darguments=-f unsafe.xml", "--define=prepareVerifyArgs=${extra}"):
             with self.subTest(option=option), self.assertRaises(guard.Unsafe):
                 guard.check_text(option)
@@ -612,10 +681,11 @@ class ReleaseTests(unittest.TestCase):
             root = Path(directory)
             (root / ".mvn").mkdir()
             with patch.object(sys, "argv", ["guard.py", "run", "mvn", "validate"]), patch.object(
-                guard, "capture"
-            ) as capture, patch("sys.stderr", io.StringIO()):
+                guard, "run_maven"
+            ) as run_maven, patch("sys.stderr", io.StringIO()):
                 for name, option in (
                     ("MAVEN_ARGS", "-Darguments=-funsafe.xml"),
+                    ("MAVEN_ARGS", '-D"arguments=-funsafe.xml"'),
                     ("MAVEN_OPTS", "-DprepareVerifyArgs='-f unsafe.xml'"),
                     ("MAVEN_CONFIG", "-Darguments=${release.extraArgs}"),
                     ("MAVEN_CONFIG", "-D=gpg.bestPractices=false"),
@@ -624,13 +694,14 @@ class ReleaseTests(unittest.TestCase):
                         os.environ, {name: option}, clear=True
                     ):
                         self.assertEqual(guard.main(), 2)
-                        capture.assert_not_called()
+                        run_maven.assert_not_called()
                 with patch.dict(os.environ, {}, clear=True), patch.object(
                     guard, "Path",
                     side_effect=lambda value: root / value if value == ".mvn" else Path(value)
                 ):
                     for name, option in (
                         ("maven.config", "-DprepareVerifyArgs=--file unsafe.xml"),
+                        ("maven.config", '-D"arguments=-funsafe.xml"'),
                         ("maven.config", "-D=gpg.bestPractices=false"),
                         ("maven.config", "--D\narguments=-funsafe.xml\n"),
                         ("maven.config", "--D\ngoals=-Xverify\n"),
@@ -639,7 +710,7 @@ class ReleaseTests(unittest.TestCase):
                         with self.subTest(name=name):
                             (root / ".mvn" / name).write_text(option)
                             self.assertEqual(guard.main(), 2)
-                            capture.assert_not_called()
+                            run_maven.assert_not_called()
                             (root / ".mvn" / name).unlink()
 
     def test_release_autopublish_property_must_be_boolean(self):
@@ -655,9 +726,14 @@ class ReleaseTests(unittest.TestCase):
                 guard.check_policy(root)
             for option in ("-Drelease.autopublish=-Xverify", "-Drelease.autopublish=maybe",
                            "--define=release.autopublish=false -Xverify",
-                           "--Drelease.autopublish=false -Xverify"):
+                           "--Drelease.autopublish=false -Xverify",
+                           "-Drelease.autopublish=tr'ue",
+                           "-Drelease.autopublish=fal'se"):
                 with self.subTest(option=option), self.assertRaises(guard.Unsafe):
                     guard.check_text(option, maven_arguments=[option])
+            for option in ("-Drelease.autopublish=true",
+                           '-D"release.autopublish=true"'):
+                guard.check_text(option, maven_arguments=[option])
 
     def test_alternate_maven_pom_is_rejected_before_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -768,255 +844,89 @@ class ReleaseTests(unittest.TestCase):
                         process.kill()
                     process.communicate()
 
-    def test_encoded_and_multiline_credentials(self):
-        env = {
-            "MAVEN_GPG_PASSPHRASE": "first line\nsecond line+/=",
-            "SONATYPE_TOKEN_USERNAME": "dummy-user",
-            "SONATYPE_TOKEN_PASSWORD": "dummy-password",
-        }
-        for value in [*env.values(), "dummy-user:dummy-password"]:
-            for encoded in (
-                value,
-                base64.b64encode(value.encode()).decode(),
-                urllib.parse.quote(value, safe=""),
-                urllib.parse.quote(value),
-                urllib.parse.quote(urllib.parse.quote(value)),
-                urllib.parse.quote(urllib.parse.quote(value), safe=""),
-                urllib.parse.quote_plus(value),
-            ):
-                with self.subTest(encoded=encoded):
-                    self.assertEqual(
-                        b"[REDACTED]", guard.redact(encoded.encode(), guard.secret_forms(env))
-                    )
-        self.assertEqual(
-            guard.redact(b'Authorization: Bearer unknown\n-Dpassword="a\nb"', []),
-            b"Authorization: [REDACTED]\n-Dpassword=[REDACTED]",
-        )
-        self.assertEqual(
-            guard.redact(b"Authorization:\nordinary log line\n", []),
-            b"Authorization:\nordinary log line\n",
-        )
 
-    def test_escaped_credential_forms_and_short_values(self):
-        secret = 'a"b\\c&d\'e'
-        forms = guard.secret_forms({"MAVEN_GPG_PASSPHRASE": secret})
-        for escaped in (json.dumps(secret), json.dumps(secret)[1:-1],
-                        html.escape(secret, quote=True), shlex.quote(secret),
-                        secret.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")):
-            with self.subTest(escaped=escaped):
-                self.assertEqual(guard.redact(escaped.encode(), forms), b"[REDACTED]")
-        short = guard.secret_forms({"SKIP_TOKEN": "1"})
-        self.assertEqual(guard.redact(b"1.2.3", short), b"[REDACTED].2.3")
-
-    def test_xml_credential_forms(self):
-        for secret, escaped in (
-            ("a'b&c", "a'b&amp;c"),
-            ("a'b&c", "a&apos;b&amp;c"),
-            ("a'b&c", "a&#39;b&amp;c"),
-            ('alpha"<&beta', 'alpha"&lt;&amp;beta'),
-            ('alpha"<&beta', 'alpha&quot;&lt;&amp;beta'),
-            ("a'\"&b", "a&#39;&quot;&amp;b"),
-            ("alpha>&beta", "alpha>&amp;beta"),
-            ("alpha\tbeta", "alpha&#9;beta"),
-            ("alpha\tbeta", "alpha&#09;beta"),
-            ("alpha\nbeta", "alpha&#10;beta"),
-            ("alpha\rbeta", "alpha&#13;beta"),
-        ):
-            with self.subTest(escaped=escaped):
-                self.assertEqual(
-                    guard.redact(escaped.encode(), guard.secret_forms({"TOKEN": secret})),
-                    b"[REDACTED]",
-                )
-
-    def test_shell_backslash_credential_forms(self):
-        for secret, escaped in (
-            ("alpha beta", r"alpha\ beta"),
-            ("alpha&beta", r"alpha\&beta"),
-            ("alpha'beta", r"alpha\'beta"),
-        ):
-            with self.subTest(escaped=escaped):
-                self.assertEqual(
-                    guard.redact(escaped.encode(), guard.secret_forms({"TOKEN": secret})),
-                    b"[REDACTED]",
-                )
-
-    def test_quoted_property_fallback_redaction(self):
-        output = b'--define "gpg.passphrase =dummy"'
-        self.assertNotIn(b"dummy", guard.redact(output, []))
-
-    def test_inherited_output_pipe_fails_closed_after_maven_exits(self):
+class MavenOutputTests(unittest.TestCase):
+    def run_guard(self, script):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary = root / "mvn"
-            binary.write_text(
-                f"#!{sys.executable}\nimport os, subprocess, sys\n"
-                "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
-                "print(os.environ['MAVEN_GPG_PASSPHRASE'])\n"
-            )
+            binary.write_text(f"#!{sys.executable}\n" + script)
             binary.chmod(0o755)
-            env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"],
-                       MAVEN_GPG_PASSPHRASE="dummy-secret", RELEASE_LOG_DIR=str(root / "logs"))
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts/release/guard.py"), "run", "mvn"],
-                cwd=root, env=env, capture_output=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 2)
-            self.assertNotIn(b"dummy-secret", result.stdout + result.stderr)
-            self.assertFalse((root / "logs").exists())
-
-    def test_quoted_credential_arguments(self):
-        for quote in (b"'", b'"'):
-            for option in (b"-Dpassword=", b"-D=password=", b"--D=password=",
-                           b"--define=token=", b"--define secret=",
-                           b"-define=token=", b"-define secret="):
-                with self.subTest(quote=quote, option=option):
-                    result = guard.redact(quote + option + b"two words\nlast" + quote, [])
-                    self.assertNotIn(b"words", result)
-                    self.assertNotIn(b"last", result)
-                    self.assertIn(b"[REDACTED]", result)
-
-    def test_equals_prefixed_credential_arguments(self):
-        for option in (b"-D=password=", b"--D=password=",
-                       b"--define= password=", b"--define= password =",
-                       b"-Dcredentials=", b"--define=credential="):
-            with self.subTest(option=option):
-                self.assertEqual(
-                    guard.redact(option + b"unregistered-value", []),
-                    option + b"[REDACTED]",
-                )
-
-    def test_whitespace_after_credential_equals_is_redacted(self):
-        for prefix in (b"-Dpassword=", b"--define=token=", b'"-Dpassword='):
-            for value in (b"unregistered-value", b'"unregistered value"'):
-                with self.subTest(prefix=prefix, value=value):
-                    raw = prefix + b" \t" + value
-                    if prefix.startswith(b'"'):
-                        raw += b'"'
-                    result = guard.redact(raw, [])
-                    self.assertNotIn(b"unregistered", result)
-                    self.assertIn(b"[REDACTED]", result)
-
-    def test_escaped_quotes_in_credential_arguments(self):
-        for quote in (b"'", b'"'):
-            secret = b"alpha" + b"\\" + quote + b"beta gamma"
-            for value in (
-                b"-Dpassword=" + quote + secret + quote,
-                quote + b"-Dpassword=" + secret + quote,
-            ):
-                with self.subTest(value=value):
-                    result = guard.redact(value, [])
-                    self.assertNotIn(b"beta", result)
-                    self.assertNotIn(b"gamma", result)
-                    self.assertIn(b"[REDACTED]", result)
-
-    def test_secrets_matching_credential_markers(self):
-        for marker, output in (
-            ("password", b"-Ddb.password=unregistered-value"),
-            ("Authorization", b"Authorization: Bearer unregistered-value"),
-        ):
-            with self.subTest(marker=marker):
-                result = guard.redact(output, guard.secret_forms({"TOKEN": marker}))
-                self.assertNotIn(b"unregistered-value", result)
-                self.assertNotIn(marker.encode(), result)
-
-    def test_overlapping_structured_and_literal_secrets(self):
-        for secret in ("prefix-Authorization: suffix", "prefix-Dpassword=value tail"):
-            with self.subTest(secret=secret):
-                result = guard.redact(secret.encode(), guard.secret_forms({"TOKEN": secret}))
-                self.assertEqual(result, b"[REDACTED]")
-        self.assertEqual(guard.redact(b"ababa", [b"aba"]), b"[REDACTED]")
-
-    def test_quoted_authorization_headers(self):
-        for header in (
-            b'Authorization: Bearer unknown',
-            b'"Authorization": "Bearer unknown"',
-            b"'Proxy-Authorization': 'Basic unknown'",
-        ):
-            with self.subTest(header=header):
-                self.assertEqual(
-                    guard.redact(header, []), header.split(b":", 1)[0] + b": [REDACTED]"
-                )
-
-    def test_split_output_artifacts_and_exit_status(self):
-        with tempfile.TemporaryDirectory() as directory:
-            # Use a real subprocess to verify both console streams and the resulting files.
-            command = [
-                sys.executable,
-                "-c",
-                "import os\nfor fd in (1, 2):\n"
-                ' for part in (b"diagnostic: ", b"dummy-", b"secret\\n"):\n'
-                "  os.write(fd, part)\nraise SystemExit(17)",
-            ]
-            script = (
-                "import guard, os\nfrom pathlib import Path\n"
-                f"raise SystemExit(guard.capture({command!r}, os.environ, "
-                f"guard.secret_forms(os.environ), Path({directory!r})))"
+            env = {key: value for key, value in os.environ.items()
+                   if key not in guard.ENV_OPTIONS}
+            env.update(
+                PATH=str(root) + os.pathsep + env.get("PATH", ""),
+                MAVEN_GPG_PASSPHRASE="dummy-secret",
+                RELEASE_LOG_DIR=str(root / "logs"),
             )
             result = subprocess.run(
-                [sys.executable, "-c", script],
-                capture_output=True,
-                cwd=ROOT / "scripts/release",
-                env=dict(os.environ, MAVEN_GPG_PASSPHRASE="dummy-secret"),
+                [sys.executable, str(ROOT / "scripts/release/guard.py"),
+                 "run", "mvn", "-B", "-ntp", "release:perform"],
+                cwd=root, env=env, capture_output=True, timeout=30,
             )
-            self.assertEqual(result.returncode, 17)
-            for name, console in (("stdout", result.stdout), ("stderr", result.stderr)):
-                self.assertEqual(console, (Path(directory) / (name + ".log")).read_bytes())
-                self.assertEqual(console, b"diagnostic: [REDACTED]\n")
+            self.assertEqual(sorted(path.name for path in root.iterdir()), ["mvn"])
+            return result
 
-    def test_output_failures_preserve_maven_status(self):
+    def test_raw_encoded_and_unknown_output_is_withheld_on_success_and_failure(self):
+        payload = (b"dummy-secret\nAuthorization: Bearer unknown-token\n"
+                   b"$'dummy\\x2dsecret'\nAuthoriz\\u0061tion: unknown-token\n"
+                   b"dummy&#45;secret\n%64%75%6d%6d%79%2dsecret\n\xff\x00")
         for status in (0, 17):
-            for failure in ("directory", "artifact", "stdout", "stderr"):
-                with self.subTest(
-                    status=status, failure=failure
-                ), tempfile.TemporaryDirectory() as directory:
-                    logs = Path(directory) / "logs"
-                    if failure == "directory":
-                        logs.write_text("blocked")
-                    elif failure == "artifact":
-                        logs.mkdir()
-                        (logs / "stdout.log").mkdir()
-                    command = [
-                        sys.executable, "-c",
-                        "import os; os.write(1, b'out\\n'); os.write(2, b'err\\n'); "
-                        f"raise SystemExit({status})",
-                    ]
-                    script = (
-                        "import guard, os\nfrom pathlib import Path\n"
-                        f"raise SystemExit(guard.capture({command!r}, os.environ, [], "
-                        f"Path({str(logs)!r})))"
+            with self.subTest(status=status):
+                result = self.run_guard(
+                    f"import os\nfor fd in (1, 2): os.write(fd, {payload!r})\n"
+                    f"raise SystemExit({status})\n"
+                )
+                self.assertEqual(result.returncode, status)
+                message = (b"Release Maven command succeeded; output withheld.\n"
+                           if status == 0 else
+                           b"Release Maven command failed; output withheld.\n")
+                self.assertEqual(result.stdout, message if status == 0 else b"")
+                self.assertEqual(result.stderr, message if status else b"")
+
+    def test_output_larger_than_previous_capture_limit_is_discarded(self):
+        result = self.run_guard(
+            "import os\n"
+            "for _ in range(80):\n"
+            " for fd in (1, 2): os.write(fd, b'x' * (1024 * 1024))\n"
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b"Release Maven command succeeded; output withheld.\n")
+        self.assertEqual(result.stderr, b"")
+
+    def test_signal_exit_status_is_preserved(self):
+        result = self.run_guard(
+            "import os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n"
+        )
+        self.assertEqual(result.returncode, 128 + signal.SIGTERM)
+        self.assertEqual(result.stderr, b"Release Maven command failed; output withheld.\n")
+
+    def test_closed_console_does_not_change_completed_maven_status(self):
+        for status in (0, 17):
+            with self.subTest(status=status):
+                command = [sys.executable, "-c", f"raise SystemExit({status})"]
+                script = ("import guard, os\n"
+                          f"raise SystemExit(guard.run_maven({command!r}, os.environ))")
+                read_fd, write_fd = os.pipe()
+                os.close(read_fd)
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-c", script], cwd=ROOT / "scripts/release",
+                        stdout=write_fd, stderr=write_fd, timeout=30,
                     )
-                    read_fd, write_fd = os.pipe()
-                    os.close(read_fd)
-                    try:
-                        result = subprocess.run(
-                            [sys.executable, "-c", script], cwd=ROOT / "scripts/release",
-                            stdout=write_fd if failure == "stdout" else subprocess.PIPE,
-                            stderr=write_fd if failure == "stderr" else subprocess.PIPE,
-                        )
-                    finally:
-                        os.close(write_fd)
-                    self.assertEqual(result.returncode, status)
-                    if failure != "stdout":
-                        self.assertEqual(result.stdout, b"out\n")
-                    if failure != "stderr":
-                        self.assertIn(b"err\n", result.stderr)
-                        self.assertIn(b"values withheld", result.stderr)
-                    if failure in ("stdout", "stderr"):
-                        self.assertEqual((logs / "stdout.log").read_bytes(), b"out\n")
-                    if failure != "directory":
-                        self.assertEqual((logs / "stderr.log").read_bytes(), b"err\n")
+                finally:
+                    os.close(write_fd)
+                self.assertEqual(result.returncode, status)
 
-    def test_sanitization_and_memory_failures_write_no_logs(self):
-        for failure in (
-            patch.object(guard, "redact", side_effect=ValueError("secret")),
-            patch.object(guard, "LIMIT", 1),
-        ):
-            with tempfile.TemporaryDirectory() as directory, failure:
-                logs = Path(directory) / "logs"
-                with self.assertRaises((ValueError, guard.Unsafe)):
-                    guard.capture([sys.executable, "-c", 'print("secret")'], os.environ, [], logs)
-                self.assertFalse(logs.exists())
+    def test_launcher_failure_withholds_exception_values(self):
+        with patch.object(guard.subprocess, "Popen", side_effect=OSError("dummy-secret")), \
+             patch.object(sys, "argv", ["guard.py", "run", "mvn"]), \
+             patch.dict(os.environ, {}, clear=True), \
+             patch("sys.stderr", io.StringIO()) as output:
+            self.assertEqual(guard.main(), 2)
+            self.assertNotIn("dummy-secret", output.getvalue())
+            self.assertIn("values withheld", output.getvalue())
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

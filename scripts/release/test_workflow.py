@@ -22,7 +22,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(checkout, validate)
         self.assertLess(validate, credentials)
         self.assertIn('echo "RELEASE_GUARD=$RUNNER_TEMP/release-guard.py" >> "$GITHUB_ENV"', text)
-        self.assertIn('echo "RELEASE_LOG_DIR=$RUNNER_TEMP/release-logs" >> "$GITHUB_ENV"', text)
         self.assertNotRegex(text, r'(?m)^    env:\n(?:.*\n)*?\s+RELEASE_GUARD:')
 
     def test_all_four_maven_invocations_are_guarded(self):
@@ -35,18 +34,10 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any('python3 "$RELEASE_GUARD" run mvn -B -ntp '
                                 in command and goal in command for command in commands), goal)
 
-    def test_sanitized_log_upload_does_not_fail_published_release(self):
-        upload, warning = self.steps[-2:]
-        self.assertTrue(upload.startswith('Upload sanitized release logs\n'))
-        self.assertIn('id: upload-release-logs', upload)
-        self.assertIn('if: always()', upload)
-        self.assertIn('continue-on-error: true', upload)
-        self.assertIn('path: ${{ runner.temp }}/release-logs/*.log', upload)
-        self.assertIn('if-no-files-found: ignore', upload)
-        self.assertRegex(upload, r'uses: actions/upload-artifact@[0-9a-f]{40}')
-        self.assertIn("steps.upload-release-logs.outcome == 'failure'", warning)
-        self.assertIn('::warning::', warning)
-        self.assertIn('do not rerun', warning)
+    def test_release_output_has_no_log_artifacts(self):
+        self.assertNotIn('RELEASE_LOG_DIR', self.workflow)
+        self.assertNotIn('release-logs', self.workflow)
+        self.assertNotIn('actions/upload-artifact@', self.workflow)
 
     def test_invalid_target_tag_stops_before_credentials(self):
         checkout = self.steps[3]

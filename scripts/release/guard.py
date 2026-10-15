@@ -1,27 +1,15 @@
 #!/usr/bin/env python3
-"""Check release defaults and capture Maven output without writing raw credentials.
+"""Validate release configuration and discard credential-bearing Maven output."""
 
-Output is buffered until Maven exits (64 MiB maximum), then sanitized for both the
-console and log artifacts. Child Maven processes run normally; they are not intercepted.
-"""
-
-import base64
-import heapq
-import html
-import json
 import os
 from pathlib import Path
 import re
-import selectors
 import shlex
 import signal
 import subprocess
 import sys
-import time
-import urllib.parse
 import xml.etree.ElementTree as ET
 
-LIMIT = 64 * 1024 * 1024
 ENV_OPTIONS = (
     "MAVEN_ARGS",
     "MAVEN_OPTS",
@@ -53,10 +41,18 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
             r"\1=", value,
         )
 
+    def normalize_outer_property(value):
+        return re.sub(
+            r"(?i)^(--?D\s*|--?define(?:=|\s+))([\"'])(.*)\2$",
+            lambda match: match[1] + match[3], normalize_property(value),
+        )
+
     text = normalize_property(text)
+    # Maven removes quotes before interpreting property names and values.
+    original_maven_arguments = tuple(maven_arguments)
     maven_arguments = tuple(
-        normalize_property(argument)
-        for argument in maven_arguments
+        normalize_property(argument.translate(str.maketrans("", "", "\"'")))
+        for argument in original_maven_arguments
     )
     if re.search(r"(?<![\w-])-[A-Za-z](?:=\s*)?-(?=[A-Za-z-])", text):
         raise Unsafe("combined Maven options are not allowed")
@@ -73,6 +69,8 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         jvm_arguments = shlex.split(text) if jvm_options else []
     except ValueError as error:
         raise Unsafe("malformed release options are not allowed") from error
+    if any(re.match(r"-XX:VMOptionsFile(?:=|$)", argument) for argument in jvm_arguments):
+        raise Unsafe("unverified JVM option files are not allowed")
     def check_pom_option(argument):
         # Maven can split an equals-separated option into a second flag.
         # Keep property values such as -Dsafe=-f intact.
@@ -94,8 +92,14 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
     def check_release_arguments(value):
         if "${" in value:
             raise Unsafe("release arguments must not contain unverified properties")
+        if "\\" in value:
+            raise Unsafe("backslash escapes in release arguments are not allowed")
         try:
-            child_arguments = shlex.split(value)
+            lexer = shlex.shlex(value, posix=True)
+            lexer.whitespace_split = True
+            lexer.escape = ""  # Maven's child tokenizer keeps backslashes literal.
+            lexer.commenters = ""  # Maven does not treat # as a comment here.
+            child_arguments = list(lexer)
         except ValueError as error:
             raise Unsafe("malformed release options are not allowed") from error
         for child_argument in child_arguments:
@@ -116,7 +120,7 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
             rf"(?:--?D\s*|--?define(?:=|\s+))(?:{CHILD_OPTIONS})=(.*)",
             argument, re.I | re.S,
         )
-        if setting:
+        if setting and index >= len(arguments):
             check_release_arguments(setting[1])
     if not option_arguments:
         for setting in re.finditer(
@@ -132,14 +136,53 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         check_autopublish(argument)
     for index, argument in enumerate(maven_arguments):
         previous = maven_arguments[index - 1].strip().strip("\"'") if index else ""
+        raw = original_maven_arguments[index].strip()
+        if len(raw) > 1 and raw[0] in "\"'" and raw[-1] == raw[0]:
+            raw = raw[1:-1]
         if previous in ("-D", "--D", "-define", "--define"):
             argument = normalize_property(previous + " " + argument.strip("\"'"))
+        if re.fullmatch(r"(?:--?D\s*|--?define(?:=|\s+))release\.autopublish=(?:true|false)",
+                        argument, re.I | re.S):
+            raw_option = (previous + " " if previous in ("-D", "--D", "-define", "--define")
+                          else "") + raw
+            raw_option = normalize_outer_property(raw_option)
+            raw_option = re.sub(
+                r"(?i)^(--?D\s*|--?define(?:=|\s+))([\"'])(.*)\2$",
+                lambda match: match[1] + match[3], raw_option,
+            )
+            raw_value = raw_option.rsplit("=", 1)[-1]
+            if raw_value.lower() not in ("true", "false"):
+                raise Unsafe("release.autopublish must be a Boolean")
+        # Quote deletion is useful for finding quoted property names, but it
+        # must not turn a literal value such as tr'ue into a valid Boolean.
+        if re.fullmatch(r"(?:--?D\s*|--?define(?:=|\s+))gpg\.bestPractices=true",
+                        argument, re.I | re.S):
+            raw_option = (previous + " " if previous in ("-D", "--D", "-define", "--define")
+                          else "") + raw
+            value = normalize_outer_property(raw_option).rsplit("=", 1)[-1]
+            if value.lower() != "true":
+                raise Unsafe("GPG best practices must not be disabled")
         check_autopublish(argument)
         setting = re.fullmatch(
             r"(?:--?D\s*|--?define(?:=|\s+))gpg\.bestPractices=(.*)", argument, re.I | re.S
         )
         if setting and setting[1].lower() != "true":
             raise Unsafe("GPG best practices must not be disabled")
+        child_setting = re.fullmatch(
+            rf"(?:--?D\s*|--?define(?:=|\s+))(?:{CHILD_OPTIONS})=(.*)",
+            argument, re.I | re.S,
+        )
+        if child_setting:
+            raw_option = (previous + " " if previous in ("-D", "--D", "-define", "--define")
+                          else "") + raw
+            raw_option = normalize_outer_property(raw_option)
+            raw_setting = re.fullmatch(
+                rf"(?:--?D\s*|--?define(?:=|\s+))[\"']?(?:{CHILD_OPTIONS})[\"']?=(.*)",
+                raw_option, re.I | re.S,
+            )
+            if not raw_setting:
+                raise Unsafe("malformed release options are not allowed")
+            check_release_arguments(raw_setting[1])
     # Preserve whitespace inside quoted GPG values when checking the full boolean.
     gpg_text = re.sub(
         r"([\"'])((?:\\.|(?!\1)[\s\S])*)\1",
@@ -188,9 +231,24 @@ def check_text(text, source=None, maven_options=True, maven_arguments=(), jvm_op
         raise Unsafe("debug logging or credential arguments are not allowed")
 
 
+def check_ancestor_maven_config(root):
+    # Without a local .mvn directory Maven searches parents for one.
+    if (root / ".mvn").is_dir():
+        return
+    for parent in root.parents:
+        if (parent / ".mvn").is_dir():
+            if any((parent / ".mvn" / name).exists()
+                   for name in ("maven.config", "jvm.config")):
+                raise Unsafe("ancestor Maven configuration is not allowed")
+            return
+
+
 def check_policy(root):
+    check_ancestor_maven_config(root)
     ns = {"m": "http://maven.apache.org/POM/4.0.0"}
     pom = ET.parse(root / "pom.xml").getroot()
+    if pom.find("m:parent", ns) is not None:
+        raise Unsafe("parent Maven POMs are not verified for release")
     if pom.findtext("m:properties/m:gpg.bestPractices", namespaces=ns) != "true":
         raise Unsafe("enable GPG best practices before releasing this target")
     root_plugins = pom.findall("m:build/m:plugins/m:plugin", ns)
@@ -273,160 +331,17 @@ def check_policy(root):
     if makefile.exists():
         for line in makefile.read_text().splitlines():
             if re.search(r"\$\(MVNCMD\).*\brelease:", line) and "$(RELEASE_GUARD)" not in line:
-                raise Unsafe("release target must use sanitized log capture")
+                raise Unsafe("release target must use guarded output suppression")
 
 
-def secret_forms(env):
-    values = {
-        v
-        for k, v in env.items()
-        if v and re.search(r"PASSWORD|PASSPHRASE|TOKEN|SECRET|CREDENTIALS?|PRIVATE_KEY|AUTHORIZATION", k, re.I)
-    }
-    user, password = env.get("SONATYPE_TOKEN_USERNAME"), env.get("SONATYPE_TOKEN_PASSWORD")
-    if user and password:
-        values.add(user + ":" + password)
-    # Include multiline components, escaped newlines, URL and both Base64 alphabets.
-    values |= {line for value in values for line in value.splitlines() if line}
-    values |= {value.replace("\n", "\\n").replace("\r", "\\r") for value in values}
-    forms = set(values)
-    for value in values:
-        raw = value.encode()
-        xml_text = value.replace("&", "&amp;").replace("<", "&lt;")
-        forms.update(
-            (
-                base64.b64encode(raw).decode(),
-                base64.urlsafe_b64encode(raw).decode(),
-                json.dumps(value),
-                json.dumps(value)[1:-1],
-                html.escape(value, quote=True),
-                shlex.quote(value),
-                re.sub(r"([^\w@%+=:,./-])", r"\\\1", value),
-                value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'"),
-                urllib.parse.quote(value, safe=""),
-                urllib.parse.quote(value),
-                urllib.parse.quote_plus(value, safe=""),
-            )
-        )
-        # XML serializers differ in escaping >, attribute quotes, and whitespace.
-        xml_variants = {xml_text}
-        for character, entities in (
-            ("\t", ("&#9;", "&#09;", "&#x9;", "&#x09;")),
-            ("\n", ("&#10;", "&#010;", "&#xA;", "&#x0A;")),
-            ("\r", ("&#13;", "&#013;", "&#xD;", "&#x0D;")),
-        ):
-            if character in xml_text:
-                xml_variants = {
-                    variant.replace(character, entity)
-                    for variant in xml_variants
-                    for entity in (character, *entities)
-                }
-        for xml_variant in xml_variants:
-            for greater in (">", "&gt;"):
-                for double in ('"', "&quot;"):
-                    for single in ("'", "&apos;", "&#39;", "&#x27;"):
-                        forms.add(
-                            xml_variant.replace(">", greater)
-                            .replace('"', double)
-                            .replace("'", single)
-                        )
-    for value in tuple(forms):
-        forms.add(urllib.parse.quote(value, safe=""))
-        forms.add(urllib.parse.quote(value))
-        forms.add(value.rstrip("="))
-    return sorted((v.encode() for v in forms if v), key=len, reverse=True)
-
-
-def redact(data, forms):
-    # Match every source against the original bytes so replacements cannot hide secrets.
-    def spans(pattern, group, flags=0):
-        return (match.span(group) for match in re.finditer(pattern, data, flags))
-
-    matches = [
-        spans(
-            rb"(?i)([\"'])((?:--?D[=\s]*|--?define[=\s]+)[\"']?[\w.-]*"
-            rb"(?:passphrase|password|username|token|secret|credentials?|authorization)[\w.-]*[ \t]*=[ \t]*)"
-            rb"((?:\\[\s\S]|(?!\1)[^\\])*)\1", 3,
-        ),
-        spans(
-            rb"(?i)((?:--?D[=\s]*|--?define[=\s]+)[\"']?[\w.-]*"
-            rb"(?:passphrase|password|username|token|secret|credentials?|authorization)[\w.-]*[ \t]*=[ \t]*)"
-            rb"(\"(?:\\[\s\S]|[^\"\\])*\"|'(?:\\[\s\S]|[^'\\])*'|[^\s]+)", 2,
-        ),
-        spans(rb"(?im)((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*)([^\r\n]*)", 2),
-    ]
-    for value in forms:
-        # Lookahead includes overlapping occurrences; percent escapes ignore case.
-        matches.append(spans(b"(?=(" + re.escape(value) + b"))", 1, re.I if b"%" in value else 0))
-    output = bytearray()
-    start = end = 0
-    for left, right in heapq.merge(*matches):
-        if left > end:
-            if end > start:
-                output.extend(b"[REDACTED]")
-            output.extend(data[end:left])
-            start = left
-        end = max(end, right)
-    if end > start:
-        output.extend(b"[REDACTED]")
-    output.extend(data[end:])
-    return bytes(output)
-
-
-def capture(command, env, forms, logs):
-    """Never spool raw output. Limit memory and terminate the process group on failure."""
+def run_maven(command, env):
+    """Discard child output without buffering, decoding, or writing log artifacts."""
     process = subprocess.Popen(
-        command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
+        command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
     )
-    buffers = [bytearray(), bytearray()]
     try:
-        with selectors.DefaultSelector() as selector:
-            selector.register(process.stdout, selectors.EVENT_READ, 0)
-            selector.register(process.stderr, selectors.EVENT_READ, 1)
-            drain_deadline = None
-            while selector.get_map():
-                for key, _ in selector.select(timeout=0.2):
-                    chunk = os.read(key.fileobj.fileno(), 65536)
-                    if not chunk:
-                        selector.unregister(key.fileobj)
-                    else:
-                        buffers[key.data].extend(chunk)
-                        if sum(map(len, buffers)) > LIMIT:
-                            raise Unsafe("release output exceeds memory limit")
-                if process.poll() is not None:
-                    if drain_deadline is None:
-                        drain_deadline = time.monotonic() + 5
-                    elif time.monotonic() > drain_deadline:
-                        raise Unsafe("release output capture did not finish")
         status = process.wait()
-        # Sanitize both streams completely before opening artifacts or emitting output.
-        clean = [redact(bytes(buffer), forms) for buffer in buffers]
-        output_failed = False
-        for name, data, stream in zip(("stdout", "stderr"), clean, (sys.stdout, sys.stderr)):
-            try:
-                logs.mkdir(parents=True, exist_ok=True)
-                with (logs / (name + ".log")).open("ab") as output:
-                    output.write(data)
-            except OSError:
-                output_failed = True
-            try:
-                stream.buffer.write(data)
-                stream.flush()
-            except OSError:
-                output_failed = True
-                # Prevent a failed shutdown flush from replacing Maven's exit status.
-                try:
-                    with open(os.devnull, "wb") as sink:
-                        os.dup2(sink.fileno(), stream.fileno())
-                except OSError:
-                    pass
-        if output_failed:
-            try:
-                os.write(
-                    2, b"Sanitized release output could not be fully written; values withheld.\n"
-                )
-            except OSError:
-                pass
-        return status if status >= 0 else 128 - status
     except BaseException:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -434,9 +349,15 @@ def capture(command, env, forms, logs):
             pass
         process.wait()
         raise
-    finally:
-        process.stdout.close()
-        process.stderr.close()
+    status = status if status >= 0 else 128 - status
+    # A closed console must not turn a completed release into a failed release.
+    message = (b"Release Maven command succeeded; output withheld.\n" if status == 0
+               else b"Release Maven command failed; output withheld.\n")
+    try:
+        os.write(1 if status == 0 else 2, message)
+    except OSError:
+        pass
+    return status
 
 
 def interrupted(signum, frame):
@@ -473,6 +394,7 @@ def main():
             return 0
         if sys.argv[1:3] != ["run", "mvn"]:
             raise Unsafe("expected check or run mvn ...")
+        check_ancestor_maven_config(Path.cwd())
         if any(arg.startswith("-X") for arg in sys.argv[3:]):
             raise Unsafe("Maven debug options are not allowed")
         check_text(" ".join(sys.argv[3:]), maven_arguments=sys.argv[3:])
@@ -488,16 +410,11 @@ def main():
             signal.signal(signum, interrupted)
         # The Maven launcher otherwise sources unchecked system and user mavenrc files.
         maven_env = dict(os.environ, MAVEN_SKIP_RC="1")
-        return capture(
-            sys.argv[2:],
-            maven_env,
-            secret_forms(maven_env),
-            Path(os.environ.get("RELEASE_LOG_DIR", "/tmp/release-logs")),
-        )
+        return run_maven(sys.argv[2:], maven_env)
     except Exception:
         # Exception values can contain credentials. Do not echo them.
         print(
-            "Release safety check or sanitized log capture failed; values withheld.",
+            "Release safety check or Maven execution failed; values withheld.",
             file=sys.stderr,
         )
         return 2

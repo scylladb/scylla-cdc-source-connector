@@ -61,9 +61,7 @@ jobs:
       - name: Preserve release guard
         run: |
           cp scripts/release/guard.py "$RUNNER_TEMP/release-guard.py"
-          mkdir -p "$RUNNER_TEMP/release-logs"
           echo "RELEASE_GUARD=$RUNNER_TEMP/release-guard.py" >> "$GITHUB_ENV"
-          echo "RELEASE_LOG_DIR=$RUNNER_TEMP/release-logs" >> "$GITHUB_ENV"
 
       - name: Checkout historical release target
         if: inputs.target-tag != 'master'
@@ -269,17 +267,3 @@ jobs:
             --assignee "${GITHUB_ACTOR}" \
             --title "Manual action: notify Confluent Hub about ${RELEASE_TAG:-the latest release}" \
             --body "$BODY"
-
-      - name: Upload sanitized release logs
-        id: upload-release-logs
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: maven-stdout
-          path: ${{ runner.temp }}/release-logs/*.log
-          if-no-files-found: ignore
-
-      - name: Warn if sanitized release logs could not be uploaded
-        if: always() && steps.upload-release-logs.outcome == 'failure'
-        run: echo "::warning::Sanitized release logs could not be uploaded; do not rerun the release workflow."
