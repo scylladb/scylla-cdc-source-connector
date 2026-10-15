@@ -350,12 +350,12 @@ def run_maven(command, env):
         process.wait()
         raise
     status = status if status >= 0 else 128 - status
-    # A closed console must not turn a completed release into a failed release.
     message = (b"Release Maven command succeeded; output withheld.\n" if status == 0
                else b"Release Maven command failed; output withheld.\n")
     try:
         os.write(1 if status == 0 else 2, message)
     except OSError:
+        # A closed console must not turn a completed release into a failed release.
         pass
     return status
 
