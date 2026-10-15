@@ -3,6 +3,7 @@ package com.scylladb.cdc.debezium.connector;
 import com.datastax.driver.core.utils.Bytes;
 import com.scylladb.cdc.model.TableName;
 import com.scylladb.cdc.model.TaskId;
+import com.scylladb.cdc.model.worker.ChangeId;
 import com.scylladb.cdc.model.worker.TaskState;
 import io.debezium.connector.common.BaseSourceInfo;
 import io.debezium.util.Collect;
@@ -23,6 +24,8 @@ public class SourceInfo extends BaseSourceInfo {
 
   private final TaskId taskId;
   private TaskState taskState;
+  // The change being emitted. Unlike taskState, it may be mid-batch, so it is never persisted.
+  private ChangeId currentChangeId;
 
   protected SourceInfo(ScyllaConnectorConfig connectorConfig, TaskId taskId) {
     super(connectorConfig);
@@ -72,6 +75,22 @@ public class SourceInfo extends BaseSourceInfo {
 
   public void dataChangeEvent(TaskState taskState) {
     setTaskState(taskState);
+    currentChangeId = null;
+  }
+
+  void dataChangeEvent(TaskState taskState, ChangeId currentChangeId) {
+    setTaskState(taskState);
+    this.currentChangeId = currentChangeId;
+  }
+
+  private ChangeId timestampChangeId() {
+    if (currentChangeId != null) {
+      return currentChangeId;
+    }
+    return taskState
+        .getLastConsumedChangeId()
+        .orElseThrow(
+            () -> new IllegalStateException("No change to take the source timestamp from"));
   }
 
   public TableName getTableName() {
@@ -80,11 +99,11 @@ public class SourceInfo extends BaseSourceInfo {
 
   @Override
   protected Instant timestamp() {
-    return taskState.getLastConsumedChangeId().get().getChangeTime().getDate().toInstant();
+    return timestampChangeId().getChangeTime().getDate().toInstant();
   }
 
   public long timestampUs() {
-    return taskState.getLastConsumedChangeId().get().getChangeTime().getTimestamp();
+    return timestampChangeId().getChangeTime().getTimestamp();
   }
 
   @Override

@@ -1,6 +1,5 @@
 package com.scylladb.cdc.debezium.connector;
 
-import com.scylladb.cdc.model.worker.ChangeId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.Task;
@@ -219,33 +218,32 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
           default:
         }
         if (taskInfo == null) {
-          // If it is event that consumer ignores we advance the state without dispatching
-          advanceStateWithoutDispatching(task, change.getId());
+          // If it is event that consumer ignores we record the offset without dispatching
+          updateOffset(task, change);
         } else if (taskInfo.isComplete()) {
-          // If it is final event that task expects we advance the state and dispatch
+          // If it is final event that task expects we record the offset and dispatch
           taskInfoMap.remove(rowKey);
-          advanceStateAndDispatch(task, change.getId(), taskInfo);
+          updateOffsetAndDispatch(task, change, taskInfo);
         }
         // If task is not complete yet (e.g., received PRE_IMAGE but waiting for change),
-        // do NOT advance state - just store the event and return. The state will be
-        // advanced when the task becomes complete.
+        // just store the event and return. The offset is recorded when the task completes.
         return CompletableFuture.completedFuture(null);
       }
       switch (operationType) {
         case ROW_DELETE:
         case ROW_INSERT:
         case ROW_UPDATE:
-          advanceStateAndDispatch(task, change.getId(), new TaskInfo.Basic().setChange(change));
+          updateOffsetAndDispatch(task, change, new TaskInfo.Basic().setChange(change));
           break;
         case PARTITION_DELETE:
           if (isSinglePartitionDelete(change.getSchema())) {
-            advanceStateAndDispatch(task, change.getId(), new TaskInfo.Basic().setChange(change));
+            updateOffsetAndDispatch(task, change, new TaskInfo.Basic().setChange(change));
           } else {
-            advanceStateWithoutDispatching(task, change.getId());
+            updateOffset(task, change);
           }
           break;
         default:
-          advanceStateWithoutDispatching(task, change.getId());
+          updateOffset(task, change);
       }
     } catch (InterruptedException e) {
       logger.error(
@@ -282,16 +280,15 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
             column -> column.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY);
   }
 
-  TaskStateOffsetContext advanceStateWithoutDispatching(Task task, ChangeId changeId) {
-    Task updatedTask = task.updateState(changeId);
+  TaskStateOffsetContext updateOffset(Task task, RawChange change) {
     TaskStateOffsetContext taskStateOffsetContext = offsetContext.taskStateOffsetContext(task.id);
-    taskStateOffsetContext.dataChangeEvent(updatedTask.state);
+    taskStateOffsetContext.dataChangeEvent(task, change);
     return taskStateOffsetContext;
   }
 
-  void advanceStateAndDispatch(Task task, ChangeId changeId, TaskInfo taskInfo)
+  void updateOffsetAndDispatch(Task task, RawChange change, TaskInfo taskInfo)
       throws InterruptedException {
-    TaskStateOffsetContext taskStateOffsetContext = advanceStateWithoutDispatching(task, changeId);
+    TaskStateOffsetContext taskStateOffsetContext = updateOffset(task, change);
     dispatcher.dispatchDataChangeEvent(
         new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo),
         new CollectionId(task.id.getTable()),
