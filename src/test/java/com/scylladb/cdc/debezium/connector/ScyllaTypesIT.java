@@ -288,7 +288,7 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
     session.execute(
         "CREATE KEYSPACE IF NOT EXISTS "
             + getSuiteKeyspaceName()
-            + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+            + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1} AND tablets = {'enabled': false};");
 
     synchronized (DDL_LOCK) {
       // Create any custom types (UDTs) before the table

@@ -41,7 +41,7 @@ public class CdcTableOptionsValidatorIT extends AbstractContainerBaseIT {
     session.execute(
         "CREATE KEYSPACE IF NOT EXISTS "
             + KEYSPACE
-            + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
+            + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1} AND tablets = {'enabled': false}");
 
     // Create table with CDC but no preimage/postimage
     session.execute(
