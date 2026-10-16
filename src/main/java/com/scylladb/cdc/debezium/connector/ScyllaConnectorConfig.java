@@ -238,15 +238,19 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
-              "How often the connector asks Kafka Connect to recompute its task configurations. Kafka "
-                  + "Connect can silently drop the single reconfiguration request issued after CDC streams "
-                  + "are discovered (for example during a rebalance), leaving the connector RUNNING with no "
-                  + "tasks; repeating the request recovers from that. Unchanged configurations are ignored by "
-                  + "Kafka Connect, so the request is cheap. Set to 0 to disable; otherwise must be at least "
+              "How long, in milliseconds, Kafka Connect may go without recomputing the connector's "
+                  + "task configurations before the connector asks it to. Kafka Connect can silently drop "
+                  + "the single reconfiguration request issued after CDC streams are discovered (for "
+                  + "example during a rebalance), leaving the connector RUNNING with no tasks; repeating "
+                  + "the request recovers once Kafka Connect processes one. Each request makes Kafka "
+                  + "Connect call taskConfigs(), which rebuilds, serializes and packs all stream "
+                  + "assignments and, while tablet migrations are pending, reads offset storage. Keep the "
+                  + "value above 60000 so requests do not overlap Kafka Connect's own retries of a failed "
+                  + "reconfiguration. Set to 0 to disable; otherwise must be at least "
                   + MIN_TASK_RECONFIGURATION_INTERVAL_MS
-                  + " ms. Value expressed in milliseconds.")
+                  + " ms.")
           .withValidation(ScyllaConnectorConfig::validateTaskReconfigurationInterval)
-          .withDefault(30000L);
+          .withDefault(120000L);
 
   public static final Field INITIAL_LOOKBACK_MS =
       Field.create("scylla.initial.lookback.ms")
@@ -1140,8 +1144,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   }
 
   /**
-   * Validates that worker.max.retries is a positive integer or -1 (unlimited). Rejects 0 and
-   * negative values other than -1 at config time so they don't cause runtime crashes.
+   * Validates that the task reconfiguration interval is 0 (disabled) or at least {@link
+   * #MIN_TASK_RECONFIGURATION_INTERVAL_MS}.
    */
   private static int validateTaskReconfigurationInterval(
       Configuration config, Field field, Field.ValidationOutput problems) {
@@ -1165,6 +1169,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     }
   }
 
+  /**
+   * Validates that worker.max.retries is a positive integer or -1 (unlimited). Rejects 0 and
+   * negative values other than -1 at config time so they don't cause runtime crashes.
+   */
   private static int validateMaxWorkerAttempts(
       Configuration config, Field field, Field.ValidationOutput problems) {
     String stringValue = config.getString(field);

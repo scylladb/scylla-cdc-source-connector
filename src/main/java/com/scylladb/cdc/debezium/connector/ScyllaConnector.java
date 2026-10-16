@@ -42,7 +42,7 @@ public class ScyllaConnector extends SourceConnector {
   private ScyllaMasterTransport masterTransport;
   private ExecutorService masterExecutor;
   private Driver3Session masterSession;
-  private TaskReconfigurationRefresher taskReconfigurationRefresher;
+  private volatile TaskReconfigurationRefresher taskReconfigurationRefresher;
 
   public ScyllaConnector() {}
 
@@ -108,6 +108,17 @@ public class ScyllaConnector extends SourceConnector {
 
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
+    try {
+      return buildTaskConfigs(maxTasks);
+    } finally {
+      TaskReconfigurationRefresher refresher = this.taskReconfigurationRefresher;
+      if (refresher != null) {
+        refresher.onTaskConfigsCalled();
+      }
+    }
+  }
+
+  private List<Map<String, String>> buildTaskConfigs(int maxTasks) {
     ScyllaMasterTransport.WorkerConfigurations workerConfigurations =
         masterTransport.getWorkerConfigurations();
     int maxWorkerConfigBytes = config.getInteger(ScyllaConnectorConfig.MAX_WORKER_CONFIG_BYTES);

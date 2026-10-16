@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.debezium.config.Configuration;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.common.config.ConfigValue;
 import org.junit.jupiter.api.Test;
@@ -36,12 +37,31 @@ class TaskReconfigurationRefresherTest {
   }
 
   @Test
+  void waitsWhileKafkaConnectKeepsCallingTaskConfigs() throws Exception {
+    AtomicInteger requests = new AtomicInteger();
+    try (TaskReconfigurationRefresher refresher =
+        new TaskReconfigurationRefresher(requests::incrementAndGet, 300)) {
+      // Simulates Kafka Connect retrying a failed reconfiguration well within the interval.
+      long retryUntil = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+      while (System.nanoTime() < retryUntil) {
+        refresher.onTaskConfigsCalled();
+        Thread.sleep(10);
+      }
+      assertEquals(0, requests.get());
+      awaitAtLeast(requests, 1);
+    }
+  }
+
+  @Test
   void stopsRequestingAfterClose() throws Exception {
     AtomicInteger requests = new AtomicInteger();
     TaskReconfigurationRefresher refresher =
         new TaskReconfigurationRefresher(requests::incrementAndGet, 10);
-    awaitAtLeast(requests, 1);
-    refresher.close();
+    try {
+      awaitAtLeast(requests, 1);
+    } finally {
+      refresher.close();
+    }
     Thread.sleep(50);
     int afterClose = requests.get();
     Thread.sleep(100);
@@ -49,9 +69,9 @@ class TaskReconfigurationRefresherTest {
   }
 
   @Test
-  void intervalDefaultsTo30sAllowsZeroAndRejectsTinyValues() {
+  void intervalDefaultsTo120sAllowsZeroAndRejectsTinyValues() {
     ScyllaConnectorConfig defaults = new ScyllaConnectorConfig(baseConfig().build());
-    assertEquals(30000L, defaults.getTaskReconfigurationIntervalMs());
+    assertEquals(120000L, defaults.getTaskReconfigurationIntervalMs());
     assertTrue(validate("0").errorMessages().isEmpty());
     assertTrue(validate("1000").errorMessages().isEmpty());
     assertFalse(validate("999").errorMessages().isEmpty());
