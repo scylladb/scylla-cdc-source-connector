@@ -68,9 +68,8 @@ public class ScyllaChangesConsumerLegacy implements TaskAndRawChangeConsumer {
         return CompletableFuture.completedFuture(null);
       }
 
-      Task updatedTask = task.updateState(change.getId());
       TaskStateOffsetContext taskStateOffsetContext = offsetContext.taskStateOffsetContext(task.id);
-      taskStateOffsetContext.dataChangeEvent(updatedTask.state);
+      taskStateOffsetContext.dataChangeEvent(task, change);
 
       RawChange.OperationType operationType = change.getOperationType();
       ChangeSchema changeSchema = change.getSchema();

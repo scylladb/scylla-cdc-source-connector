@@ -134,7 +134,8 @@ final class ScyllaOffsetContextLoader {
     return new ScyllaOffsetContext(sourceInfos, migrationTaskStates, new TransactionContext());
   }
 
-  private static TaskState deserializeTaskState(Map<String, Object> offset) {
+  /** Package-private: visible for testing. */
+  static TaskState deserializeTaskState(Map<String, Object> offset) {
     Timestamp windowStart =
         new Timestamp(
             new Date(
