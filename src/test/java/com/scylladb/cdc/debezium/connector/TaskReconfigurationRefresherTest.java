@@ -49,12 +49,15 @@ class TaskReconfigurationRefresherTest {
   }
 
   @Test
-  void intervalDefaultsTo30sAndAllowsZero() {
+  void intervalDefaultsTo30sAllowsZeroAndRejectsTinyValues() {
     ScyllaConnectorConfig defaults = new ScyllaConnectorConfig(baseConfig().build());
     assertEquals(30000L, defaults.getTaskReconfigurationIntervalMs());
     assertTrue(validate("0").errorMessages().isEmpty());
     assertTrue(validate("1000").errorMessages().isEmpty());
+    assertFalse(validate("999").errorMessages().isEmpty());
+    assertFalse(validate("1").errorMessages().isEmpty());
     assertFalse(validate("-1").errorMessages().isEmpty());
+    assertFalse(validate("abc").errorMessages().isEmpty());
   }
 
   private static Configuration.Builder baseConfig() {

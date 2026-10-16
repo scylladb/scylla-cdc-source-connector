@@ -229,6 +229,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withValidation(Field::isNonNegativeInteger)
           .withDefault(0);
 
+  static final long MIN_TASK_RECONFIGURATION_INTERVAL_MS = 1000L;
+
   public static final Field TASK_RECONFIGURATION_INTERVAL_MS =
       Field.create("scylla.task.reconfiguration.interval.ms")
           .withDisplayName("Task reconfiguration interval (ms)")
@@ -240,8 +242,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "Connect can silently drop the single reconfiguration request issued after CDC streams "
                   + "are discovered (for example during a rebalance), leaving the connector RUNNING with no "
                   + "tasks; repeating the request recovers from that. Unchanged configurations are ignored by "
-                  + "Kafka Connect, so the request is cheap. Set to 0 to disable. Value expressed in milliseconds.")
-          .withValidation(Field::isNonNegativeLong)
+                  + "Kafka Connect, so the request is cheap. Set to 0 to disable; otherwise must be at least "
+                  + MIN_TASK_RECONFIGURATION_INTERVAL_MS
+                  + " ms. Value expressed in milliseconds.")
+          .withValidation(ScyllaConnectorConfig::validateTaskReconfigurationInterval)
           .withDefault(30000L);
 
   public static final Field INITIAL_LOOKBACK_MS =
@@ -1139,6 +1143,28 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
    * Validates that worker.max.retries is a positive integer or -1 (unlimited). Rejects 0 and
    * negative values other than -1 at config time so they don't cause runtime crashes.
    */
+  private static int validateTaskReconfigurationInterval(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String stringValue = config.getString(field);
+    if (stringValue == null || stringValue.isEmpty()) {
+      return 0; // will use default
+    }
+    try {
+      long value = Long.parseLong(stringValue.trim());
+      if (value != 0 && value < MIN_TASK_RECONFIGURATION_INTERVAL_MS) {
+        problems.accept(
+            field,
+            value,
+            "Must be 0 (disabled) or at least " + MIN_TASK_RECONFIGURATION_INTERVAL_MS + " ms");
+        return 1;
+      }
+      return 0;
+    } catch (NumberFormatException e) {
+      problems.accept(field, stringValue, "Must be a valid long");
+      return 1;
+    }
+  }
+
   private static int validateMaxWorkerAttempts(
       Configuration config, Field field, Field.ValidationOutput problems) {
     String stringValue = config.getString(field);
