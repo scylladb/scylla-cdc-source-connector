@@ -229,6 +229,21 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withValidation(Field::isNonNegativeInteger)
           .withDefault(0);
 
+  public static final Field TASK_RECONFIGURATION_INTERVAL_MS =
+      Field.create("scylla.task.reconfiguration.interval.ms")
+          .withDisplayName("Task reconfiguration interval (ms)")
+          .withType(ConfigDef.Type.LONG)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDescription(
+              "How often the connector asks Kafka Connect to recompute its task configurations. Kafka "
+                  + "Connect can silently drop the single reconfiguration request issued after CDC streams "
+                  + "are discovered (for example during a rebalance), leaving the connector RUNNING with no "
+                  + "tasks; repeating the request recovers from that. Unchanged configurations are ignored by "
+                  + "Kafka Connect, so the request is cheap. Set to 0 to disable. Value expressed in milliseconds.")
+          .withValidation(Field::isNonNegativeLong)
+          .withDefault(30000L);
+
   public static final Field INITIAL_LOOKBACK_MS =
       Field.create("scylla.initial.lookback.ms")
           .withDisplayName("Initial lookback window (ms)")
@@ -641,6 +656,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               CONFIDENCE_WINDOW_SIZE,
               MINIMAL_WAIT_FOR_WINDOW_MS,
               MAX_WORKER_CONFIG_BYTES,
+              TASK_RECONFIGURATION_INTERVAL_MS,
               INITIAL_LOOKBACK_MS,
               CDC_OUTPUT_FORMAT,
               PREIMAGES_ENABLED,
@@ -791,6 +807,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public long getMinimalWaitForWindowMs() {
     return config.getInteger(ScyllaConnectorConfig.MINIMAL_WAIT_FOR_WINDOW_MS);
+  }
+
+  public long getTaskReconfigurationIntervalMs() {
+    return config.getLong(ScyllaConnectorConfig.TASK_RECONFIGURATION_INTERVAL_MS);
   }
 
   public long getInitialLookbackMs() {

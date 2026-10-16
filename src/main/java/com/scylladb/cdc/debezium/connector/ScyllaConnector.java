@@ -42,6 +42,7 @@ public class ScyllaConnector extends SourceConnector {
   private ScyllaMasterTransport masterTransport;
   private ExecutorService masterExecutor;
   private Driver3Session masterSession;
+  private TaskReconfigurationRefresher taskReconfigurationRefresher;
 
   public ScyllaConnector() {}
 
@@ -62,6 +63,13 @@ public class ScyllaConnector extends SourceConnector {
     // Start master, which will watch for
     // new generations.
     this.startMaster(connectorConfig);
+
+    long refreshIntervalMs = connectorConfig.getTaskReconfigurationIntervalMs();
+    if (refreshIntervalMs > 0) {
+      this.taskReconfigurationRefresher =
+          new TaskReconfigurationRefresher(
+              () -> context().requestTaskReconfiguration(), refreshIntervalMs);
+    }
   }
 
   private Master buildMaster(ScyllaConnectorConfig connectorConfig) {
@@ -128,6 +136,10 @@ public class ScyllaConnector extends SourceConnector {
     // Clear interrupt flag so the graceful termination is always attempted.
     Thread.interrupted();
 
+    if (this.taskReconfigurationRefresher != null) {
+      this.taskReconfigurationRefresher.close();
+      this.taskReconfigurationRefresher = null;
+    }
     if (this.masterExecutor != null) {
       this.masterExecutor.shutdownNow();
     }
