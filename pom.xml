@@ -230,7 +230,7 @@
         <log4j.version>2.25.5</log4j.version>
         <jackson.version>2.22.3</jackson.version>
         <guava.version>33.5.0-jre</guava.version>
-        <jetty.version>12.1.10</jetty.version>
+        <jetty.version>12.1.14</jetty.version>
         <commons.version>3.19.0</commons.version>
     </properties>
 
