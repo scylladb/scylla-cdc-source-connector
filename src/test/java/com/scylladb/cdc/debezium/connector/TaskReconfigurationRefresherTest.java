@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.debezium.config.Configuration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -27,11 +28,33 @@ class TaskReconfigurationRefresherTest {
   }
 
   @Test
-  void addsAtMostOneRetryChainWhenFailingBeforeTaskConfigs() {
+  void addsABoundedNumberOfRetryChainsWhenFailingBeforeTaskConfigs() {
     FakeConnect connect = new FakeConnect(Failure.BEFORE_TASK_CONFIGS);
     connect.run(TimeUnit.HOURS.toMillis(1));
-    assertEquals(1, connect.refresherRequests);
-    assertEquals(2, connect.chains.size());
+    int max = TaskReconfigurationRefresher.MAX_UNANSWERED_REQUESTS;
+    assertEquals(max, connect.refresherRequests);
+    assertEquals(max + 1, connect.chains.size());
+  }
+
+  @Test
+  void keepsRequestingOncePerIntervalWhileHealthy() {
+    FakeConnect connect = new FakeConnect(Failure.NONE);
+    connect.run(TimeUnit.HOURS.toMillis(1));
+    long intervals = TimeUnit.HOURS.toMillis(1) / INTERVAL_MS;
+    assertTrue(
+        connect.refresherRequests >= intervals - 1, "requests: " + connect.refresherRequests);
+    assertTrue(connect.refresherRequests <= intervals, "requests: " + connect.refresherRequests);
+    assertTrue(connect.chains.isEmpty());
+  }
+
+  @Test
+  void recoversWhenRequestsAreSkippedBeforeTaskConfigs() {
+    FakeConnect connect = new FakeConnect(Failure.NONE);
+    // Connect's start request and the next refresher requests never reach taskConfigs().
+    connect.skipsLeft = TaskReconfigurationRefresher.MAX_UNANSWERED_REQUESTS;
+    connect.run(TimeUnit.HOURS.toMillis(1));
+    assertTrue(connect.published);
+    assertTrue(connect.chains.isEmpty());
   }
 
   @Test
@@ -81,6 +104,38 @@ class TaskReconfigurationRefresherTest {
     now[0] += TimeUnit.MILLISECONDS.toNanos(INTERVAL_MS);
     refresher.refresh();
     assertEquals(2, requests.get());
+  }
+
+  @Test
+  void closeWaitsForAnInFlightRequestAndPreventsLaterOnes() throws Exception {
+    AtomicInteger requests = new AtomicInteger();
+    CountDownLatch requestStarted = new CountDownLatch(1);
+    CountDownLatch releaseRequest = new CountDownLatch(1);
+    long[] now = {0};
+    TaskReconfigurationRefresher refresher =
+        new TaskReconfigurationRefresher(
+            () -> {
+              requests.incrementAndGet();
+              requestStarted.countDown();
+              awaitUninterruptibly(releaseRequest);
+            },
+            INTERVAL_MS,
+            () -> now[0]);
+    now[0] = TimeUnit.MILLISECONDS.toNanos(INTERVAL_MS);
+    Thread refreshing = new Thread(refresher::refresh);
+    refreshing.start();
+    assertTrue(requestStarted.await(5, TimeUnit.SECONDS));
+    Thread closing = new Thread(refresher::close);
+    closing.start();
+    closing.join(100);
+    assertTrue(closing.isAlive(), "close() returned while a request was being sent");
+    releaseRequest.countDown();
+    closing.join(5000);
+    refreshing.join(5000);
+    assertFalse(closing.isAlive());
+    now[0] += TimeUnit.HOURS.toNanos(1);
+    refresher.refresh();
+    assertEquals(1, requests.get());
   }
 
   @Test
@@ -141,6 +196,7 @@ class TaskReconfigurationRefresherTest {
     long taskConfigsMs;
     long queueDelayMs;
     int dropsLeft;
+    int skipsLeft;
     int refresherRequests;
     boolean published;
     long nowMs;
@@ -173,6 +229,10 @@ class TaskReconfigurationRefresherTest {
 
     /** Returns whether the chain ends. */
     private boolean attempt() {
+      if (skipsLeft > 0) {
+        skipsLeft--; // e.g. "not running" or target state not STARTED: the chain ends silently.
+        return true;
+      }
       if (failure == Failure.BEFORE_TASK_CONFIGS) {
         return false;
       }
@@ -214,6 +274,14 @@ class TaskReconfigurationRefresherTest {
     String field = "scylla.task.reconfiguration.interval.ms";
     Configuration config = Configuration.create().with(field, value).build();
     return config.validate(ScyllaConnectorConfig.ALL_FIELDS).get(field);
+  }
+
+  private static void awaitUninterruptibly(CountDownLatch latch) {
+    try {
+      latch.await();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   private static void awaitAtLeast(AtomicInteger counter, int expected) throws Exception {
