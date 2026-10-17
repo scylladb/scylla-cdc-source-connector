@@ -104,7 +104,8 @@ class TaskReconfigurationRefresherTest {
   }
 
   @Test
-  void retriesAfterAnIntervalWhenTheRequestThrows() {
+  void retriesEveryIntervalWhileTheRequestThrows() {
+    // StandaloneHerder runs taskConfigs() synchronously and has no retry chain of its own.
     AtomicInteger requests = new AtomicInteger();
     long[] now = {0};
     TaskReconfigurationRefresher refresher =
@@ -120,41 +121,68 @@ class TaskReconfigurationRefresherTest {
     now[0] += TimeUnit.SECONDS.toNanos(1);
     refresher.refresh();
     assertEquals(1, requests.get());
-    now[0] += TimeUnit.MILLISECONDS.toNanos(INTERVAL_MS);
-    refresher.refresh();
-    assertEquals(2, requests.get());
+    int max = TaskReconfigurationRefresher.MAX_REQUESTS_WITHOUT_SUCCESS;
+    for (int i = 0; i < 2 * max; i++) {
+      now[0] += TimeUnit.MILLISECONDS.toNanos(INTERVAL_MS);
+      refresher.refresh();
+    }
+    assertEquals(1 + 2 * max, requests.get());
   }
 
   @Test
-  void closeWaitsForAnInFlightRequestAndPreventsLaterOnes() throws Exception {
-    AtomicInteger requests = new AtomicInteger();
+  void doesNotHoldItsLockWhileRequesting() throws Exception {
+    // Models StandaloneHerder: requestTaskReconfiguration() runs taskConfigs() under the herder
+    // lock,
+    // and the master thread can hold that lock while Connect calls taskConfigs() for it.
+    Object herderLock = new Object();
+    CountDownLatch masterHoldsHerderLock = new CountDownLatch(1);
     CountDownLatch requestStarted = new CountDownLatch(1);
-    CountDownLatch releaseRequest = new CountDownLatch(1);
+    AtomicReference<TaskReconfigurationRefresher> holder = new AtomicReference<>();
     long[] now = {0};
     TaskReconfigurationRefresher refresher =
         new TaskReconfigurationRefresher(
             () -> {
-              requests.incrementAndGet();
               requestStarted.countDown();
-              awaitUninterruptibly(releaseRequest);
+              synchronized (herderLock) {
+                holder.get().trackTaskConfigs(() -> null);
+              }
             },
             INTERVAL_MS,
             () -> now[0]);
+    holder.set(refresher);
     now[0] = TimeUnit.MILLISECONDS.toNanos(INTERVAL_MS);
+    Thread master =
+        new Thread(
+            () -> {
+              synchronized (herderLock) {
+                masterHoldsHerderLock.countDown();
+                awaitUninterruptibly(requestStarted);
+                refresher.trackTaskConfigs(() -> null);
+              }
+            });
+    master.setDaemon(true);
+    master.start();
+    assertTrue(masterHoldsHerderLock.await(5, TimeUnit.SECONDS));
     Thread refreshing = new Thread(refresher::refresh);
+    refreshing.setDaemon(true);
     refreshing.start();
-    assertTrue(requestStarted.await(5, TimeUnit.SECONDS));
-    Thread closing = new Thread(refresher::close);
-    closing.start();
-    closing.join(100);
-    assertTrue(closing.isAlive(), "close() returned while a request was being sent");
-    releaseRequest.countDown();
-    closing.join(5000);
+    master.join(5000);
     refreshing.join(5000);
-    assertFalse(closing.isAlive());
-    now[0] += TimeUnit.HOURS.toNanos(1);
+    assertFalse(master.isAlive(), "deadlock between the herder lock and the refresher lock");
+    assertFalse(refreshing.isAlive(), "deadlock between the herder lock and the refresher lock");
+    assertEquals(0, requestStarted.getCount());
+  }
+
+  @Test
+  void sendsNothingAfterClose() {
+    AtomicInteger requests = new AtomicInteger();
+    long[] now = {0};
+    TaskReconfigurationRefresher refresher =
+        new TaskReconfigurationRefresher(requests::incrementAndGet, INTERVAL_MS, () -> now[0]);
+    refresher.close();
+    now[0] = TimeUnit.HOURS.toNanos(1);
     refresher.refresh();
-    assertEquals(1, requests.get());
+    assertEquals(0, requests.get());
   }
 
   @Test

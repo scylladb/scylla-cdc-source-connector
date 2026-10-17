@@ -82,24 +82,38 @@ final class TaskReconfigurationRefresher implements AutoCloseable {
   }
 
   /**
-   * Requests task reconfiguration if no retry chain can still be pending. The request is sent while
-   * holding the lock, so none is sent once {@link #close()} returns.
+   * Requests task reconfiguration if no retry chain can still be pending.
+   *
+   * <p>The request is sent without holding the lock: {@code StandaloneHerder} computes {@code
+   * taskConfigs()} on the calling thread under its own lock, so holding ours could deadlock with a
+   * thread that holds the herder's lock and enters {@link #trackTaskConfigs}. A request racing with
+   * {@link #close()} can therefore still be sent; Connect skips it once the connector has stopped.
    */
-  synchronized void refresh() {
-    long now = nanoTime.getAsLong();
-    if (closed
-        || requestsWithoutSuccess >= MAX_REQUESTS_WITHOUT_SUCCESS
-        || taskConfigsInProgress > 0
-        || now - lastActivityNanos < TimeUnit.MILLISECONDS.toNanos(intervalMs)) {
-      return;
+  void refresh() {
+    synchronized (this) {
+      long now = nanoTime.getAsLong();
+      if (closed
+          || requestsWithoutSuccess >= MAX_REQUESTS_WITHOUT_SUCCESS
+          || taskConfigsInProgress > 0
+          || now - lastActivityNanos < TimeUnit.MILLISECONDS.toNanos(intervalMs)) {
+        return;
+      }
+      lastActivityNanos = now;
+      // Counted before sending, so a synchronous successful taskConfigs() call resets it.
+      requestsWithoutSuccess++;
     }
-    lastActivityNanos = now;
     try {
       requestTaskReconfiguration.run();
-      requestsWithoutSuccess++;
     } catch (RuntimeException e) {
-      // Nothing was submitted; retry after another interval.
-      logger.warn("Periodic task reconfiguration request failed", e);
+      // Nothing is left retrying it; retry after another interval.
+      boolean closedMeanwhile;
+      synchronized (this) {
+        requestsWithoutSuccess = Math.max(0, requestsWithoutSuccess - 1);
+        closedMeanwhile = closed;
+      }
+      if (!closedMeanwhile) {
+        logger.warn("Periodic task reconfiguration request failed", e);
+      }
     }
   }
 
