@@ -950,6 +950,65 @@ With `cdc.include.before=full` and `cdc.include.after=full`, an `UPDATE` will in
 
 ---
 
+## Static Column Support
+
+ScyllaDB stores static columns in a separate *static row* within the partition. A single CQL statement that writes a static column **and** clustered columns is therefore recorded as **two** entries in the CDC log, sharing one `cdc$time` and distinguished by `cdc$batch_seq_no`, with `cdc$end_of_batch` set only on the last.
+
+The connector emits one Kafka record per CDC log change entry (preimage and postimage entries are folded into it, not emitted separately) and does not merge entries by `cdc$time`, so **one statement produces two change events**. The split originates in ScyllaDB's CDC log, so it affects any CDC consumer, and it applies to both the legacy and advanced output formats.
+
+### Example
+
+```sql
+CREATE TABLE ks.t (
+  pk int, ck int,
+  s text STATIC,
+  v text, w text,
+  PRIMARY KEY (pk, ck)
+) WITH cdc = {'enabled': true};
+
+INSERT INTO ks.t (pk, ck, v) VALUES (1, 0, 'v0');
+UPDATE ks.t SET w = 'w1', s = 'static1' WHERE pk = 1 AND ck = 0;
+```
+
+Two statements produce three CDC log entries:
+
+| `cdc$time` | `cdc$batch_seq_no` | `cdc$end_of_batch` | operation | `ck` | columns set |
+|---|---|---|---|---|---|
+| t1 | 0 | true | ROW_INSERT | 0 | `v` |
+| t2 | 0 | — | ROW_UPDATE | **null** | **`s` only** |
+| t2 | 1 | true | ROW_UPDATE | 0 | `w` |
+
+The connector turns these into three Kafka records.
+
+### What the static event looks like
+
+* The clustering key column(s) are **null**; the partition key is present.
+* Only the static column carries a value. Every other regular column is null.
+* The operation is `u` (update), even when the statement was an `INSERT`.
+* **Its Kafka message key is `{"pk": 1, "ck": null}`** (in legacy format, and in advanced format whenever `cdc.include.primary-key.placement` includes `kafka-key`, as it does by default) — a different key from the row's other events. A sink that upserts by message key will therefore create and maintain a **separate row** with a null clustering key. This is the most common way the behaviour is noticed.
+* Because the key differs, the two events may hash to different topic partitions. Do not assume ordering between them.
+* Both events carry the same `source.ts_us`, derived from the shared `cdc$time`. Together with the partition key this is currently the only way to correlate them, but it is not a statement identifier: every entry of a same-partition `BATCH` shares it too, and `source.ts_ms` is too coarse. See [#342](https://github.com/scylladb/scylla-cdc-source-connector/issues/342).
+
+### Detecting static events
+
+There is no schema flag for this. The underlying `scylla-cdc-java` library reports static columns as ordinary regular columns — its column kinds are only `PARTITION_KEY`, `CLUSTERING_KEY` and `REGULAR` — so the connector does not mark the event as static.
+
+**Detect these events by their null clustering key.**
+
+### Handling them
+
+* Treat an event with a null clustering key as a *partition-level* update, not a row update.
+* Do not write it into a sink as a row. Either apply the static value to all rows of the partition, or keep a separate per-partition record, depending on your sink's model.
+* Filter or route these events before an upsert sink, with a custom SMT or a sink-side filter on the null clustering key. Kafka Connect's built-in predicates cannot test field values.
+* Do not read the other columns' nulls as "set to NULL". In the legacy format an explicit NULL is `{"value": null}`, whereas an untouched column is `null` (see [Cell Representation](#cell-representation)).
+* To avoid the split, write static columns in a statement of their own, separate from clustered columns. The static write still produces its own event with a null clustering key.
+
+### Known limitation with preimages
+
+With `cdc.include.before=full` (or `only-updated`), a static event for which ScyllaDB produces no preimage is **not emitted**. ScyllaDB produces a preimage only where prior state exists, so the first write to a partition's static row has none; that event never completes and is dropped. Static writes for which a preimage is produced are not affected. Use `cdc.include.after=full` with `cdc.include.before=none` if you need a full image of the static event. Tracked in [#341](https://github.com/scylladb/scylla-cdc-source-connector/issues/341).
+
+---
+
 ## Collection and UDT Type Support
 
 The connector fully supports Scylla collection types (`LIST`, `SET`, `MAP`) and User Defined Types (`UDT`). Both frozen and non-frozen collections are supported, with different CDC behavior for each.
