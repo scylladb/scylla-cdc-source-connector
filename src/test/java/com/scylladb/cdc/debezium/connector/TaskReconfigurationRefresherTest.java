@@ -21,17 +21,36 @@ class TaskReconfigurationRefresherTest {
   @Test
   void addsNoRetryChainWhileTaskConfigsKeepsFailing() {
     FakeConnect connect = new FakeConnect(Failure.IN_TASK_CONFIGS);
-    connect.queueDelayMs = 3 * INTERVAL_MS; // Retries arrive less often than the interval.
     connect.run(TimeUnit.HOURS.toMillis(1));
     assertEquals(0, connect.refresherRequests);
     assertEquals(1, connect.chains.size());
   }
 
   @Test
+  void addsABoundedNumberOfRetryChainsWhenFailingRetriesAreDelayed() {
+    FakeConnect connect = new FakeConnect(Failure.IN_TASK_CONFIGS);
+    connect.queueDelayMs = 3 * INTERVAL_MS; // Retries arrive less often than the interval.
+    connect.run(TimeUnit.HOURS.toMillis(1));
+    int max = TaskReconfigurationRefresher.MAX_REQUESTS_WITHOUT_SUCCESS;
+    assertEquals(max, connect.refresherRequests);
+    assertEquals(max + 1, connect.chains.size());
+  }
+
+  @Test
+  void recoversWhenAFailingChainEndsWithoutSucceeding() {
+    FakeConnect connect = new FakeConnect(Failure.IN_TASK_CONFIGS);
+    connect.failuresLeft = 1;
+    connect.skipsAfterFailure = 1; // The retry is skipped, so the chain ends silently.
+    connect.run(TimeUnit.HOURS.toMillis(1));
+    assertTrue(connect.published);
+    assertTrue(connect.chains.isEmpty());
+  }
+
+  @Test
   void addsABoundedNumberOfRetryChainsWhenFailingBeforeTaskConfigs() {
     FakeConnect connect = new FakeConnect(Failure.BEFORE_TASK_CONFIGS);
     connect.run(TimeUnit.HOURS.toMillis(1));
-    int max = TaskReconfigurationRefresher.MAX_UNANSWERED_REQUESTS;
+    int max = TaskReconfigurationRefresher.MAX_REQUESTS_WITHOUT_SUCCESS;
     assertEquals(max, connect.refresherRequests);
     assertEquals(max + 1, connect.chains.size());
   }
@@ -51,7 +70,7 @@ class TaskReconfigurationRefresherTest {
   void recoversWhenRequestsAreSkippedBeforeTaskConfigs() {
     FakeConnect connect = new FakeConnect(Failure.NONE);
     // Connect's start request and the next refresher requests never reach taskConfigs().
-    connect.skipsLeft = TaskReconfigurationRefresher.MAX_UNANSWERED_REQUESTS;
+    connect.skipsLeft = TaskReconfigurationRefresher.MAX_REQUESTS_WITHOUT_SUCCESS;
     connect.run(TimeUnit.HOURS.toMillis(1));
     assertTrue(connect.published);
     assertTrue(connect.chains.isEmpty());
@@ -197,6 +216,8 @@ class TaskReconfigurationRefresherTest {
     long queueDelayMs;
     int dropsLeft;
     int skipsLeft;
+    int failuresLeft = Integer.MAX_VALUE;
+    int skipsAfterFailure;
     int refresherRequests;
     boolean published;
     long nowMs;
@@ -242,12 +263,14 @@ class TaskReconfigurationRefresherTest {
               for (long end = nowMs + taskConfigsMs; nowMs < end; nowMs += STEP_MS) {
                 refresher.refresh();
               }
-              if (failure == Failure.IN_TASK_CONFIGS) {
+              if (failure == Failure.IN_TASK_CONFIGS && failuresLeft-- > 0) {
                 throw new IllegalStateException("assignments exceed max bytes");
               }
               return null;
             });
       } catch (IllegalStateException e) {
+        skipsLeft += skipsAfterFailure;
+        skipsAfterFailure = 0;
         return false;
       }
       if (failure == Failure.AFTER_TASK_CONFIGS) {

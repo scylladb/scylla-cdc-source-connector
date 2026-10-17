@@ -246,8 +246,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "the request recovers once Kafka Connect processes one. Each request makes Kafka "
                   + "Connect call taskConfigs(), which rebuilds, serializes and packs all stream "
                   + "assignments and, while tablet migrations are pending, reads offset storage. No request "
-                  + "is sent while a taskConfigs() call is in progress or failing, and a request that never "
-                  + "reaches taskConfigs() is repeated at most 3 times in a row. Set to 0 "
+                  + "is sent while a taskConfigs() call is in progress, and at most "
+                  + TaskReconfigurationRefresher.MAX_REQUESTS_WITHOUT_SUCCESS
+                  + " are sent until a taskConfigs() call succeeds. Default: 120000 ms. Set to 0 "
                   + "to disable; otherwise must be at least "
                   + MIN_TASK_RECONFIGURATION_INTERVAL_MS
                   + " ms, twice Kafka Connect's retry backoff cap.")
