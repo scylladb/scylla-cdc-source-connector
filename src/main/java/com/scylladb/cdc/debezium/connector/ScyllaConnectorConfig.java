@@ -229,7 +229,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withValidation(Field::isNonNegativeInteger)
           .withDefault(0);
 
-  static final long MIN_TASK_RECONFIGURATION_INTERVAL_MS = 1000L;
+  // Twice Kafka Connect's 60 s reconfiguration retry backoff cap.
+  static final long MIN_TASK_RECONFIGURATION_INTERVAL_MS = 120000L;
 
   public static final Field TASK_RECONFIGURATION_INTERVAL_MS =
       Field.create("scylla.task.reconfiguration.interval.ms")
@@ -244,11 +245,11 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "example during a rebalance), leaving the connector RUNNING with no tasks; repeating "
                   + "the request recovers once Kafka Connect processes one. Each request makes Kafka "
                   + "Connect call taskConfigs(), which rebuilds, serializes and packs all stream "
-                  + "assignments and, while tablet migrations are pending, reads offset storage. Keep the "
-                  + "value above 60000 so requests do not overlap Kafka Connect's own retries of a failed "
-                  + "reconfiguration. Set to 0 to disable; otherwise must be at least "
+                  + "assignments and, while tablet migrations are pending, reads offset storage. No request "
+                  + "is sent while an earlier one is pending, in progress or failing in taskConfigs(). Set to 0 "
+                  + "to disable; otherwise must be at least "
                   + MIN_TASK_RECONFIGURATION_INTERVAL_MS
-                  + " ms.")
+                  + " ms, twice Kafka Connect's retry backoff cap.")
           .withValidation(ScyllaConnectorConfig::validateTaskReconfigurationInterval)
           .withDefault(120000L);
 

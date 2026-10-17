@@ -1,77 +1,110 @@
 package com.scylladb.cdc.debezium.connector;
 
 import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Re-requests task reconfiguration when Kafka Connect has not called {@code taskConfigs()} for a
- * full interval.
+ * Re-requests task reconfiguration so a request Kafka Connect drops silently cannot leave the
+ * connector RUNNING with no tasks.
  *
- * <p>Task configs are published asynchronously, after the master discovers the CDC streams, through
- * a single {@code requestTaskReconfiguration()} call. Kafka Connect can drop that request silently
- * (e.g. while the connector is restarting during a rebalance, or when it compares against a stale
- * snapshot), leaving the connector RUNNING with no tasks. Repeating the request recovers once
- * Connect processes one of them.
- *
- * <p>Connect retries a failed reconfiguration by itself, calling {@code taskConfigs()} again with a
- * backoff capped at 60 seconds. Waiting for a full interval without such a call keeps the refresher
- * from starting new retry chains while one is still running, as long as the interval exceeds that
- * cap.
+ * <p>Every {@code taskConfigs()} call runs inside a Kafka Connect retry chain that repeats on any
+ * failure until it succeeds. A request is therefore only sent when no chain can still be retrying
+ * because of an earlier one: the previous request has reached {@code taskConfigs()}, no call is in
+ * progress, the last call did not fail, and Connect has not called {@code taskConfigs()} for a full
+ * interval. A request that fails before reaching {@code taskConfigs()} is never followed by
+ * another, so the refresher adds at most one retry chain. Failures after {@code taskConfigs()}
+ * returns (forwarding to the leader, writing the config topic) are invisible to the connector;
+ * there only the interval spaces requests.
  */
 final class TaskReconfigurationRefresher implements AutoCloseable {
   private static final Logger logger = LoggerFactory.getLogger(TaskReconfigurationRefresher.class);
+  private static final long MAX_CHECK_PERIOD_MS = 1000;
 
   private final Runnable requestTaskReconfiguration;
-  private final long intervalNanos;
-  private final ScheduledExecutorService executor;
-  private volatile long lastTaskConfigsNanos = System.nanoTime();
+  private final long intervalMs;
+  private final LongSupplier nanoTime;
+  private ScheduledExecutorService executor;
 
-  TaskReconfigurationRefresher(Runnable requestTaskReconfiguration, long intervalMs) {
+  // Guarded by this.
+  private boolean awaitingTaskConfigs;
+  private int taskConfigsInProgress;
+  private boolean lastTaskConfigsFailed;
+  private long lastActivityNanos;
+
+  TaskReconfigurationRefresher(
+      Runnable requestTaskReconfiguration, long intervalMs, LongSupplier nanoTime) {
     this.requestTaskReconfiguration = requestTaskReconfiguration;
-    this.intervalNanos = TimeUnit.MILLISECONDS.toNanos(intervalMs);
-    this.executor =
+    this.intervalMs = intervalMs;
+    this.nanoTime = nanoTime;
+    this.lastActivityNanos = nanoTime.getAsLong();
+  }
+
+  /** Starts checking on a daemon thread. */
+  void start() {
+    executor =
         Executors.newSingleThreadScheduledExecutor(
             r -> {
               Thread t = new Thread(r, "scylla-cdc-task-reconfiguration-refresher");
               t.setDaemon(true);
               return t;
             });
-    scheduleRefresh(intervalNanos);
+    long checkPeriodMs = Math.min(intervalMs, MAX_CHECK_PERIOD_MS);
+    executor.scheduleWithFixedDelay(
+        this::refresh, checkPeriodMs, checkPeriodMs, TimeUnit.MILLISECONDS);
   }
 
-  /** Records that Kafka Connect called {@code taskConfigs()}, successfully or not. */
-  void onTaskConfigsCalled() {
-    lastTaskConfigsNanos = System.nanoTime();
-  }
-
-  private void refresh() {
-    long remainingNanos = intervalNanos - (System.nanoTime() - lastTaskConfigsNanos);
-    if (remainingNanos <= 0) {
-      try {
-        requestTaskReconfiguration.run();
-      } catch (RuntimeException e) {
-        // Keep the schedule alive; a later attempt can still succeed.
-        logger.warn("Periodic task reconfiguration request failed", e);
-      }
-      remainingNanos = intervalNanos;
+  /** Runs a {@code taskConfigs()} computation, recording that it is in progress and its outcome. */
+  <T> T trackTaskConfigs(Supplier<T> taskConfigs) {
+    synchronized (this) {
+      awaitingTaskConfigs = false;
+      taskConfigsInProgress++;
     }
-    scheduleRefresh(remainingNanos);
+    boolean failed = true;
+    try {
+      T result = taskConfigs.get();
+      failed = false;
+      return result;
+    } finally {
+      synchronized (this) {
+        taskConfigsInProgress--;
+        lastTaskConfigsFailed = failed;
+        lastActivityNanos = nanoTime.getAsLong();
+      }
+    }
   }
 
-  private void scheduleRefresh(long delayNanos) {
+  /** Requests task reconfiguration if no retry chain can still be pending. */
+  void refresh() {
+    synchronized (this) {
+      if (awaitingTaskConfigs
+          || taskConfigsInProgress > 0
+          || lastTaskConfigsFailed
+          || nanoTime.getAsLong() - lastActivityNanos < TimeUnit.MILLISECONDS.toNanos(intervalMs)) {
+        return;
+      }
+      awaitingTaskConfigs = true;
+    }
     try {
-      executor.schedule(this::refresh, delayNanos, TimeUnit.NANOSECONDS);
-    } catch (RejectedExecutionException e) {
-      // close() shut the executor down; nothing left to schedule.
+      requestTaskReconfiguration.run();
+    } catch (RuntimeException e) {
+      // Nothing was submitted, so retry after another interval.
+      synchronized (this) {
+        awaitingTaskConfigs = false;
+        lastActivityNanos = nanoTime.getAsLong();
+      }
+      logger.warn("Periodic task reconfiguration request failed", e);
     }
   }
 
   @Override
   public void close() {
-    executor.shutdownNow();
+    if (executor != null) {
+      executor.shutdownNow();
+    }
   }
 }

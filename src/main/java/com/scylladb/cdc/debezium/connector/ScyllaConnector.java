@@ -66,9 +66,11 @@ public class ScyllaConnector extends SourceConnector {
 
     long refreshIntervalMs = connectorConfig.getTaskReconfigurationIntervalMs();
     if (refreshIntervalMs > 0) {
-      this.taskReconfigurationRefresher =
+      TaskReconfigurationRefresher refresher =
           new TaskReconfigurationRefresher(
-              () -> context().requestTaskReconfiguration(), refreshIntervalMs);
+              () -> context().requestTaskReconfiguration(), refreshIntervalMs, System::nanoTime);
+      refresher.start();
+      this.taskReconfigurationRefresher = refresher;
     }
   }
 
@@ -108,14 +110,10 @@ public class ScyllaConnector extends SourceConnector {
 
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
-    try {
-      return buildTaskConfigs(maxTasks);
-    } finally {
-      TaskReconfigurationRefresher refresher = this.taskReconfigurationRefresher;
-      if (refresher != null) {
-        refresher.onTaskConfigsCalled();
-      }
-    }
+    TaskReconfigurationRefresher refresher = this.taskReconfigurationRefresher;
+    return refresher == null
+        ? buildTaskConfigs(maxTasks)
+        : refresher.trackTaskConfigs(() -> buildTaskConfigs(maxTasks));
   }
 
   private List<Map<String, String>> buildTaskConfigs(int maxTasks) {
