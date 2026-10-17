@@ -4,85 +4,68 @@ on:
   pull_request:
     branches:
       - master
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   run-tests:
-    name: "Run integration tests"
-    runs-on: ubuntu-latest
+    name: ${{ matrix.kafka_provider }} ${{ matrix.kafka_version }} (${{ matrix.kafka_connect_mode }}), ScyllaDB ${{ matrix.scylla_version }}
 
     permissions:
       contents: read
       checks: write
-      id-token: write
 
+    # The versions tested before this workflow was split up. Moving to the version aliases
+    # resolve-kafka-version / resolve-scylla-version support is tracked in DRIVER-1176.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - kafka_provider: "confluent"
-            provider_image_version: "8.0.0"
-            kafka_connect_mode: "distributed"
+          - kafka_provider: confluent
+            kafka_version: "8.0.0"
+            kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: "confluent"
-            provider_image_version: "7.9.2"
-            kafka_connect_mode: "distributed"
+          - kafka_provider: confluent
+            kafka_version: "7.9.2"
+            kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: "confluent"
-            provider_image_version: "7.8.3"
-            kafka_connect_mode: "distributed"
+          - kafka_provider: confluent
+            kafka_version: "7.8.3"
+            kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: "confluent"
-            provider_image_version: "7.7.4"
-            kafka_connect_mode: "distributed"
+          - kafka_provider: confluent
+            kafka_version: "7.7.4"
+            kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: "confluent"
-            provider_image_version: "7.6.6"
-            kafka_connect_mode: "distributed"
+          - kafka_provider: confluent
+            kafka_version: "7.6.6"
+            kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: "debezium"
-            provider_image_version: "3.4.1"
-            kafka_connect_mode: "distributed"
+          - kafka_provider: debezium
+            kafka_version: "3.4.1"
+            kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: "apache"
-            provider_image_version: "4.0.0"
-            kafka_connect_mode: "distributed"
+          - kafka_provider: apache
+            kafka_version: "4.0.0"
+            kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: "apache"
-            provider_image_version: "4.0.0"
-            kafka_connect_mode: "standalone"
+          - kafka_provider: apache
+            kafka_version: "4.0.0"
+            kafka_connect_mode: standalone
             scylla_version: "6.2"
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: maven
-
-      - name: Increase fs.aio-max-nr limit
-        run: |
-          echo "Current fs.aio-max-nr value:"
-          cat /proc/sys/fs/aio-max-nr
-          sudo sysctl -w fs.aio-max-nr=1048576
-          echo "New fs.aio-max-nr value:"
-          cat /proc/sys/fs/aio-max-nr
-
-      - name: Maven verify
-        run: mvn -B verify -Dit.kafka.provider=${{ matrix.kafka_provider }} -Dit.provider.image.version=${{ matrix.provider_image_version }} -Dit.kafka.connect.mode=${{ matrix.kafka_connect_mode }} -Dit.scylla.version=${{ matrix.scylla_version }}
-
-      - name: Parse test results
-        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # v6.4.1
-        if: always()
-        with:
-          check_name: Integration test report for ${{ matrix.kafka_provider }}:${{ matrix.provider_image_version }} running in ${{ matrix.kafka_connect_mode }} mode on ScyllaDB ${{ matrix.scylla_version }} version
-          require_tests: false
-          report_paths: "target/*-reports/TEST-*.xml"
-          follow_symlink: true
-          detailed_summary: true
-          updateComment: false
-          # Avoid errors on fork PRs where checks: write is not available
-          annotate_only: true
+    uses: ./.github/workflows/lib-integration-test.yml
+    with:
+      kafka_provider: ${{ matrix.kafka_provider }}
+      kafka_version: ${{ matrix.kafka_version }}
+      kafka_connect_mode: ${{ matrix.kafka_connect_mode }}
+      scylla_version: ${{ matrix.scylla_version }}
