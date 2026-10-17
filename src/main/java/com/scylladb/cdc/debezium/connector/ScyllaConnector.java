@@ -42,6 +42,7 @@ public class ScyllaConnector extends SourceConnector {
   private ScyllaMasterTransport masterTransport;
   private ExecutorService masterExecutor;
   private Driver3Session masterSession;
+  private volatile TaskReconfigurationRefresher taskReconfigurationRefresher;
 
   public ScyllaConnector() {}
 
@@ -62,6 +63,15 @@ public class ScyllaConnector extends SourceConnector {
     // Start master, which will watch for
     // new generations.
     this.startMaster(connectorConfig);
+
+    long refreshIntervalMs = connectorConfig.getTaskReconfigurationIntervalMs();
+    if (refreshIntervalMs > 0) {
+      TaskReconfigurationRefresher refresher =
+          new TaskReconfigurationRefresher(
+              () -> context().requestTaskReconfiguration(), refreshIntervalMs, System::nanoTime);
+      refresher.start();
+      this.taskReconfigurationRefresher = refresher;
+    }
   }
 
   private Master buildMaster(ScyllaConnectorConfig connectorConfig) {
@@ -100,6 +110,13 @@ public class ScyllaConnector extends SourceConnector {
 
   @Override
   public List<Map<String, String>> taskConfigs(int maxTasks) {
+    TaskReconfigurationRefresher refresher = this.taskReconfigurationRefresher;
+    return refresher == null
+        ? buildTaskConfigs(maxTasks)
+        : refresher.trackTaskConfigs(() -> buildTaskConfigs(maxTasks));
+  }
+
+  private List<Map<String, String>> buildTaskConfigs(int maxTasks) {
     ScyllaMasterTransport.WorkerConfigurations workerConfigurations =
         masterTransport.getWorkerConfigurations();
     int maxWorkerConfigBytes = config.getInteger(ScyllaConnectorConfig.MAX_WORKER_CONFIG_BYTES);
@@ -128,6 +145,10 @@ public class ScyllaConnector extends SourceConnector {
     // Clear interrupt flag so the graceful termination is always attempted.
     Thread.interrupted();
 
+    if (this.taskReconfigurationRefresher != null) {
+      this.taskReconfigurationRefresher.close();
+      this.taskReconfigurationRefresher = null;
+    }
     if (this.masterExecutor != null) {
       this.masterExecutor.shutdownNow();
     }
