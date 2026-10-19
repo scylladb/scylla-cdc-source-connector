@@ -1,6 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
-import java.util.concurrent.Executors;
+import io.debezium.util.Threads;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
@@ -46,15 +46,11 @@ final class TaskReconfigurationRefresher implements AutoCloseable {
     this.lastActivityNanos = nanoTime.getAsLong();
   }
 
-  /** Starts checking on a daemon thread. */
-  void start() {
+  /** Starts checking on a daemon thread named after the connector. */
+  void start(String logicalName) {
     executor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "scylla-cdc-task-reconfiguration-refresher");
-              t.setDaemon(true);
-              return t;
-            });
+        Threads.newSingleThreadScheduledExecutor(
+            ScyllaConnector.class, logicalName, "task-reconfiguration-refresher", true);
     long checkPeriodMs = Math.min(intervalMs, MAX_CHECK_PERIOD_MS);
     executor.scheduleWithFixedDelay(
         this::refresh, checkPeriodMs, checkPeriodMs, TimeUnit.MILLISECONDS);
@@ -90,6 +86,7 @@ final class TaskReconfigurationRefresher implements AutoCloseable {
    * {@link #close()} can therefore still be sent; Connect skips it once the connector has stopped.
    */
   void refresh() {
+    int requests;
     synchronized (this) {
       long now = nanoTime.getAsLong();
       if (closed
@@ -100,20 +97,37 @@ final class TaskReconfigurationRefresher implements AutoCloseable {
       }
       lastActivityNanos = now;
       // Counted before sending, so a synchronous successful taskConfigs() call resets it.
-      requestsWithoutSuccess++;
+      requests = ++requestsWithoutSuccess;
     }
+    logger.debug(
+        "Requesting task reconfiguration ({} of {} without a successful taskConfigs() call)",
+        requests,
+        MAX_REQUESTS_WITHOUT_SUCCESS);
     try {
       requestTaskReconfiguration.run();
-    } catch (RuntimeException e) {
-      // Nothing is left retrying it; retry after another interval.
+    } catch (Throwable t) {
+      // Nothing is left retrying it; retry after another interval. Errors are caught too:
+      // StandaloneHerder runs taskConfigs() on this thread, and a run that throws would cancel
+      // every later run.
       boolean closedMeanwhile;
       synchronized (this) {
         requestsWithoutSuccess = Math.max(0, requestsWithoutSuccess - 1);
         closedMeanwhile = closed;
       }
       if (!closedMeanwhile) {
-        logger.warn("Periodic task reconfiguration request failed", e);
+        logger.warn("Periodic task reconfiguration request failed", t);
       }
+      return;
+    }
+    boolean capped;
+    synchronized (this) {
+      capped = !closed && requestsWithoutSuccess >= MAX_REQUESTS_WITHOUT_SUCCESS;
+    }
+    if (capped) {
+      logger.info(
+          "Sent {} task reconfiguration requests without a successful taskConfigs() call; "
+              + "sending no more until one succeeds",
+          MAX_REQUESTS_WITHOUT_SUCCESS);
     }
   }
 

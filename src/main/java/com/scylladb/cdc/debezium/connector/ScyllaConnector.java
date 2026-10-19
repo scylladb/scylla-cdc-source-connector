@@ -69,7 +69,7 @@ public class ScyllaConnector extends SourceConnector {
       TaskReconfigurationRefresher refresher =
           new TaskReconfigurationRefresher(
               () -> context().requestTaskReconfiguration(), refreshIntervalMs, System::nanoTime);
-      refresher.start();
+      refresher.start(connectorConfig.getLogicalName());
       this.taskReconfigurationRefresher = refresher;
     }
   }

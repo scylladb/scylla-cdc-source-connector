@@ -132,8 +132,7 @@ class TaskReconfigurationRefresherTest {
   @Test
   void doesNotHoldItsLockWhileRequesting() throws Exception {
     // Models StandaloneHerder: requestTaskReconfiguration() runs taskConfigs() under the herder
-    // lock,
-    // and the master thread can hold that lock while Connect calls taskConfigs() for it.
+    // lock, and the master thread can hold that lock while Connect calls taskConfigs() for it.
     Object herderLock = new Object();
     CountDownLatch masterHoldsHerderLock = new CountDownLatch(1);
     CountDownLatch requestStarted = new CountDownLatch(1);
@@ -199,7 +198,7 @@ class TaskReconfigurationRefresherTest {
             System::nanoTime);
     holder.set(refresher);
     try {
-      refresher.start();
+      refresher.start("test");
       awaitAtLeast(requests, 3);
     } finally {
       refresher.close();
@@ -211,6 +210,26 @@ class TaskReconfigurationRefresherTest {
   }
 
   @Test
+  void keepsRunningWhenTheRequestThrowsAnError() throws Exception {
+    // StandaloneHerder runs taskConfigs() on the refresher thread, so an Error can reach it.
+    AtomicInteger requests = new AtomicInteger();
+    TaskReconfigurationRefresher refresher =
+        new TaskReconfigurationRefresher(
+            () -> {
+              requests.incrementAndGet();
+              throw new LinkageError("taskConfigs() failed");
+            },
+            10,
+            System::nanoTime);
+    try {
+      refresher.start("test");
+      awaitAtLeast(requests, 2);
+    } finally {
+      refresher.close();
+    }
+  }
+
+  @Test
   void intervalDefaultsTo120sAllowsZeroAndRejectsShorterValues() {
     ScyllaConnectorConfig defaults = new ScyllaConnectorConfig(baseConfig().build());
     assertEquals(120000L, defaults.getTaskReconfigurationIntervalMs());
@@ -219,7 +238,7 @@ class TaskReconfigurationRefresherTest {
     assertFalse(validate("119999").errorMessages().isEmpty());
     assertFalse(validate("1000").errorMessages().isEmpty());
     assertFalse(validate("-1").errorMessages().isEmpty());
-    assertFalse(validate("abc").errorMessages().isEmpty());
+    assertEquals(1, validate("abc").errorMessages().size());
   }
 
   private enum Failure {

@@ -248,7 +248,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
                   + "assignments and, while tablet migrations are pending, reads offset storage. No request "
                   + "is sent while a taskConfigs() call is in progress, and at most "
                   + TaskReconfigurationRefresher.MAX_REQUESTS_WITHOUT_SUCCESS
-                  + " are sent until a taskConfigs() call succeeds. Default: 120000 ms. Set to 0 "
+                  + " are sent until a taskConfigs() call succeeds; a request that throws, as in "
+                  + "standalone mode when taskConfigs() fails, is not counted and is repeated after "
+                  + "another interval. Default: 120000 ms. Set to 0 "
                   + "to disable; otherwise must be at least "
                   + MIN_TASK_RECONFIGURATION_INTERVAL_MS
                   + " ms, twice Kafka Connect's retry backoff cap.")
@@ -1156,20 +1158,21 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     if (stringValue == null || stringValue.isEmpty()) {
       return 0; // will use default
     }
+    long value;
     try {
-      long value = Long.parseLong(stringValue.trim());
-      if (value != 0 && value < MIN_TASK_RECONFIGURATION_INTERVAL_MS) {
-        problems.accept(
-            field,
-            value,
-            "Must be 0 (disabled) or at least " + MIN_TASK_RECONFIGURATION_INTERVAL_MS + " ms");
-        return 1;
-      }
-      return 0;
+      value = Long.parseLong(stringValue);
     } catch (NumberFormatException e) {
-      problems.accept(field, stringValue, "Must be a valid long");
+      // Field.validate also runs the LONG type check, which reports it.
+      return 0;
+    }
+    if (value != 0 && value < MIN_TASK_RECONFIGURATION_INTERVAL_MS) {
+      problems.accept(
+          field,
+          value,
+          "Must be 0 (disabled) or at least " + MIN_TASK_RECONFIGURATION_INTERVAL_MS + " ms");
       return 1;
     }
+    return 0;
   }
 
   /**
