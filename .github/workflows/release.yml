@@ -58,6 +58,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - name: Preserve repository signing policy
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/release-signing-policy"
+          cp scripts/release/signing.py scripts/release/publisher.asc "$RUNNER_TEMP/release-signing-policy/"
+          echo "RELEASE_SIGNING_HELPER=$RUNNER_TEMP/release-signing-policy/signing.py" >> "$GITHUB_ENV"
+
       - name: Preserve release guard
         run: |
           cp scripts/release/guard.py "$RUNNER_TEMP/release-guard.py"
@@ -108,10 +114,10 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/apache-maven-${maven_version}/bin" >> "$GITHUB_PATH"
 
-      - name: Configure Git user
-        run: |
-          git config user.name "ScyllaDB Promoter"
-          git config user.email "github-promoter@scylladb.com"
+      - name: Configure protected repository signing subkey
+        env:
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: python3 "$RELEASE_SIGNING_HELPER" configure
 
       - name: Clean project
         run: python3 "$RELEASE_GUARD" run mvn -B -ntp clean
@@ -134,6 +140,9 @@ jobs:
           fi
           export MAVEN_OPTS
           python3 "$RELEASE_GUARD" run mvn -B -ntp release:prepare "${args[@]}"
+
+      - name: Verify prepared release commits and tag with public key only
+        run: python3 "$RELEASE_SIGNING_HELPER" verify-prepared
 
       - name: Recheck for open release blockers
         if: inputs.dry-run == false
@@ -267,3 +276,7 @@ jobs:
             --assignee "${GITHUB_ACTOR}" \
             --title "Manual action: notify Confluent Hub about ${RELEASE_TAG:-the latest release}" \
             --body "$BODY"
+
+      - name: Remove temporary release signing files
+        if: always() && env.RELEASE_SIGNING_DIR != ''
+        run: python3 "$RELEASE_SIGNING_HELPER" cleanup

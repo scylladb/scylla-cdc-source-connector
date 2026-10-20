@@ -40,7 +40,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('actions/upload-artifact@', self.workflow)
 
     def test_invalid_target_tag_stops_before_credentials(self):
-        checkout = self.steps[3]
+        checkout = next(step for step in self.steps if step.startswith('Checkout historical release target\n'))
         self.assertIn('if: inputs.target-tag != \'master\'', checkout)
         self.assertIn('Unsupported target tag', checkout)
         self.assertRegex(checkout, r'else\n\s+echo [^\n]+\n\s+exit 1')
