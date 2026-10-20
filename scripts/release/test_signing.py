@@ -83,7 +83,8 @@ class SigningTests(unittest.TestCase):
     def configured(self):
         values = signing.configure()
         os.environ.update(values)
-        self.assertEqual(Path(values["RELEASE_GPG_PASSPHRASE_FILE"]).stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("RELEASE_GPG_PASSPHRASE_FILE", values)
+        self.assertFalse((Path(values["RELEASE_SIGNING_DIR"]) / "passphrase").exists())
         self.assertNotIn(self.password, Path(os.environ["GITHUB_ENV"]).read_text())
         return values
 
@@ -97,7 +98,7 @@ class SigningTests(unittest.TestCase):
     def test_signed_release_and_cloned_checkout(self):
         with self.repository() as directory:
             values = self.configured()
-            self.assertIn("-Dgpg.keyname=" + self.subkey + "!", values["MAVEN_OPTS"])
+            self.assertIn("-Dgpg.keyname=" + self.subkey + "!", values["RELEASE_MAVEN_OPTS"])
             self.release()
             signing.verify_release("1.0")
             # release:perform makes a separate clone: signing must survive that boundary.
@@ -186,15 +187,23 @@ class SigningTests(unittest.TestCase):
         with self.repository() as directory:
             config = Path(signing.run(["git", "rev-parse", "--git-path", "config"]).strip())
             before = config.read_bytes()
-            password = directory / "fixture-passphrase"
-            signing.write_private(password, self.password + "\n")
-            os.environ.update(RELEASE_GPG_PRIVATE_KEY_FILE=str(self.private),
-                              RELEASE_GPG_PASSPHRASE_FILE=str(password))
+            os.environ["RELEASE_GPG_PRIVATE_KEY_FILE"] = str(self.private)
             with patch("sys.argv", ["signing.py", "exec", "git", "commit", "--quiet",
                                     "--allow-empty", "-m", "Signed by isolated exec"]):
                 self.assertEqual(signing.main(), 0)
             self.assertEqual(config.read_bytes(), before)
             self.assertFalse(list(directory.glob("release-signing-*")))
+            signing.verify_commit("HEAD")
+
+    def test_git_wrapper_reads_current_passphrase_after_agent_reset(self):
+        with self.repository():
+            self.configured()
+            signing.run(["gpgconf", "--homedir", os.environ["GNUPGHOME"], "--kill", "gpg-agent"])
+            os.environ["MAVEN_GPG_PASSPHRASE"] = "incorrect-fixture-passphrase"
+            with self.assertRaises(signing.SigningError):
+                signing.run(["git", "commit", "--allow-empty", "-qm", "Must fail"])
+            os.environ["MAVEN_GPG_PASSPHRASE"] = self.password
+            signing.run(["git", "commit", "--allow-empty", "-qm", "Correct passphrase"])
             signing.verify_commit("HEAD")
 
     def test_other_signer_and_ambiguous_signatures_rejected(self):

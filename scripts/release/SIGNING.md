@@ -17,8 +17,9 @@ fingerprint with `!`. The primary key certifies the signing subkey and remains o
 `signing.py configure` checks that the imported private key is the protected signing
 subkey without usable primary private material. It performs a fresh-agent signing
 preflight and verifies the exact signing and certification fingerprints against a
-separate public-only keyring. A temporary mode-0600 file supplies the passphrase;
-the passphrase is never a command-line argument. Git configuration is job-specific
+separate public-only keyring. Anonymous pipes supply the key import and passphrase; neither credential is
+written to a temporary file or included in command-line arguments. Each signing
+step receives its secret explicitly; setup does not write it into `GITHUB_ENV`. Git configuration is job-specific
 and inherited by release-tool clones. Always run `signing.py cleanup` after a CI job.
 
 For maintainer-driven release preparation, use an isolated invocation:

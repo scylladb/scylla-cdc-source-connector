@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -64,37 +65,57 @@ def public_environment(directory):
     return {**os.environ, "GNUPGHOME": str(directory / "public")}
 
 
-def configure():
-    passphrase = os.environ.get("RELEASE_GPG_PASSPHRASE",
-                                os.environ.get("MAVEN_GPG_PASSPHRASE", ""))
+def passphrase_value():
+    value = os.environ.get("RELEASE_GPG_PASSPHRASE",
+                           os.environ.get("MAVEN_GPG_PASSPHRASE",
+                                          os.environ.get("PGP_PASSPHRASE", "")))
     if "RELEASE_GPG_PASSPHRASE_FILE" in os.environ:
-        passphrase = Path(os.environ["RELEASE_GPG_PASSPHRASE_FILE"]).read_text().removesuffix("\n")
-    if not passphrase or "\n" in passphrase or "\r" in passphrase:
+        value = Path(os.environ["RELEASE_GPG_PASSPHRASE_FILE"]).read_text().removesuffix("\n")
+    if not value or "\n" in value or "\r" in value or len(value.encode()) > 1024:
         raise SigningError("Release signing requires a nonempty single-line passphrase.")
+    return value
+
+
+def credential_gpg(args, payload=None, capture=True):
+    # A separate pipe preserves stdin for Git's payload. Its descriptor, never
+    # its contents, appears in argv; pass_fds deliberately survives only to gpg.
+    reader, writer = os.pipe()
+    try:
+        try:
+            os.write(writer, (passphrase_value() + "\n").encode())
+        finally:
+            os.close(writer)
+        result = subprocess.run(
+            ["gpg", "--no-options", "--batch", "--no-tty", "--no-auto-key-retrieve",
+             "--pinentry-mode", "loopback", "--passphrase-fd", str(reader), *map(str, args)],
+            input=payload, capture_output=capture, text=capture, pass_fds=(reader,), timeout=60)
+        if capture:
+            if result.returncode:
+                raise SigningError("Release signing command failed; values withheld.")
+            return result.stdout + result.stderr
+        return result.returncode
+    finally:
+        os.close(reader)
+
+
+def configure():
+    passphrase_value()
     os.environ.setdefault("RUNNER_TEMP", tempfile.gettempdir())
     directory = Path(tempfile.mkdtemp(prefix="release-signing-", dir=os.environ["RUNNER_TEMP"]))
     try:
-        passphrase_file = directory / "passphrase"
-        write_private(passphrase_file, passphrase + "\n")
         private = os.environ.get("RELEASE_GPG_PRIVATE_KEY")
         if "RELEASE_GPG_PRIVATE_KEY_FILE" in os.environ:
             private = Path(os.environ["RELEASE_GPG_PRIVATE_KEY_FILE"]).read_text()
         if private:
-            secret_home = directory / "secret"
-            secret_home.mkdir(mode=0o700)
-            os.environ["GNUPGHOME"] = str(secret_home)
-            key_file = directory / "import.asc"
-            write_private(key_file, private)
-            try:
-                gpg("--pinentry-mode", "loopback", "--passphrase-file", passphrase_file,
-                    "--import", key_file)
-            finally:
-                key_file.unlink()
+            signing_home = directory / "keyring"
+            signing_home.mkdir(mode=0o700)
+            os.environ["GNUPGHOME"] = str(signing_home)
+            credential_gpg(["--import"], payload=private)
         protected_subkey()
         wrapper = directory / "gpg-wrapper"
-        write_private(wrapper, '#!/bin/sh\nexec gpg --no-options --batch --no-tty '
-                      '--pinentry-mode loopback --passphrase-file '
-                      '"$RELEASE_GPG_PASSPHRASE_FILE" "$@"\n', executable=True)
+        write_private(wrapper, '#!/bin/sh\nexec python3 '
+                      + shlex.quote(str(Path(__file__).resolve()))
+                      + ' gpg-program "$@"\n', executable=True)
         public = directory / "public"
         public.mkdir(mode=0o700)
         verify_env = public_environment(directory)
@@ -103,8 +124,7 @@ def configure():
         write_private(artifact, "Repository release signing preflight\n")
         # Kill the dedicated signing agent: cached credentials cannot satisfy this check.
         run(["gpgconf", "--homedir", os.environ["GNUPGHOME"], "--kill", "gpg-agent"])
-        gpg("--pinentry-mode", "loopback", "--passphrase-file", passphrase_file,
-            "--local-user", SIGNING + "!", "--detach-sign", artifact)
+        credential_gpg(["--local-user", SIGNING + "!", "--detach-sign", artifact])
         verify_status(gpg("--status-fd", "1", "--verify", str(artifact) + ".sig", artifact,
                           env=verify_env))
         config = directory / "gitconfig"
@@ -118,21 +138,20 @@ def configure():
             run(["git", "config", "--local", name, value])
         values = {
             "RELEASE_SIGNING_DIR": str(directory),
-            "GNUPGHOME": os.environ["GNUPGHOME"],
             "RELEASE_GPG_WRAPPER": str(wrapper),
-            "RELEASE_GPG_PASSPHRASE_FILE": str(passphrase_file),
             "GIT_CONFIG_GLOBAL": str(config),
-            "MAVEN_OPTS": (os.environ.get("MAVEN_OPTS", "")
-                           + " -Dgpg.keyname=" + SIGNING + "!").strip(),
+            "RELEASE_MAVEN_OPTS": "-Dgpg.keyname=" + SIGNING + "!",
             "RELEASE_BASE_COMMIT": run(["git", "rev-parse", "HEAD"]).strip(),
         }
+        if private:
+            values["GNUPGHOME"] = str(signing_home)
         with Path(os.environ.get("GITHUB_ENV", os.devnull)).open("a") as output:
             for name, value in values.items():
                 marker = "SIGNING_" + uuid.uuid4().hex
                 output.write(f"{name}<<{marker}\n{value}\n{marker}\n")
         return values
     except BaseException:
-        for home in (directory / "secret", directory / "public"):
+        for home in (directory / "keyring", directory / "public"):
             if home.exists():
                 subprocess.run(["gpgconf", "--homedir", str(home), "--kill", "gpg-agent"],
                                capture_output=True)
@@ -199,9 +218,8 @@ def sign_files(files):
         # Existing signatures are immutable: never overwrite them on a rerun.
         signature = Path(str(artifact) + ".asc")
         if not signature.exists():
-            gpg("--pinentry-mode", "loopback", "--passphrase-file",
-                os.environ["RELEASE_GPG_PASSPHRASE_FILE"], "--local-user", SIGNING + "!",
-                "--armor", "--detach-sign", "--output", signature, artifact)
+            credential_gpg(["--local-user", SIGNING + "!", "--armor",
+                            "--detach-sign", "--output", signature, artifact])
         verify_status(gpg("--status-fd", "1", "--verify", signature, artifact,
                           env=public_environment(directory)))
 
@@ -223,7 +241,7 @@ def cleanup():
             or not directory.name.startswith("release-signing-")):
         raise SigningError("Unexpected release signing directory.")
     if directory.exists():
-        for home in (directory / "secret", directory / "public"):
+        for home in (directory / "keyring", directory / "public"):
             if home.exists():
                 run(["gpgconf", "--homedir", str(home), "--kill", "gpg-agent"])
         shutil.rmtree(directory)
@@ -231,6 +249,9 @@ def cleanup():
 
 def main():
     try:
+        if len(sys.argv) > 1 and sys.argv[1] == "gpg-program":
+            # Git requires stdout/stderr byte-for-byte; do not print a success banner.
+            return credential_gpg(sys.argv[2:], capture=False)
         if sys.argv[1:] == ["configure"]:
             configure()
         elif len(sys.argv) == 3 and sys.argv[1] == "verify-release":
@@ -250,6 +271,8 @@ def main():
             try:
                 values = configure()
                 env = {**os.environ, **values}
+                env["MAVEN_OPTS"] = (env.get("MAVEN_OPTS", "") + " "
+                                     + values["RELEASE_MAVEN_OPTS"]).strip()
                 result = subprocess.run(sys.argv[2:], env=env)
                 if result.returncode:
                     raise SigningError("Release command failed.")
