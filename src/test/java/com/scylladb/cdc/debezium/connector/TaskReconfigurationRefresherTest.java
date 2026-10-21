@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.common.config.ConfigValue;
@@ -207,6 +208,34 @@ class TaskReconfigurationRefresherTest {
     int afterClose = requests.get();
     Thread.sleep(100);
     assertEquals(afterClose, requests.get());
+  }
+
+  @Test
+  void doesNotInterruptARequestWaitingForTheHerderLock() throws Exception {
+    // Models StandaloneHerder.restartConnector(): it stops the connector under the herder lock, and
+    // a request waiting for that lock then runs taskConfigs() for the restarted connector.
+    Object herderLock = new Object();
+    CountDownLatch requestStarted = new CountDownLatch(1);
+    CountDownLatch requestDone = new CountDownLatch(1);
+    AtomicBoolean interrupted = new AtomicBoolean();
+    TaskReconfigurationRefresher refresher =
+        new TaskReconfigurationRefresher(
+            () -> {
+              requestStarted.countDown();
+              synchronized (herderLock) {
+                interrupted.set(Thread.currentThread().isInterrupted());
+              }
+              requestDone.countDown();
+            },
+            10,
+            System::nanoTime);
+    synchronized (herderLock) {
+      refresher.start("test");
+      assertTrue(requestStarted.await(5, TimeUnit.SECONDS));
+      refresher.close();
+    }
+    assertTrue(requestDone.await(5, TimeUnit.SECONDS));
+    assertFalse(interrupted.get(), "close() interrupted a request waiting for the herder lock");
   }
 
   @Test

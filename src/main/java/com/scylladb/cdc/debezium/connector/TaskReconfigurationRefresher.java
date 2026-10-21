@@ -83,7 +83,8 @@ final class TaskReconfigurationRefresher implements AutoCloseable {
    * <p>The request is sent without holding the lock: {@code StandaloneHerder} computes {@code
    * taskConfigs()} on the calling thread under its own lock, so holding ours could deadlock with a
    * thread that holds the herder's lock and enters {@link #trackTaskConfigs}. A request racing with
-   * {@link #close()} can therefore still be sent; Connect skips it once the connector has stopped.
+   * {@link #close()} can therefore still be sent; Connect skips it once the connector has stopped,
+   * and runs it against the new instance when the connector was restarted meanwhile.
    */
   void refresh() {
     int requests;
@@ -137,7 +138,8 @@ final class TaskReconfigurationRefresher implements AutoCloseable {
       closed = true;
     }
     if (executor != null) {
-      executor.shutdownNow();
+      // Not shutdownNow(): the interrupt outlives a restart on a request awaiting the herder lock.
+      executor.shutdown();
     }
   }
 }
