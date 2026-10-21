@@ -1,5 +1,7 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.scylladb.cdc.model.worker.RawChange;
+import com.scylladb.cdc.model.worker.Task;
 import com.scylladb.cdc.model.worker.TaskState;
 import io.debezium.connector.SnapshotRecord;
 import io.debezium.pipeline.spi.OffsetContext;
@@ -30,6 +32,16 @@ public class TaskStateOffsetContext implements OffsetContext {
 
   public void dataChangeEvent(TaskState taskState) {
     sourceInfo.dataChangeEvent(taskState);
+  }
+
+  /**
+   * Records the offset for a row of {@code task}. Rows of one CDC batch share a ChangeId and a
+   * restart resumes strictly after the saved one, so the offset may only move on the batch's last
+   * row. Mirrors scylla-cdc-java's TaskAction (1.3.17).
+   */
+  void dataChangeEvent(Task task, RawChange change) {
+    TaskState state = change.isEndOfBatch() ? task.updateState(change.getId()).state : task.state;
+    sourceInfo.dataChangeEvent(state, change.getId());
   }
 
   @Override
