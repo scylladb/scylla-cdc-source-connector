@@ -3,13 +3,13 @@ SHELL := bash
 
 MAKEFILE_PATH := $(abspath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
-RELEASE_TAG := $(shell git describe --tags --abbrev=0)
-RELEASE_VERSION := $(RELEASE_TAG:v%=%)
-ARTIFACT_ID := scylla-cdc-source-connector
-CHECKOUT_TARGET := target/checkout/target
-
-FAT_JAR := $(CHECKOUT_TARGET)/fat-jar/$(ARTIFACT_ID)-$(RELEASE_VERSION)-jar-with-dependencies.jar
-CONNECT_ZIP := $(CHECKOUT_TARGET)/components/packages/scylladb-$(ARTIFACT_ID)-$(RELEASE_VERSION).zip
+RELEASE_GUARD ?= scripts/release/guard.py
+RELEASE_SIGNING_HELPER ?= $(dir $(RELEASE_GUARD))signing.py
+RELEASE_MAKEFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
+.SHELLFLAGS := -eo pipefail -c
+# Defaults are exported for recursive release recipes.
+export RELEASE_SKIP_TESTS ?= false
+export RELEASE_VERSION ?=
 
 GET_VERSION_VERSION ?= 0.4.5
 GET_VERSION := $(MAKEFILE_PATH)/bin/get-version
@@ -22,18 +22,86 @@ KAFKA_VERSION ?= LATEST
 # -label or .Label suffix (4.1.0, 7.9.2, 3.4.1.Final, 2026.1.0-rc1).
 FULL_VERSION_RE := ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)?$$
 
-.PHONY: github-release resolve-scylla-version resolve-kafka-version
+.PHONY: github-release resolve-scylla-version resolve-kafka-version release-check-user release-check-tokens release-prepare release release-dry-run _release-prepare _release _release-dry-run test-release-signing
 
-github-release:
-	if gh release view "$(RELEASE_TAG)" > /dev/null 2>&1; then \
-		gh release upload "$(RELEASE_TAG)" "$(FAT_JAR)" "$(CONNECT_ZIP)" --clobber; \
-	else \
-		gh release create "$(RELEASE_TAG)" \
-			"$(FAT_JAR)" \
-			"$(CONNECT_ZIP)" \
-			--title "$(RELEASE_TAG)" \
-			--generate-notes; \
+github-release: release-check-user
+	python3 "$(dir $(RELEASE_GUARD))assets.py" publish
+
+release-check-tokens:
+	@python3 "$(dir $(RELEASE_GUARD))assets.py" check-tokens
+
+release-check-user:
+	@set -eu
+	if [ "$${GITHUB_ACTIONS:-}" = true ]; then
+		# The release environment authorizes workflow operators independently of the signer.
+		exit 0
 	fi
+	if ! user=$$(gh api user --jq .login); then
+		echo "Release requires GitHub user scylladb-publisher. Run gh auth login or gh auth switch." >&2
+		exit 1
+	fi
+	if [ "$$user" != scylladb-publisher ]; then
+		echo "Release requires GitHub user scylladb-publisher (current: $$user)." >&2
+		exit 1
+	fi
+
+release-prepare: release-check-user
+	@python3 "$(RELEASE_GUARD)" check
+	+@python3 "$(RELEASE_SIGNING_HELPER)" exec $(MAKE) -f "$(RELEASE_MAKEFILE)" _release-prepare
+
+release: release-check-user release-check-tokens
+	@python3 "$(RELEASE_GUARD)" check
+	@python3 "$(RELEASE_SIGNING_HELPER)" verify-prepared
+	+@python3 "$(RELEASE_SIGNING_HELPER)" exec $(MAKE) -f "$(RELEASE_MAKEFILE)" _release
+
+release-dry-run: release-check-user release-check-tokens
+	@python3 "$(RELEASE_GUARD)" check
+	@python3 "$(RELEASE_SIGNING_HELPER)" verify-prepared
+	+@python3 "$(RELEASE_SIGNING_HELPER)" exec $(MAKE) -f "$(RELEASE_MAKEFILE)" _release-dry-run
+
+test-release-signing:
+	python3 -m unittest discover -s scripts/release -p 'test_signing.py' -v
+
+_release-prepare: release-check-user
+	@if [[ -z "$${MAVEN_GPG_PASSPHRASE}" ]]; then
+		echo "MAVEN_GPG_PASSPHRASE is empty, can't continue"
+		exit 1
+	fi
+	if [[ "$${RELEASE_SKIP_TESTS}" == "true" ]] || [[ "$${RELEASE_SKIP_TESTS}" == "1" ]]; then
+		export MAVEN_OPTS="$${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
+	fi
+	NEXT_RELEASE=()
+	if [[ -n "$${RELEASE_VERSION}" ]]; then
+		if [[ ! "$${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$$ ]]; then
+			echo "Release version must be X.Y.Z" >&2
+			exit 1
+		fi
+		NEXT_RELEASE=("-DreleaseVersion=$${RELEASE_VERSION}")
+	fi
+	export MAVEN_OPTS
+	baseline=$$(git rev-parse HEAD)
+	python3 "$(RELEASE_GUARD)" run mvn -ntp -B release:prepare -DpushChanges=false "$${NEXT_RELEASE[@]}"
+	python3 "$(RELEASE_SIGNING_HELPER)" save-prepared "$$baseline"
+
+_release: release-check-user release-check-tokens
+	@if [[ -z "$${MAVEN_GPG_PASSPHRASE}" ]]; then
+		echo "MAVEN_GPG_PASSPHRASE is empty, can't continue"
+		exit 1
+	fi
+	if [[ "$${RELEASE_SKIP_TESTS}" == "true" ]] || [[ "$${RELEASE_SKIP_TESTS}" == "1" ]]; then
+		export MAVEN_OPTS="$${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
+	fi
+	python3 "$(RELEASE_GUARD)" run mvn -ntp -B release:perform -Drelease.autopublish=true
+
+_release-dry-run: release-check-user release-check-tokens
+	@if [[ -z "$${MAVEN_GPG_PASSPHRASE}" ]]; then
+		echo "MAVEN_GPG_PASSPHRASE is empty, can't continue"
+		exit 1
+	fi
+	if [[ "$${RELEASE_SKIP_TESTS}" == "true" ]] || [[ "$${RELEASE_SKIP_TESTS}" == "1" ]]; then
+		export MAVEN_OPTS="$${MAVEN_OPTS} -DskipTests=true -DskipITs=true"
+	fi
+	python3 "$(RELEASE_GUARD)" run mvn -ntp -B release:perform -Drelease.autopublish=false
 
 $(GET_VERSION):
 	@set -euo pipefail
