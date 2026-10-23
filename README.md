@@ -1590,3 +1590,9 @@ max.queue.size=2048
 ```
 
 Once the connector has caught up with the real-time CDC stream, these throttles remain in effect but have minimal impact since the connector naturally waits for new data to appear. You can relax the values after catch-up by updating the connector configuration.
+
+## Releasing
+
+Maintainers: see [release signing and recovery](scripts/release/SIGNING.md) for
+protected environment setup, local commands, signature verification, key rotation,
+and partial-release recovery. Releases require Java 17 and Maven 3.9.16.

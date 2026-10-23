@@ -10,7 +10,7 @@ on:
 
       skip-tests:
         type: boolean
-        description: 'skip-tests: do not run tests while releasing'
+        description: 'skip-tests: skip project tests during validation; release helper tests always run'
         default: false
 
       target-tag:
@@ -23,187 +23,229 @@ on:
         type: string
         description: 'release-version: override next version'
 
+# Only one release may prepare/publish at a time; never cancel a publishing job.
+concurrency:
+  group: connector-release
+  cancel-in-progress: false
+
 jobs:
-  release:
-    name: Release
+  validate:
+    name: Validate release
     runs-on: ubuntu-latest
-
     permissions:
-      contents: write
-      issues: write
-
+      contents: read
+      issues: read
+    outputs:
+      target-sha: ${{ steps.target.outputs.sha }}
     steps:
+      - name: Checkout validation source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Check for open release blockers
         if: inputs.dry-run == false
         env:
           GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release/check-blockers.sh
+
+      - name: Set up validation Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up Maven 3.9.16
+        run: bash scripts/release/setup-maven.sh
+
+      - name: Validate release tooling
+        run: |
+          python3 scripts/release/guard.py check
+          python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+
+      - name: Preserve validation guard
+        run: bash scripts/release/preserve-tools.sh
+
+      - name: Resolve validation target
+        id: target
+        env:
+          RELEASE_TARGET_TAG: ${{ inputs.target-tag }}
         run: |
           set -euo pipefail
-          blocker=$(gh issue list \
-            --repo "${GITHUB_REPOSITORY}" \
-            --state open \
-            --label release-blocker \
-            --limit 1 \
-            --json title,url \
-            --jq '.[0] // empty')
-          if [[ -n "${blocker}" ]]; then
-            blocker_title=$(jq -r '.title' <<< "${blocker}")
-            blocker_url=$(jq -r '.url' <<< "${blocker}")
-            echo "::error title=Release blocked::${blocker_title} (${blocker_url})"
-            echo "Open release blocker: ${blocker_title} (${blocker_url})"
-            exit 1
+          if [[ "$RELEASE_TARGET_TAG" != master ]]; then
+            if [[ ! "$RELEASE_TARGET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Unsupported target tag; expected master or vX.Y.Z"
+              exit 1
+            fi
+            git checkout --detach "refs/tags/$RELEASE_TARGET_TAG~1" --
           fi
-          echo "No open release blockers found."
+          git rev-parse HEAD | sed 's/^/sha=/' >> "$GITHUB_OUTPUT"
 
+      - name: Validate target without release credentials
+        env:
+          RELEASE_SKIP_TESTS: ${{ inputs.skip-tests }}
+        run: |
+          python3 "$RELEASE_GUARD" check
+          if [[ "$RELEASE_SKIP_TESTS" == true ]]; then
+            export MAVEN_OPTS="${MAVEN_OPTS:-} -DskipTests=true -DskipITs=true"
+          fi
+          python3 "$RELEASE_GUARD" run mvn -B --no-transfer-progress -Prelease -Dgpg.skip=true verify
+
+      - name: Upload sanitized validation-stdout
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: validation-maven-stdout
+          path: ${{ runner.temp }}/release-logs/stdout.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload sanitized validation-stderr
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: validation-maven-stderr
+          path: ${{ runner.temp }}/release-logs/stderr.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Release
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      issues: write
+    steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Preserve release guard
-        run: |
-          cp scripts/release/guard.py "$RUNNER_TEMP/release-guard.py"
-          echo "RELEASE_GUARD=$RUNNER_TEMP/release-guard.py" >> "$GITHUB_ENV"
+        run: bash scripts/release/preserve-tools.sh
 
-      - name: Checkout historical release target
-        if: inputs.target-tag != 'master'
+      - name: Checkout release target
         env:
-          TARGET_TAG: ${{ inputs.target-tag }}
+          RELEASE_TARGET_TAG: ${{ inputs.target-tag }}
+          RELEASE_TARGET_COMMIT: ${{ needs.validate.outputs.target-sha }}
         run: |
-          if [[ "$TARGET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            git fetch --prune --unshallow || true
-            git checkout --detach "${TARGET_TAG}~1" --
-            git tag -d -- "$TARGET_TAG"
+          set -euo pipefail
+          [[ "$RELEASE_TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$RELEASE_TARGET_COMMIT"
+          if [[ "$RELEASE_TARGET_TAG" == master ]]; then
+            git fetch --no-tags origin master
+            if [[ "$(git rev-parse FETCH_HEAD)" != "$RELEASE_TARGET_COMMIT" ]]; then
+              echo "master advanced after validation; start a new release workflow."
+              exit 1
+            fi
+            git checkout -B master "$RELEASE_TARGET_COMMIT" --
           else
-            echo "::error::Unsupported target tag; expected master or vX.Y.Z"
-            exit 1
+            git checkout --detach "$RELEASE_TARGET_COMMIT" --
+            if git show-ref --verify --quiet "refs/tags/$RELEASE_TARGET_TAG"; then
+              git tag -d -- "$RELEASE_TARGET_TAG"
+            fi
           fi
 
-      - name: Validate release target before importing credentials
-        run: python3 "$RELEASE_GUARD" check
+      - name: Check release credential safety before importing credentials
+        run: python3 "$RUNNER_TEMP/release-safety/guard.py" check
+
+      - name: Check for open release blockers
+        if: inputs.dry-run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash "$RUNNER_TEMP/release-safety/check-blockers.sh"
+
+      - name: Reject missing or placeholder Sonatype tokens
+        env:
+          SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
+          SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
+        run: python3 "$RUNNER_TEMP/release-safety/assets.py" check-tokens
 
       - name: Set up Java
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
-          java-version: 17
+          java-version: '17'
           distribution: temurin
           server-id: central
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          # Name the env var the release steps export. Otherwise setup-java defaults it to
-          # GPG_PASSPHRASE, and v6 then makes maven-gpg-plugin read that unset variable
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
           server-username: SONATYPE_TOKEN_USERNAME
           server-password: SONATYPE_TOKEN_PASSWORD
-          cache: maven
 
-      # Maven 3.10 adds repository metadata to the Central publishing bundle.
-      # Sonatype rejects the resulting bundle; see apache/maven#13388.
       - name: Set up Maven 3.9.16
-        run: |
-          set -euo pipefail
-          maven_version=3.9.16
-          archive="$RUNNER_TEMP/apache-maven-${maven_version}-bin.tar.gz"
-          curl --fail --location --silent --show-error \
-            "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${maven_version}/apache-maven-${maven_version}-bin.tar.gz" \
-            --output "$archive"
-          echo "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6  $archive" | sha512sum --check
-          tar -xzf "$archive" -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/apache-maven-${maven_version}/bin" >> "$GITHUB_PATH"
-
-      - name: Configure Git user
-        run: |
-          git config user.name "ScyllaDB Promoter"
-          git config user.email "github-promoter@scylladb.com"
-
-      - name: Clean project
-        run: python3 "$RELEASE_GUARD" run mvn -B -ntp clean
-
-      - name: Clean release
-        run: python3 "$RELEASE_GUARD" run mvn -B -ntp release:clean
+        run: bash "$RUNNER_TEMP/release-safety/setup-maven.sh"
 
       - name: Prepare release
         env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          SKIP_TESTS: ${{ inputs.skip-tests }}
+          RELEASE_SKIP_TESTS: 'true'
           RELEASE_VERSION: ${{ inputs.release-version }}
         run: |
-          args=(-DpushChanges=false)
-          if [[ "$SKIP_TESTS" == "true" ]]; then
-            MAVEN_OPTS="${MAVEN_OPTS:-} -DskipTests=true -DskipITs=true"
-          fi
-          if [[ -n "$RELEASE_VERSION" ]]; then
-            args+=("-DreleaseVersion=$RELEASE_VERSION")
-          fi
-          export MAVEN_OPTS
-          python3 "$RELEASE_GUARD" run mvn -B -ntp release:prepare "${args[@]}"
+          baseline=$(git rev-parse HEAD)
+          export RELEASE_BASE_COMMIT="$baseline"
+          echo "RELEASE_BASE_COMMIT=$baseline" >> "$GITHUB_ENV"
+          make -f "$RUNNER_TEMP/release-safety/Makefile" RELEASE_GUARD="$RUNNER_TEMP/release-safety/guard.py" release-prepare
+
+      - name: Verify prepared release commits and tag with public key only
+        run: python3 "$RUNNER_TEMP/release-safety/signing.py" verify-prepared
 
       - name: Recheck for open release blockers
         if: inputs.dry-run == false
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          blocker=$(gh issue list \
-            --repo "${GITHUB_REPOSITORY}" \
-            --state open \
-            --label release-blocker \
-            --limit 1 \
-            --json title,url \
-            --jq '.[0] // empty')
-          if [[ -n "${blocker}" ]]; then
-            blocker_title=$(jq -r '.title' <<< "${blocker}")
-            blocker_url=$(jq -r '.url' <<< "${blocker}")
-            echo "::error title=Release blocked::${blocker_title} (${blocker_url})"
-            echo "Open release blocker: ${blocker_title} (${blocker_url})"
-            exit 1
-          fi
-          echo "No open release blockers found."
+        run: bash "$RUNNER_TEMP/release-safety/check-blockers.sh"
 
       - name: Perform release
+        if: inputs.dry-run == false
         env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
           SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
-          DRY_RUN: ${{ inputs.dry-run }}
-          SKIP_TESTS: ${{ inputs.skip-tests }}
-        run: |
-          args=()
-          if [[ "$DRY_RUN" != "true" ]]; then
-            args+=(-Drelease.autopublish=true)
-          fi
-          if [[ "$SKIP_TESTS" == "true" ]]; then
-            MAVEN_OPTS="${MAVEN_OPTS:-} -DskipTests=true -DskipITs=true"
-          fi
-          export MAVEN_OPTS
-          python3 "$RELEASE_GUARD" run mvn -B -ntp release:perform "${args[@]}"
+          RELEASE_SKIP_TESTS: 'true'
+        run: make -f "$RUNNER_TEMP/release-safety/Makefile" RELEASE_GUARD="$RUNNER_TEMP/release-safety/guard.py" release
 
       - name: Push changes to SCM
         if: inputs.dry-run == false && inputs.target-tag == 'master'
         run: |
           git status && git log -3
-          git push origin --follow-tags -v
+          git push origin --follow-tags -v HEAD:refs/heads/master
+
+      - name: Perform release dry-run
+        if: inputs.dry-run == true
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
+          SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
+          RELEASE_SKIP_TESTS: 'true'
+        run: make -f "$RUNNER_TEMP/release-safety/Makefile" RELEASE_GUARD="$RUNNER_TEMP/release-safety/guard.py" release-dry-run
+
+      - name: Sign and verify GitHub assets
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: python3 "$RUNNER_TEMP/release-safety/assets.py" sign
 
       - name: Create GitHub Release
         if: inputs.dry-run == false && inputs.target-tag == 'master'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make github-release
+          GH_TOKEN: ${{ github.token }}
+        run: make -f "$RUNNER_TEMP/release-safety/Makefile" RELEASE_GUARD="$RUNNER_TEMP/release-safety/guard.py" github-release
 
       # Notification steps are continue-on-error: a bounced email must not turn a
       # published release red, because a red release invites a re-run, and
-      # re-running this single-job workflow calls mvn release:prepare again and
+      # re-running preparation calls mvn release:prepare again and
       # cuts a spurious version.
       - name: Extract release version
         id: extract-version
         if: inputs.dry-run == false && inputs.target-tag == 'master'
         continue-on-error: true
-        run: |
-          RELEASE_TAG=$(git describe --tags --abbrev=0)
-          # Exported before validation so the fallback issue can quote what was found.
-          echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::warning::unexpected release tag '${RELEASE_TAG}'; skipping the Confluent email"
-            exit 1
-          fi
+        run: python3 "$RUNNER_TEMP/release-safety/assets.py" identity >> "$GITHUB_ENV"
 
       - name: Notify Confluent Hub
         id: notify-confluent
@@ -267,3 +309,21 @@ jobs:
             --assignee "${GITHUB_ACTOR}" \
             --title "Manual action: notify Confluent Hub about ${RELEASE_TAG:-the latest release}" \
             --body "$BODY"
+
+      - name: Upload sanitized stdout
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: maven-stdout
+          path: ${{ runner.temp }}/release-logs/stdout.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload sanitized stderr
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: maven-stderr
+          path: ${{ runner.temp }}/release-logs/stderr.log
+          if-no-files-found: ignore
+          retention-days: 7
