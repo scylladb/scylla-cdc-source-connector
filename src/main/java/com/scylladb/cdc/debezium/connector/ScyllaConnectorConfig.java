@@ -229,6 +229,34 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withValidation(Field::isNonNegativeInteger)
           .withDefault(0);
 
+  // Twice Kafka Connect's 60 s reconfiguration retry backoff cap.
+  static final long MIN_TASK_RECONFIGURATION_INTERVAL_MS = 120000L;
+
+  public static final Field TASK_RECONFIGURATION_INTERVAL_MS =
+      Field.create("scylla.task.reconfiguration.interval.ms")
+          .withDisplayName("Task reconfiguration interval (ms)")
+          .withType(ConfigDef.Type.LONG)
+          .withWidth(ConfigDef.Width.MEDIUM)
+          .withImportance(ConfigDef.Importance.LOW)
+          .withDescription(
+              "How long, in milliseconds, Kafka Connect may go without recomputing the connector's "
+                  + "task configurations before the connector asks it to. Kafka Connect can silently drop "
+                  + "the single reconfiguration request issued after CDC streams are discovered (for "
+                  + "example during a rebalance), leaving the connector RUNNING with no tasks; repeating "
+                  + "the request recovers once Kafka Connect processes one. Each request makes Kafka "
+                  + "Connect call taskConfigs(), which rebuilds, serializes and packs all stream "
+                  + "assignments and, while tablet migrations are pending, reads offset storage. No request "
+                  + "is sent while a taskConfigs() call is in progress, and at most "
+                  + TaskReconfigurationRefresher.MAX_REQUESTS_WITHOUT_SUCCESS
+                  + " are sent until a taskConfigs() call succeeds; a request that throws, as in "
+                  + "standalone mode when taskConfigs() fails, is not counted and is repeated after "
+                  + "another interval. Default: 120000 ms. Set to 0 "
+                  + "to disable; otherwise must be at least "
+                  + MIN_TASK_RECONFIGURATION_INTERVAL_MS
+                  + " ms, twice Kafka Connect's retry backoff cap.")
+          .withValidation(ScyllaConnectorConfig::validateTaskReconfigurationInterval)
+          .withDefault(120000L);
+
   public static final Field INITIAL_LOOKBACK_MS =
       Field.create("scylla.initial.lookback.ms")
           .withDisplayName("Initial lookback window (ms)")
@@ -641,6 +669,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               CONFIDENCE_WINDOW_SIZE,
               MINIMAL_WAIT_FOR_WINDOW_MS,
               MAX_WORKER_CONFIG_BYTES,
+              TASK_RECONFIGURATION_INTERVAL_MS,
               INITIAL_LOOKBACK_MS,
               CDC_OUTPUT_FORMAT,
               PREIMAGES_ENABLED,
@@ -791,6 +820,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public long getMinimalWaitForWindowMs() {
     return config.getInteger(ScyllaConnectorConfig.MINIMAL_WAIT_FOR_WINDOW_MS);
+  }
+
+  public long getTaskReconfigurationIntervalMs() {
+    return config.getLong(ScyllaConnectorConfig.TASK_RECONFIGURATION_INTERVAL_MS);
   }
 
   public long getInitialLookbackMs() {
@@ -1113,6 +1146,33 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   @Override
   public EnumeratedValue getSnapshotMode() {
     return SnapshotMode.INITIAL;
+  }
+
+  /**
+   * Validates that the task reconfiguration interval is 0 (disabled) or at least {@link
+   * #MIN_TASK_RECONFIGURATION_INTERVAL_MS}.
+   */
+  private static int validateTaskReconfigurationInterval(
+      Configuration config, Field field, Field.ValidationOutput problems) {
+    String stringValue = config.getString(field);
+    if (stringValue == null || stringValue.isEmpty()) {
+      return 0; // will use default
+    }
+    long value;
+    try {
+      value = Long.parseLong(stringValue);
+    } catch (NumberFormatException e) {
+      // Field.validate also runs the LONG type check, which reports it.
+      return 0;
+    }
+    if (value != 0 && value < MIN_TASK_RECONFIGURATION_INTERVAL_MS) {
+      problems.accept(
+          field,
+          value,
+          "Must be 0 (disabled) or at least " + MIN_TASK_RECONFIGURATION_INTERVAL_MS + " ms");
+      return 1;
+    }
+    return 0;
   }
 
   /**
