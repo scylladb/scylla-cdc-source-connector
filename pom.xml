@@ -189,6 +189,7 @@
                     <releaseProfiles>release</releaseProfiles>
                     <localCheckout>true</localCheckout>
                     <pushChanges>false</pushChanges>
+                    <signTag>true</signTag>
                     <arguments>-Drelease.autopublish=${release.autopublish}</arguments>
                 </configuration>
                 <dependencies>
