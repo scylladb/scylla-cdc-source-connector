@@ -43,6 +43,14 @@ class WorkflowTests(unittest.TestCase):
             if '        run:' in step:
                 self.assertNotIn('${{ inputs.', step.split('        run:', 1)[1])
 
+    def test_master_recheck_runs_after_blockers_immediately_before_publication(self):
+        names = [step.splitlines()[0] for step in self.steps]
+        index = names.index("Recheck master before publication")
+        self.assertEqual(names[index - 1], "Recheck for open release blockers")
+        self.assertEqual(names[index + 1], "Perform release")
+        self.assertIn("if: inputs.dry-run == false && inputs.target-tag == 'master'",
+                      self.steps[index])
+
     def test_policy_check_has_read_only_permissions_and_pinned_actions(self):
         policy = (ROOT / '.github/workflows/release-credential-safety.yml').read_text()
         self.assertIn('contents: read', policy)

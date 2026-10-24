@@ -25,10 +25,10 @@ def workflow_commands(workflow):
         pending = None
         if line is None:
             return
-        match = re.match(r"^(\s*)(?:-\s+)?(?:run|\"run\"|'run')\s*:\s*(.*)$", line)
+        match = re.match(r"^(\s*)(-\s+)?(?:run|\"run\"|'run')\s*:\s*(.*)$", line)
         if not match:
             continue
-        value = match[2]
+        value = match[3]
         if value.startswith(("*", "&", "!")):
             raise AssertionError("aliased or tagged release scripts are unsupported")
         if not value.startswith(("|", ">")):
@@ -53,8 +53,9 @@ def workflow_commands(workflow):
             yield value
             continue
         script = []
+        key_indent = len(match[1]) + len(match[2] or "")
         for following in lines:
-            if following.strip() and len(following) - len(following.lstrip()) <= len(match[1]):
+            if following.strip() and len(following) - len(following.lstrip()) <= key_indent:
                 pending = following
                 break
             script.append(following)
@@ -62,6 +63,18 @@ def workflow_commands(workflow):
 
 
 class ReleaseCommandTests(unittest.TestCase):
+    def test_dash_prefixed_run_block_stops_before_sibling_environment_and_next_run(self):
+        workflow = """\
+      - run: |
+          printf first
+        env:
+          VALUE: sibling
+      - 'run': 'printf ''next'''
+      - "run": "printf final"
+"""
+        self.assertEqual([script.strip() for script in workflow_commands(workflow)],
+                         ["printf first", "printf 'next'", "printf final"])
+
     def fake_environment(self, directory):
         root = Path(directory)
         binary = root / "mvn"
@@ -567,6 +580,42 @@ class ReleaseCommandTests(unittest.TestCase):
                                     env=env, capture_output=True, text=True, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("master advanced after validation", result.stdout)
+
+    def test_master_recheck_uses_original_baseline_and_blocks_late_advance_before_publication(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        recheck = next(script for script in workflow_commands(workflow)
+                       if "master advanced after release preparation" in script)
+        for advance in (False, True):
+            with self.subTest(advance=advance), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source, commits = self.target_fixture(root)
+                remote = root / "remote.git"
+                self.git(root, "clone", "--quiet", "--bare", str(source), str(remote))
+                baseline = commits[-1]
+                checkout, publisher = self.checkout_validated_target(root, remote, "master", baseline)
+                env = {**os.environ, "RELEASE_TARGET_TAG": "master",
+                       "RELEASE_TARGET_COMMIT": baseline, "RELEASE_BASE_COMMIT": baseline,
+                       "PUBLICATION_SENTINEL": str(root / "published")}
+                result = subprocess.run(
+                    ["bash", "-eo", "pipefail", "-c", checkout], cwd=publisher, env=env,
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.git(publisher, "commit", "--quiet", "--allow-empty", "-m", "prepared release")
+                self.assertNotEqual(self.git(publisher, "rev-parse", "HEAD"), baseline)
+                if advance:
+                    self.git(source, "commit", "--quiet", "--allow-empty", "-m", "master advanced")
+                    self.git(source, "push", "--quiet", str(remote), "master")
+                # The sentinel stands in for publication after the workflow's final guard.
+                result = subprocess.run(
+                    ["bash", "-eo", "pipefail", "-c",
+                     recheck + '\nprintf published > "$PUBLICATION_SENTINEL"'],
+                    cwd=publisher, env=env, capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode == 0, not advance, result.stderr)
+                self.assertEqual((root / "published").exists(), not advance)
+                if advance:
+                    self.assertIn("master advanced after release preparation", result.stdout)
 
     def test_publishing_historical_target_does_not_resolve_a_moved_tag_again(self):
         with tempfile.TemporaryDirectory() as directory:

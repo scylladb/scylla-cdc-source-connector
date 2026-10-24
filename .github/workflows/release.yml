@@ -199,6 +199,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash "$RUNNER_TEMP/release-safety/check-blockers.sh"
 
+      - name: Recheck master before publication
+        if: inputs.dry-run == false && inputs.target-tag == 'master'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin master
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$RELEASE_BASE_COMMIT" ]]; then
+            echo "master advanced after release preparation; start a new release workflow."
+            exit 1
+          fi
+
       - name: Perform release
         if: inputs.dry-run == false
         env:
