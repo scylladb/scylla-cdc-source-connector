@@ -862,6 +862,13 @@ class DiagnosticTests(unittest.TestCase):
                                        env={"RELEASE_GPG_PASSPHRASE": sentinel})
             self.assertNotIn(sentinel, str(error.exception))
 
+    def test_command_timeout_defaults_and_override_reach_subprocess(self):
+        result = subprocess.CompletedProcess([], 0, "output", "")
+        for options, expected in [({}, 60), ({"timeout": 1800}, 1800)]:
+            with self.subTest(options=options), patch.object(subprocess, "run", return_value=result) as invoke:
+                self.assertEqual(signing.run(["test-command"], **options), "output")
+                self.assertEqual(invoke.call_args.kwargs["timeout"], expected)
+
     def test_command_start_and_timeout_errors_withhold_payloads(self):
         for failure, category in [(OSError("DO-NOT-DISCLOSE"), "OS error"),
                                   (subprocess.TimeoutExpired("DO-NOT-DISCLOSE", 60,
@@ -872,6 +879,12 @@ class DiagnosticTests(unittest.TestCase):
                 self.assertIn("GPG signature verification", str(error.exception))
                 self.assertIn(category, str(error.exception))
                 self.assertNotIn("DO-NOT-DISCLOSE", str(error.exception))
+
+        failure = subprocess.TimeoutExpired(["gh", "release", "create", "DO-NOT-DISCLOSE"], 1800,
+                                             output="DO-NOT-DISCLOSE", stderr="DO-NOT-DISCLOSE")
+        with patch.object(subprocess, "run", side_effect=failure):
+            with self.assertRaisesRegex(signing.SigningError, r"^command timed out\.$"):
+                signing.run(failure.cmd, timeout=1800)
 
     def test_unexpected_failure_identifies_operation_and_safe_category(self):
         for failure, category in [(OSError("DO-NOT-DISCLOSE"), "OS error"),

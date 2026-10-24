@@ -77,9 +77,9 @@ def publish():
     if repository["release"] is not None:
         raise signing.SigningError("GitHub release or draft already exists; inspect and recover it manually.")
     signing.run(["gh", "release", "create", tag, *assets, "--verify-tag", "--draft",
-                 "--title", tag, "--generate-notes"])
+                 "--title", tag, "--generate-notes"], timeout=1800)
     # A failed create/upload leaves its draft unpublished for manual recovery.
-    signing.run(["gh", "release", "edit", tag, "--draft=false"])
+    signing.run(["gh", "release", "edit", tag, "--draft=false"], timeout=1800)
 
 
 def main():

@@ -52,8 +52,8 @@ def invoke(command, **kwargs):
         raise SigningError(operation + " could not start (OS error).") from None
 
 
-def run(command, env=None, **kwargs):
-    result = invoke(command, env=env, capture_output=True, text=True, timeout=60, **kwargs)
+def run(command, env=None, timeout=60, **kwargs):
+    result = invoke(command, env=env, capture_output=True, text=True, timeout=timeout, **kwargs)
     if result.returncode:
         raise SigningError(f"{command_operation(command)} failed (exit status {result.returncode}).")
     # Git writes --raw verification status to stderr; ordinary callers parse stdout.

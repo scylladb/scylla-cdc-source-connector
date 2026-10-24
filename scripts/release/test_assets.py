@@ -177,7 +177,13 @@ class AssetTests(unittest.TestCase):
 
     def test_publish_stages_all_four_assets_before_publishing(self):
         with self.publication() as (state, trace, files):
-            assets.publish()
+            with patch.object(subprocess, "run", wraps=subprocess.run) as invoke:
+                assets.publish()
+            self.assertEqual([(call.args[0][:3], call.kwargs["timeout"])
+                              for call in invoke.call_args_list if call.args[0][0] == "gh"], [
+                (["gh", "api", "graphql"], 60),
+                (["gh", "release", "create"], 1800),
+                (["gh", "release", "edit"], 1800)])
             self.assertEqual(self.operations(trace), ["verify", "lookup", "create", "edit"])
             current = json.loads(state.read_text())
             self.assertEqual(current["assets"], [str(item) for path in files for item in (path, str(path) + ".asc")])
