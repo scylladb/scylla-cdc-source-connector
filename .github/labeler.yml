@@ -1,0 +1,7 @@
+# One support-path union must match every file, including rename origins.
+# Keep release build controls and packaged logos visible.
+omit-from-release-notes:
+  - changed-files:
+      - all-globs-to-all-files:
+          - '{.github/**,src/test/**,images/scylla-cdc-source-connector-control-center{1..10}.png,README.md,README-QUICKSTART.md,QUICKSTART-ELASTICSEARCH-INTEGRATION.md,cp-quickstart/README.md,.gitignore,renovate.json,scripts/release/test_guard.py,scripts/release/test_workflow.py,scripts/release/test_github_release.py}'
+          - '!.github/workflows/release.yml'
