@@ -10,7 +10,10 @@ part of the existing release process. GitHub release publication remains limited
 to the non-dry `master` path. Do not rerun the entire Release workflow to retry an
 upload: it prepares a new Maven version.
 
-`.github/release.yml` excludes PRs labeled `omit-from-release-notes`.
+`.github/release.yml` excludes PRs labeled `omit-from-release-notes`. The label is
+for GitHub release presentation. Local Jira label-event callers ignore its manual
+addition/removal while preserving other Jira events. Existing Jira copies are not
+cleaned; other synchronization paths can restore previously copied metadata.
 
 `actions/labeler` uses `.github/labeler.yml` as the canonical filename policy.
 Every current and previous filename must qualify. Documentation, `src/test/`,
