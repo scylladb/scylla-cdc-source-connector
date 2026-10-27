@@ -3,6 +3,7 @@ package com.scylladb.cdc.debezium.connector;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -219,110 +220,80 @@ public class TaskInfoTest {
   }
 
   @Test
-  void beforeTaskInfo_partitionDelete_completesImmediately_whenNotWaitingForPreimage() {
-    TaskInfo taskInfo = new TaskInfo.Before(false);
-    RawChange partitionDelete = createMockChange(RawChange.OperationType.PARTITION_DELETE);
+  void beforeTaskInfo_partitionDelete_withoutPreimage_completesOnArrival() {
+    // Deleting a missing partition produces no PRE_IMAGE; the DELETE must not be dropped
+    TaskInfo taskInfo = new TaskInfo.Before();
+    taskInfo.setChange(createMockChange(RawChange.OperationType.PARTITION_DELETE));
 
-    taskInfo.setChange(partitionDelete);
-
-    // Should be complete without preimage when waitPreimageForPartitionDelete=false
     assertTrue(taskInfo.isComplete());
+    assertNull(taskInfo.getPreImage());
   }
 
   @Test
-  void beforeTaskInfo_partitionDelete_waitsForPreimage_whenWaitingEnabled() {
-    TaskInfo taskInfo = new TaskInfo.Before(true);
-    RawChange partitionDelete = createMockChange(RawChange.OperationType.PARTITION_DELETE);
-
-    taskInfo.setChange(partitionDelete);
-
-    // Should NOT be complete without preimage when waitPreimageForPartitionDelete=true
-    assertFalse(taskInfo.isComplete());
-
-    // Now set preimage
+  void beforeTaskInfo_partitionDelete_keepsPreimageReceivedFirst() {
+    TaskInfo taskInfo = new TaskInfo.Before();
     RawChange preImage = createMockChange(RawChange.OperationType.PRE_IMAGE);
     taskInfo.setPreImage(preImage);
+    assertFalse(taskInfo.isComplete());
 
-    // Should be complete with preimage
+    taskInfo.setChange(createMockChange(RawChange.OperationType.PARTITION_DELETE));
+
     assertTrue(taskInfo.isComplete());
+    assertSame(preImage, taskInfo.getPreImage());
   }
 
   @Test
   void beforeTaskInfo_rowDelete_alwaysWaitsForPreimage() {
-    // With flag=false
-    TaskInfo taskInfo1 = new TaskInfo.Before(false);
+    TaskInfo taskInfo = new TaskInfo.Before();
     RawChange rowDelete = createMockChange(RawChange.OperationType.ROW_DELETE);
-    taskInfo1.setChange(rowDelete);
-    assertFalse(taskInfo1.isComplete());
-
-    // With flag=true
-    TaskInfo taskInfo2 = new TaskInfo.Before(true);
-    taskInfo2.setChange(rowDelete);
-    assertFalse(taskInfo2.isComplete());
+    taskInfo.setChange(rowDelete);
+    assertFalse(taskInfo.isComplete());
   }
 
   @Test
   void beforeTaskInfo_insert_neverWaitsForPreimage() {
-    // With flag=false
-    TaskInfo taskInfo1 = new TaskInfo.Before(false);
+    TaskInfo taskInfo = new TaskInfo.Before();
     RawChange insert = createMockChange(RawChange.OperationType.ROW_INSERT);
-    taskInfo1.setChange(insert);
-    assertTrue(taskInfo1.isComplete());
-
-    // With flag=true
-    TaskInfo taskInfo2 = new TaskInfo.Before(true);
-    taskInfo2.setChange(insert);
-    assertTrue(taskInfo2.isComplete());
+    taskInfo.setChange(insert);
+    assertTrue(taskInfo.isComplete());
   }
 
   // ==================== TaskInfo.BeforeAfter Partition Delete Tests ====================
 
   @Test
-  void beforeAfterTaskInfo_partitionDelete_completesImmediately_whenNotWaitingForPreimage() {
-    TaskInfo taskInfo = new TaskInfo.BeforeAfter(false);
-    RawChange partitionDelete = createMockChange(RawChange.OperationType.PARTITION_DELETE);
+  void beforeAfterTaskInfo_partitionDelete_withoutPreimage_completesOnArrival() {
+    // Deleting a missing partition produces no PRE_IMAGE; the DELETE must not be dropped
+    TaskInfo taskInfo = new TaskInfo.BeforeAfter();
+    taskInfo.setChange(createMockChange(RawChange.OperationType.PARTITION_DELETE));
 
-    taskInfo.setChange(partitionDelete);
-
-    // Should be complete without preimage when waitPreimageForPartitionDelete=false
     assertTrue(taskInfo.isComplete());
+    assertNull(taskInfo.getPreImage());
   }
 
   @Test
-  void beforeAfterTaskInfo_partitionDelete_waitsForPreimage_whenWaitingEnabled() {
-    TaskInfo taskInfo = new TaskInfo.BeforeAfter(true);
-    RawChange partitionDelete = createMockChange(RawChange.OperationType.PARTITION_DELETE);
-
-    taskInfo.setChange(partitionDelete);
-
-    // Should NOT be complete without preimage when waitPreimageForPartitionDelete=true
-    assertFalse(taskInfo.isComplete());
-
-    // Now set preimage
+  void beforeAfterTaskInfo_partitionDelete_keepsPreimageReceivedFirst() {
+    TaskInfo taskInfo = new TaskInfo.BeforeAfter();
     RawChange preImage = createMockChange(RawChange.OperationType.PRE_IMAGE);
     taskInfo.setPreImage(preImage);
+    assertFalse(taskInfo.isComplete());
 
-    // Should be complete with preimage
+    taskInfo.setChange(createMockChange(RawChange.OperationType.PARTITION_DELETE));
+
     assertTrue(taskInfo.isComplete());
+    assertSame(preImage, taskInfo.getPreImage());
   }
 
   @Test
   void beforeAfterTaskInfo_rowDelete_alwaysWaitsForPreimage() {
-    // With flag=false
-    TaskInfo taskInfo1 = new TaskInfo.BeforeAfter(false);
+    TaskInfo taskInfo = new TaskInfo.BeforeAfter();
     RawChange rowDelete = createMockChange(RawChange.OperationType.ROW_DELETE);
-    taskInfo1.setChange(rowDelete);
-    assertFalse(taskInfo1.isComplete());
-
-    // With flag=true
-    TaskInfo taskInfo2 = new TaskInfo.BeforeAfter(true);
-    taskInfo2.setChange(rowDelete);
-    assertFalse(taskInfo2.isComplete());
+    taskInfo.setChange(rowDelete);
+    assertFalse(taskInfo.isComplete());
   }
 
   @Test
   void beforeAfterTaskInfo_insert_requiresPostimage() {
-    TaskInfo taskInfo = new TaskInfo.BeforeAfter(false);
+    TaskInfo taskInfo = new TaskInfo.BeforeAfter();
     RawChange insert = createMockChange(RawChange.OperationType.ROW_INSERT);
 
     taskInfo.setChange(insert);
@@ -335,7 +306,7 @@ public class TaskInfoTest {
 
   @Test
   void beforeAfterTaskInfo_update_requiresBothImages() {
-    TaskInfo taskInfo = new TaskInfo.BeforeAfter(false);
+    TaskInfo taskInfo = new TaskInfo.BeforeAfter();
     RawChange update = createMockChange(RawChange.OperationType.ROW_UPDATE);
 
     taskInfo.setChange(update);
