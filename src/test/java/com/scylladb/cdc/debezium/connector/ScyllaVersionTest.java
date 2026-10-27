@@ -30,6 +30,20 @@ public class ScyllaVersionTest {
   }
 
   @Test
+  void parse_systemVersionsValue() {
+    // system.versions.version as returned by ScyllaDB 2026.1.14
+    ScyllaVersion version = ScyllaVersion.parse("2026.1.14-0.20260924.0dbea6201d67");
+    assertEquals(new ScyllaVersion(2026, 1, 14), version);
+    assertTrue(version.supportsPartitionDeletePreimage());
+  }
+
+  @Test
+  void parse_cqlReleaseVersion() {
+    // system.local.release_version, which every ScyllaDB release reports
+    assertFalse(ScyllaVersion.parse("3.0.8").supportsPartitionDeletePreimage());
+  }
+
+  @Test
   void parse_nullInput() {
     assertNull(ScyllaVersion.parse(null));
   }

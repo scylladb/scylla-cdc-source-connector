@@ -1,10 +1,17 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.Session;
 import io.debezium.config.Configuration;
 import java.io.IOException;
 import java.io.InputStream;
@@ -148,5 +155,35 @@ public class ScyllaVersionCheckerTest {
       assertNoOpenFileDescriptors(certPath);
       assertNoOpenFileDescriptors(privateKeyPath);
     }
+  }
+
+  private static Session sessionReturning(Row row) {
+    Session session = mock(Session.class);
+    ResultSet resultSet = mock(ResultSet.class);
+    when(session.execute(ScyllaVersionChecker.VERSION_QUERY)).thenReturn(resultSet);
+    when(resultSet.one()).thenReturn(row);
+    return session;
+  }
+
+  private static Row versionRow(String version) {
+    Row row = mock(Row.class);
+    when(row.getString("version")).thenReturn(version);
+    return row;
+  }
+
+  @Test
+  void queryVersion_parsesSystemVersions() {
+    Session session = sessionReturning(versionRow("2026.1.14-0.20260924.0dbea6201d67"));
+    assertEquals(new ScyllaVersion(2026, 1, 14), ScyllaVersionChecker.queryVersion(session));
+  }
+
+  @Test
+  void queryVersion_returnsNullWhenRowMissing() {
+    assertNull(ScyllaVersionChecker.queryVersion(sessionReturning(null)));
+  }
+
+  @Test
+  void queryVersion_returnsNullWhenUnparseable() {
+    assertNull(ScyllaVersionChecker.queryVersion(sessionReturning(versionRow("unknown"))));
   }
 }

@@ -1,9 +1,10 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.Host;
 import com.datastax.driver.core.RemoteEndpointAwareNettySSLOptions;
+import com.datastax.driver.core.Row;
 import com.datastax.driver.core.SSLOptions;
+import com.datastax.driver.core.Session;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -13,7 +14,6 @@ import java.io.FileInputStream;
 import java.net.InetSocketAddress;
 import java.security.KeyStore;
 import java.util.List;
-import java.util.Set;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.TrustManagerFactory;
 import org.slf4j.Logger;
@@ -22,12 +22,16 @@ import org.slf4j.LoggerFactory;
 /**
  * Utility class to detect the Scylla cluster version.
  *
- * <p>Connects to the cluster and retrieves the release version from the first available host. The
- * connection respects all connector configuration including SSL/TLS, local datacenter, and
- * credentials.
+ * <p>Connects to the cluster and reads the ScyllaDB version of the coordinator node from {@code
+ * system.versions}. The connection respects all connector configuration including SSL/TLS, local
+ * datacenter, and credentials.
  */
 public class ScyllaVersionChecker {
   private static final Logger logger = LoggerFactory.getLogger(ScyllaVersionChecker.class);
+
+  // system.local.release_version is the CQL-compatibility version (3.0.8 on every ScyllaDB
+  // release), so the real version has to come from system.versions.
+  static final String VERSION_QUERY = "SELECT version FROM system.versions WHERE key = 'local'";
 
   private final ScyllaConnectorConfig config;
 
@@ -61,28 +65,30 @@ public class ScyllaVersionChecker {
       }
     }
 
-    try (Cluster cluster = clusterBuilder.build()) {
-      cluster.init();
-      Set<Host> hosts = cluster.getMetadata().getAllHosts();
-      if (hosts.isEmpty()) {
-        logger.warn("No hosts found in cluster metadata, cannot determine Scylla version");
-        return null;
-      }
-
-      // Get version from the first host
-      Host host = hosts.iterator().next();
-      String releaseVersion = host.getCassandraVersion().toString();
-      logger.info("Detected Scylla version: {} from host {}", releaseVersion, host.getAddress());
-
-      ScyllaVersion version = ScyllaVersion.parse(releaseVersion);
-      if (version == null) {
-        logger.warn("Failed to parse Scylla version from: {}", releaseVersion);
-      }
-      return version;
+    try (Cluster cluster = clusterBuilder.build();
+        Session session = cluster.connect()) {
+      return queryVersion(session);
     } catch (Exception e) {
       logger.warn("Failed to detect Scylla version: {}", e.getMessage());
       return null;
     }
+  }
+
+  /**
+   * Reads the ScyllaDB version through the given session.
+   *
+   * @return the parsed version, or null if the row is missing or cannot be parsed
+   */
+  static ScyllaVersion queryVersion(Session session) {
+    Row row = session.execute(VERSION_QUERY).one();
+    String rawVersion = row == null ? null : row.getString("version");
+    logger.info("Detected Scylla version: {}", rawVersion);
+
+    ScyllaVersion version = ScyllaVersion.parse(rawVersion);
+    if (version == null) {
+      logger.warn("Failed to parse Scylla version from: {}", rawVersion);
+    }
+    return version;
   }
 
   /** Builds SSL options from the connector configuration. */
