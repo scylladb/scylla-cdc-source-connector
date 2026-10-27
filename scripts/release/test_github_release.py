@@ -52,6 +52,47 @@ if sys.argv[1:3] == ['release', 'upload'] and mode == 'upload-failure':
         config = (ROOT / '.github/release.yml').read_text()
         self.assertIn('omit-from-release-notes', config)
 
+    def test_qualified_versions_reach_exact_tag_checks_and_matching_artifacts(self):
+        for tag in ('v1.4.0-rc1', 'v2.0.8.Final', 'v2.0.8-rc.1'):
+            with self.subTest(tag=tag):
+                result, calls = self.run_release('new', tag)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[0], ['api',
+                    'repos/scylladb/scylla-cdc-source-connector/git/ref/tags/' + tag])
+                create = calls[-1]
+                self.assertEqual(create[:3], ['release', 'create', tag])
+                version = tag[1:]
+                self.assertIn('target/checkout/target/fat-jar/'
+                    f'scylla-cdc-source-connector-{version}-jar-with-dependencies.jar', create)
+                self.assertIn('target/checkout/target/components/packages/'
+                    f'scylladb-scylla-cdc-source-connector-{version}.zip', create)
+                self.assertIn('--verify-tag', create)
+                self.assertIn('--generate-notes', create)
+                self.assertNotIn('--prerelease', create)
+                result, calls = self.run_release('published', tag)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[-1][:3], ['release', 'upload', tag])
+                self.assertIn('--clobber', calls[-1])
+                self.assertFalse(any(call[:2] == ['release', 'create'] for call in calls))
+                result, calls = self.run_release('draft', tag)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Existing release is a draft', result.stderr)
+                self.assertEqual(len(calls), 2)
+
+    def test_unsafe_tag_spellings_fail_before_github_or_shell_side_effects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / 'injected'
+            tags = ('--help', 'v1.4.0-rc/../other', 'v1.4.0-rc..1',
+                    'v1.4.0-rc 1', 'v1.4.0-rc1\n',
+                    f'v1.4.0-rc1"; touch "{marker}"; #',
+                    f'v1.4.0-rc1`touch {marker}`')
+            for tag in tags:
+                with self.subTest(tag=tag):
+                    result, calls = self.run_release('new', tag)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(calls, [])
+                    self.assertFalse(marker.exists())
+
     def test_published_release_preserves_notes_and_replaces_artifacts(self):
         result, calls = self.run_release('published')
         self.assertEqual(result.returncode, 0, result.stderr)
