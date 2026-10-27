@@ -1409,7 +1409,7 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
   /**
    * Builds a complete expected Kafka record JSON for TTL-based DELETE operation.
    *
-   * <p>TTL delete is a ROW_DELETE (not PARTITION_DELETE), so the preimage is available. The
+   * <p>TTL delete is a ROW_DELETE, so the preimage is available on every Scylla version. The
    * emitter's {@code emitDeleteRecord} always uses {@code fillStructWithFullImage} regardless of
    * the before/after mode, so the full preimage is always included.
    *
@@ -1418,7 +1418,7 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
    * @return complete JSON record string
    */
   protected static String buildTtlDeleteRecord(int pk, String source) {
-    // TTL delete is ROW_DELETE which has preimage available (unlike PARTITION_DELETE)
+    // TTL delete is ROW_DELETE, which always has a preimage
     String before = jsonFullImageSet1(pk);
     String after = "null"; // DELETE always has null after
     return buildRecord(pk, before, after, "d", source);

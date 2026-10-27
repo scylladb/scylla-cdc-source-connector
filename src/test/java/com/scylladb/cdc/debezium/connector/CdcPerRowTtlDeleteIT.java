@@ -199,8 +199,9 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
         new String[] {
           // 1. INSERT record
           expectedRecord("c", "null", image, key),
-          // 2. Explicit DELETE record (PARTITION_DELETE — preimage only from Scylla 2026.1.0)
-          expectedRecord("d", partitionDeleteHasPreimage() ? image : "null", "null", key),
+          // 2. Explicit DELETE record (PARTITION_DELETE). This suite needs Scylla 2026.2.0+, so the
+          // partition-delete preimage (2026.1.0+) is always present.
+          expectedRecord("d", image, "null", key),
           // 3. Tombstone for Kafka log compaction
           null
         });

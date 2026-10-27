@@ -12,8 +12,9 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
  * <p>Tests verify that primary key columns appear ONLY in the Kafka record key, and NOT in
  * payload-after, payload-before, payload-key, or kafka-headers.
  *
- * <p>Note: DELETE records have null before/after and no payload-key field, so they cannot be
- * matched. Only INSERT + tombstone can be verified for DELETE operations.
+ * <p>Note: DELETE records have no payload-key field. Before Scylla 2026.1.0 they also have null
+ * before/after, so only INSERT + tombstone can be verified. From 2026.1.0 the DELETE record is
+ * matched via the preimage in before.
  */
 public class CdcIncludePkKafkaKeyOnlyIT extends CdcIncludePkBase<String, String> {
 
