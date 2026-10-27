@@ -31,6 +31,12 @@ event tooling, never PR head code or an old PR base revision. Manual dispatch mu
 select the repository default branch before checkout; this precondition does not
 make arbitrary modified workflow versions trustworthy.
 
+Before checkout or dependency installation, the workflow confirms the exact PR
+number from a matching trusted PR event or a successful manual PR lookup. Invalid,
+ordinary-issue, unavailable, or mismatched targets cause no label writes. The
+confirmed number is retained independently of helpers, so later setup or API
+failures still attempt cleanup for that confirmed PR.
+
 The guard requires a complete, unique file listing with valid rename metadata,
 compares head/base revisions and counts around collection, then checks the same
 snapshot and actual label after the stock action. A rename from a nonqualifying
