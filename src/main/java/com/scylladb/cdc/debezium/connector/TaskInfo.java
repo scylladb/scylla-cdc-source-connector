@@ -164,30 +164,16 @@ public interface TaskInfo {
    * <ul>
    *   <li>INSERT: Complete with just the change (no preimage exists for new rows)
    *   <li>UPDATE/DELETE: Requires both preimage and change
-   *   <li>PARTITION_DELETE: Depends on {@code waitPreimageForPartitionDelete} flag
+   *   <li>PARTITION_DELETE: Complete with just the change. A preimage (Scylla 2026.1.0+) shares the
+   *       delta's {@code cdc$time} with a lower {@code cdc$batch_seq_no}, so it is already stored
+   *       when the delta arrives. Deleting a missing partition produces no preimage at all.
    * </ul>
    */
   class Before implements TaskInfo {
     private final long createdAtMillis = System.currentTimeMillis();
-    private final boolean waitPreimageForPartitionDelete;
     private RawChange preImage;
     private RawChange change;
     private boolean isComplete;
-
-    /** Creates a Before TaskInfo that does not wait for preimage on partition deletes. */
-    public Before() {
-      this(false);
-    }
-
-    /**
-     * Creates a Before TaskInfo with configurable partition delete behavior.
-     *
-     * @param waitPreimageForPartitionDelete if true, wait for preimage on partition deletes (Scylla
-     *     >= 2026.1.0)
-     */
-    public Before(boolean waitPreimageForPartitionDelete) {
-      this.waitPreimageForPartitionDelete = waitPreimageForPartitionDelete;
-    }
 
     private void recalculateIsComplete() {
       if (change == null) {
@@ -200,13 +186,8 @@ public interface TaskInfo {
         isComplete = true;
         return;
       }
-      // PARTITION_DELETE: only wait for preimage if Scylla version supports it
+      // PARTITION_DELETE: any preimage arrives before the delta, so never wait for one
       if (op == RawChange.OperationType.PARTITION_DELETE) {
-        if (waitPreimageForPartitionDelete) {
-          isComplete = preImage != null;
-          return;
-        }
-        // Older Scylla versions don't send preimage for partition deletes
         isComplete = true;
         return;
       }
@@ -350,32 +331,16 @@ public interface TaskInfo {
    * <ul>
    *   <li>INSERT: Requires change + postimage (no preimage for new rows)
    *   <li>DELETE: Requires preimage + change (no postimage for deleted rows)
-   *   <li>PARTITION_DELETE: Depends on {@code waitPreimageForPartitionDelete} flag
+   *   <li>PARTITION_DELETE: Complete with just the change (see {@link Before})
    *   <li>UPDATE: Requires all three: preimage + change + postimage
    * </ul>
    */
   class BeforeAfter implements TaskInfo {
     private final long createdAtMillis = System.currentTimeMillis();
-    private final boolean waitPreimageForPartitionDelete;
     private RawChange preImage;
     private RawChange postImage;
     private RawChange change;
     private boolean isComplete;
-
-    /** Creates a BeforeAfter TaskInfo that does not wait for preimage on partition deletes. */
-    public BeforeAfter() {
-      this(false);
-    }
-
-    /**
-     * Creates a BeforeAfter TaskInfo with configurable partition delete behavior.
-     *
-     * @param waitPreimageForPartitionDelete if true, wait for preimage on partition deletes (Scylla
-     *     >= 2026.1.0)
-     */
-    public BeforeAfter(boolean waitPreimageForPartitionDelete) {
-      this.waitPreimageForPartitionDelete = waitPreimageForPartitionDelete;
-    }
 
     private void recalculateIsComplete() {
       if (change == null) {
@@ -393,13 +358,8 @@ public interface TaskInfo {
           isComplete = preImage != null;
           break;
         case PARTITION_DELETE:
-          // PARTITION_DELETE: only wait for preimage if Scylla version supports it
-          if (waitPreimageForPartitionDelete) {
-            isComplete = preImage != null;
-          } else {
-            // Older Scylla versions don't send preimage for partition deletes
-            isComplete = true;
-          }
+          // PARTITION_DELETE: any preimage arrives before the delta, so never wait for one
+          isComplete = true;
           break;
         case ROW_UPDATE:
           // UPDATE: requires both preimage and postimage
