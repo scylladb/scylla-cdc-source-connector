@@ -11,6 +11,7 @@ import java.util.Properties;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
@@ -45,7 +46,8 @@ import org.junit.jupiter.api.TestInfo;
  *     Per-row TTL implementation
  * @see <a href="https://github.com/scylladb/scylladb/issues/13000">scylladb/scylladb#13000</a>
  *     Per-row TTL feature request
- * @see CdcIncludeBeforeAfterBase#testTtlDelete() for per-write TTL tests across before/after modes
+ * @see CdcIncludeBeforeAfterBase#testPerWriteTtlExpiryEmitsNoDelete() per-write TTL, which emits no
+ *     delete
  */
 public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
 
@@ -118,6 +120,9 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
    * a generous timeout to account for the background scan interval.
    */
   @Test
+  @Disabled(
+      "Expiry is logged as cdc$operation -4, which scylla-cdc-java cannot parse:"
+          + " https://github.com/scylladb/scylla-cdc-source-connector/issues/366")
   void testPerRowTtlDelete() throws InterruptedException {
     int pk = reservePk();
 
@@ -234,7 +239,11 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
     waitAndAssert(
         pk,
         new String[] {
-          expectedRecord("c", "null", "{\"id\": " + pk + ", \"text_col\": \"no_ttl_test\"}", key),
+          expectedRecord(
+              "c",
+              "null",
+              "{\"id\": " + pk + ", \"text_col\": \"no_ttl_test\", \"expiration\": null}",
+              key),
         });
   }
 }

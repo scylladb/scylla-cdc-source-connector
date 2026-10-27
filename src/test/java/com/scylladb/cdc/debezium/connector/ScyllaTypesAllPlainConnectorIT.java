@@ -138,18 +138,6 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
     };
   }
 
-  /**
-   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
-   */
-  @Override
-  String[] expectedPrimitiveTtlDelete(int pk) {
-    return new String[] {
-      primitiveInsertRecord(pk, "ttl_delete_me"),
-      expectedRecord("d", primitiveImage(pk, "ttl_delete_me"), "null", expectedKeyFor(pk)),
-      null
-    };
-  }
-
   @Override
   String[] expectedPrimitiveUpdateFromValueToNil(int pk) {
     return new String[] {
