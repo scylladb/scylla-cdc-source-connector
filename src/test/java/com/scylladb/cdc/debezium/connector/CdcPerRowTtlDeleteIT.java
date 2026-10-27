@@ -187,22 +187,20 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
     session.execute("DELETE FROM " + getSuiteKeyspaceTableName() + " WHERE id = " + pk);
 
     String key = "{\"id\": " + pk + "}";
+    String image =
+        "{\"id\": "
+            + pk
+            + ", \"text_col\": \"explicit_delete_test\", \"expiration\": "
+            + expirationMs
+            + "}";
 
     waitAndAssert(
         pk,
         new String[] {
           // 1. INSERT record
-          expectedRecord(
-              "c",
-              "null",
-              "{\"id\": "
-                  + pk
-                  + ", \"text_col\": \"explicit_delete_test\", \"expiration\": "
-                  + expirationMs
-                  + "}",
-              key),
-          // 2. Explicit DELETE record (PARTITION_DELETE — no preimage available)
-          expectedRecord("d", "null", "null", key),
+          expectedRecord("c", "null", image, key),
+          // 2. Explicit DELETE record (PARTITION_DELETE — preimage only from Scylla 2026.1.0)
+          expectedRecord("d", partitionDeleteHasPreimage() ? image : "null", "null", key),
           // 3. Tombstone for Kafka log compaction
           null
         });

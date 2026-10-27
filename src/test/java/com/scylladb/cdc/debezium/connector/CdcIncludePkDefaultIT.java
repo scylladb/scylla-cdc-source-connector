@@ -58,15 +58,29 @@ public class CdcIncludePkDefaultIT extends CdcIncludePkBase<String, String> {
 
   @Override
   String[] expectedDelete(int pk) {
-    // Without payload-key, DELETE records cannot be matched (null before/after)
-    // Only INSERT + tombstone (via kafka-key) can be verified
-    return new String[] {
-      // INSERT record
-      """
+    String insert =
+        """
         {
           "before": null,
           "after": {"id": %d, "name": "%s"},
           "op": "c",
+          "source": %s
+        }
+        """
+            .formatted(pk, deleteNameValue(pk), expectedSource());
+    if (!partitionDeleteHasPreimage()) {
+      // Without payload-key and preimage, DELETE records cannot be matched (null before/after)
+      // Only INSERT + tombstone (via kafka-key) can be verified
+      return new String[] {insert, null};
+    }
+    return new String[] {
+      insert,
+      // DELETE record: matched via the preimage in before
+      """
+        {
+          "before": {"id": %d, "name": "%s"},
+          "after": null,
+          "op": "d",
           "source": %s
         }
         """

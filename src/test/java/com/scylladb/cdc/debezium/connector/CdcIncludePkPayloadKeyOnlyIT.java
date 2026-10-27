@@ -76,14 +76,19 @@ public class CdcIncludePkPayloadKeyOnlyIT extends CdcIncludePkBase<String, Strin
       // DELETE record: key field present in payload allows matching
       """
         {
-          "before": null,
+          "before": %s,
           "after": null,
           "key": {"id": %d},
           "op": "d",
           "source": %s
         }
         """
-          .formatted(pk, expectedSource()),
+          .formatted(
+              partitionDeleteHasPreimage()
+                  ? "{\"name\": \"%s\"}".formatted(deleteNameValue(pk))
+                  : "null",
+              pk,
+              expectedSource()),
       // Tombstone record (matched via kafka-key)
       null
     };

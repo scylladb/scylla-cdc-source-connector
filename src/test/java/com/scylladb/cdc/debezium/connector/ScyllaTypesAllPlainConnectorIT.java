@@ -131,61 +131,9 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
   @Override
   String[] expectedPrimitiveDelete(int pk) {
     return new String[] {
-      """
-        {
-          "before": null,
-          "after": {
-            "id": %d,
-            "ascii_col": "ascii",
-            "bigint_col": 1234567890123,
-            "blob_col": "yv66vg==",
-            "boolean_col": true,
-            "date_col": 19884,
-            "decimal_col": "12345.67",
-            "double_col": 3.14159,
-            "duration_col": "1d12h30m",
-            "float_col": 2.71828,
-            "inet_col": "127.0.0.1",
-            "int_col": 42,
-            "smallint_col": 7,
-            "text_col": "delete me",
-            "time_col": 45296789000000,
-            "timestamp_col": 1718022896789,
-            "timeuuid_col": "81d4a030-4632-11f0-9484-409dd8f36eba",
-            "tinyint_col": 5,
-            "uuid_col": "453662fa-db4b-4938-9033-d8523c0a371c",
-            "varchar_col": "varchar text",
-            "varint_col": "999999999",
-            "untouched_text": "%s",
-            "untouched_int": %d,
-            "untouched_boolean": %s,
-            "untouched_uuid": "%s",
-            %s
-          },
-          "key": {"id": %d},
-          "op": "c",
-          "source": %s
-        }
-        """
-          .formatted(
-              pk,
-              UNTOUCHED_TEXT_VALUE,
-              UNTOUCHED_INT_VALUE,
-              UNTOUCHED_BOOLEAN_VALUE,
-              UNTOUCHED_UUID_VALUE,
-              nonPrimitiveColsNull(),
-              pk,
-              expectedSource()),
-      """
-        {
-          "before": null,
-          "after": null,
-          "key": {"id": %d},
-          "op": "d",
-          "source": %s
-        }
-        """
-          .formatted(pk, expectedSource()),
+      primitiveInsertRecord(pk, "delete me"),
+      expectedRecord(
+          "d", explicitDeleteBefore(primitiveImage(pk, "delete me")), "null", expectedKeyFor(pk)),
       null
     };
   }
@@ -197,51 +145,7 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
   String[] expectedPrimitiveTtlDelete(int pk) {
     return new String[] {
       primitiveInsertRecord(pk, "ttl_delete_me"),
-      """
-        {
-          "before": {
-            "id": %d,
-            "ascii_col": "ascii",
-            "bigint_col": 1234567890123,
-            "blob_col": "yv66vg==",
-            "boolean_col": true,
-            "date_col": 19884,
-            "decimal_col": "12345.67",
-            "double_col": 3.14159,
-            "duration_col": "1d12h30m",
-            "float_col": 2.71828,
-            "inet_col": "127.0.0.1",
-            "int_col": 42,
-            "smallint_col": 7,
-            "text_col": "ttl_delete_me",
-            "time_col": 45296789000000,
-            "timestamp_col": 1718022896789,
-            "timeuuid_col": "81d4a030-4632-11f0-9484-409dd8f36eba",
-            "tinyint_col": 5,
-            "uuid_col": "453662fa-db4b-4938-9033-d8523c0a371c",
-            "varchar_col": "varchar text",
-            "varint_col": "999999999",
-            "untouched_text": "%s",
-            "untouched_int": %d,
-            "untouched_boolean": %s,
-            "untouched_uuid": "%s",
-            %s
-          },
-          "after": null,
-          "key": {"id": %d},
-          "op": "d",
-          "source": %s
-        }
-        """
-          .formatted(
-              pk,
-              UNTOUCHED_TEXT_VALUE,
-              UNTOUCHED_INT_VALUE,
-              UNTOUCHED_BOOLEAN_VALUE,
-              UNTOUCHED_UUID_VALUE,
-              nonPrimitiveColsNull(),
-              pk,
-              expectedSource()),
+      expectedRecord("d", primitiveImage(pk, "ttl_delete_me"), "null", expectedKeyFor(pk)),
       null
     };
   }
@@ -316,7 +220,8 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
   String[] expectedFrozenCollectionsDelete(int pk) {
     return new String[] {
       expectedRecord("c", "null", frozenAfterWithValues(pk), expectedKeyFor(pk)),
-      expectedRecord("d", "null", "null", expectedKeyFor(pk)),
+      expectedRecord(
+          "d", explicitDeleteBefore(frozenAfterWithValues(pk)), "null", expectedKeyFor(pk)),
       null
     };
   }
@@ -380,7 +285,8 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
   String[] expectedNonFrozenCollectionsDelete(int pk) {
     return new String[] {
       expectedRecord("c", "null", nonFrozenAfterMinimal(pk), expectedKeyFor(pk)),
-      expectedRecord("d", "null", "null", expectedKeyFor(pk)),
+      expectedRecord(
+          "d", explicitDeleteBefore(nonFrozenAfterMinimal(pk)), "null", expectedKeyFor(pk)),
       null
     };
   }
@@ -534,7 +440,7 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
   String[] expectedUdtDelete(int pk) {
     return new String[] {
       expectedRecord("c", "null", udtAfterFull(pk), expectedKeyFor(pk)),
-      expectedRecord("d", "null", "null", expectedKeyFor(pk)),
+      expectedRecord("d", explicitDeleteBefore(udtAfterFull(pk)), "null", expectedKeyFor(pk)),
       null
     };
   }
@@ -631,40 +537,39 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
   }
 
   private String primitiveInsertRecord(int pk, String textCol) {
+    return expectedRecord("c", "null", primitiveImage(pk, textCol), expectedKeyFor(pk));
+  }
+
+  /** Full image of a row written by the primitive tests. */
+  private String primitiveImage(int pk, String textCol) {
     return """
         {
-          "before": null,
-          "after": {
-            "id": %d,
-            "ascii_col": "ascii",
-            "bigint_col": 1234567890123,
-            "blob_col": "yv66vg==",
-            "boolean_col": true,
-            "date_col": 19884,
-            "decimal_col": "12345.67",
-            "double_col": 3.14159,
-            "duration_col": "1d12h30m",
-            "float_col": 2.71828,
-            "inet_col": "127.0.0.1",
-            "int_col": 42,
-            "smallint_col": 7,
-            "text_col": "%s",
-            "time_col": 45296789000000,
-            "timestamp_col": 1718022896789,
-            "timeuuid_col": "81d4a030-4632-11f0-9484-409dd8f36eba",
-            "tinyint_col": 5,
-            "uuid_col": "453662fa-db4b-4938-9033-d8523c0a371c",
-            "varchar_col": "varchar text",
-            "varint_col": "999999999",
-            "untouched_text": "%s",
-            "untouched_int": %d,
-            "untouched_boolean": %s,
-            "untouched_uuid": "%s",
-            %s
-          },
-          "key": {"id": %d},
-          "op": "c",
-          "source": %s
+          "id": %d,
+          "ascii_col": "ascii",
+          "bigint_col": 1234567890123,
+          "blob_col": "yv66vg==",
+          "boolean_col": true,
+          "date_col": 19884,
+          "decimal_col": "12345.67",
+          "double_col": 3.14159,
+          "duration_col": "1d12h30m",
+          "float_col": 2.71828,
+          "inet_col": "127.0.0.1",
+          "int_col": 42,
+          "smallint_col": 7,
+          "text_col": "%s",
+          "time_col": 45296789000000,
+          "timestamp_col": 1718022896789,
+          "timeuuid_col": "81d4a030-4632-11f0-9484-409dd8f36eba",
+          "tinyint_col": 5,
+          "uuid_col": "453662fa-db4b-4938-9033-d8523c0a371c",
+          "varchar_col": "varchar text",
+          "varint_col": "999999999",
+          "untouched_text": "%s",
+          "untouched_int": %d,
+          "untouched_boolean": %s,
+          "untouched_uuid": "%s",
+          %s
         }
         """
         .formatted(
@@ -674,9 +579,7 @@ public class ScyllaTypesAllPlainConnectorIT extends ScyllaTypesAllBase<String, S
             UNTOUCHED_INT_VALUE,
             UNTOUCHED_BOOLEAN_VALUE,
             UNTOUCHED_UUID_VALUE,
-            nonPrimitiveColsNull(),
-            pk,
-            expectedSource());
+            nonPrimitiveColsNull());
   }
 
   private String primitiveUpdateRecord(int pk, String textColBefore, boolean afterIsNull) {

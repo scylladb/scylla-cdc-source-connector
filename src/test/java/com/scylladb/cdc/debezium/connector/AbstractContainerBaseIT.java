@@ -369,6 +369,14 @@ public abstract class AbstractContainerBaseIT {
   protected static final ScyllaVersion PARSED_SCYLLA_VERSION = ScyllaVersion.parse(SCYLLA_VERSION);
 
   /**
+   * Whether a single-row partition delete (table without clustering key) carries a preimage, so
+   * DELETE records get a non-null {@code before} when preimages are enabled.
+   */
+  protected static boolean partitionDeleteHasPreimage() {
+    return PARSED_SCYLLA_VERSION != null && PARSED_SCYLLA_VERSION.supportsPartitionDeletePreimage();
+  }
+
+  /**
    * Builds the ScyllaDB server command used by the container. Includes developer/overprovisioned
    * defaults and allows reducing log verbosity via system properties:
    * -Dit.scylla.log.default=warn|error|info (default: warn)

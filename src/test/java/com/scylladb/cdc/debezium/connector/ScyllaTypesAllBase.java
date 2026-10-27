@@ -21,6 +21,14 @@ public abstract class ScyllaTypesAllBase<K, V> extends ScyllaTypesIT<K, V> {
   static final boolean UNTOUCHED_BOOLEAN_VALUE = true;
   static final String UNTOUCHED_UUID_VALUE = "11111111-1111-1111-1111-111111111111";
 
+  /**
+   * Returns the expected {@code before} of an explicit DELETE on these partition-key-only tables:
+   * the full row image when Scylla sends a partition-delete preimage (2026.1.0+), else null.
+   */
+  protected static String explicitDeleteBefore(String image) {
+    return partitionDeleteHasPreimage() ? image : "null";
+  }
+
   // ===================== Abstract Expected Methods - Primitive =====================
 
   abstract String[] expectedPrimitiveInsert(int pk);
