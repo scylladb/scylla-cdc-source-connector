@@ -106,7 +106,7 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
         LegacyDeleteHandlingStrategy.DELETE_HANDLING_MODE,
         ConfigDef.Type.STRING,
         "drop",
-        ConfigDef.ValidString.in("drop", "rewrite", "none"),
+        ConfigDef.CaseInsensitiveValidString.in("drop", "rewrite", "none"),
         ConfigDef.Importance.MEDIUM,
         "Debezium 2.x option, kept for compatibility: how to handle delete records (drop, rewrite,"
             + " none). Ignored when "
