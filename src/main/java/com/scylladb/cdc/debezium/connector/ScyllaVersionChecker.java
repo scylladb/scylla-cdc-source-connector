@@ -6,6 +6,8 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.SSLOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
+import com.datastax.driver.core.policies.EC2MultiRegionAddressTranslator;
+import com.scylladb.cdc.cql.CQLConfiguration.AddressTranslatorType;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslProvider;
@@ -24,7 +26,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Connects to the cluster and reads the ScyllaDB version of the coordinator node from {@code
  * system.versions}. The connection respects all connector configuration including SSL/TLS, local
- * datacenter, and credentials.
+ * datacenter, address translator, and credentials.
  */
 public class ScyllaVersionChecker {
   private static final Logger logger = LoggerFactory.getLogger(ScyllaVersionChecker.class);
@@ -45,17 +47,7 @@ public class ScyllaVersionChecker {
    * @return the detected ScyllaVersion, or null if detection fails
    */
   public ScyllaVersion getVersion() {
-    Cluster.Builder clusterBuilder = Cluster.builder();
-    for (InetSocketAddress contactPoint : config.getContactPoints()) {
-      clusterBuilder.addContactPoint(contactPoint.getHostString()).withPort(contactPoint.getPort());
-    }
-    if (config.getUser() != null && config.getPassword() != null) {
-      clusterBuilder.withCredentials(config.getUser(), config.getPassword());
-    }
-    if (config.getLocalDCName() != null) {
-      clusterBuilder.withLoadBalancingPolicy(
-          DCAwareRoundRobinPolicy.builder().withLocalDc(config.getLocalDCName()).build());
-    }
+    Cluster.Builder clusterBuilder = newClusterBuilder();
     if (config.getSslEnabled()) {
       try {
         clusterBuilder.withSSL(buildSslOptions());
@@ -72,6 +64,25 @@ public class ScyllaVersionChecker {
       logger.warn("Failed to detect Scylla version: {}", e.getMessage());
       return null;
     }
+  }
+
+  /** Builds the cluster with the connector's connection settings, except SSL. */
+  Cluster.Builder newClusterBuilder() {
+    Cluster.Builder clusterBuilder = Cluster.builder();
+    for (InetSocketAddress contactPoint : config.getContactPoints()) {
+      clusterBuilder.addContactPoint(contactPoint.getHostString()).withPort(contactPoint.getPort());
+    }
+    if (config.getUser() != null && config.getPassword() != null) {
+      clusterBuilder.withCredentials(config.getUser(), config.getPassword());
+    }
+    if (config.getLocalDCName() != null) {
+      clusterBuilder.withLoadBalancingPolicy(
+          DCAwareRoundRobinPolicy.builder().withLocalDc(config.getLocalDCName()).build());
+    }
+    if (config.getAddressTranslator() == AddressTranslatorType.EC2_MULTI_REGION) {
+      clusterBuilder.withAddressTranslator(new EC2MultiRegionAddressTranslator());
+    }
+    return clusterBuilder;
   }
 
   /**

@@ -1,6 +1,8 @@
 package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -12,6 +14,8 @@ import static org.mockito.Mockito.when;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.policies.AddressTranslator;
+import com.datastax.driver.core.policies.EC2MultiRegionAddressTranslator;
 import io.debezium.config.Configuration;
 import java.io.IOException;
 import java.io.InputStream;
@@ -185,5 +189,32 @@ public class ScyllaVersionCheckerTest {
   @Test
   void queryVersion_returnsNullWhenUnparseable() {
     assertNull(ScyllaVersionChecker.queryVersion(sessionReturning(versionRow("unknown"))));
+  }
+
+  private static AddressTranslator addressTranslator(String translator) {
+    Configuration.Builder builder =
+        Configuration.create()
+            .with("name", "test-connector")
+            .with("topic.prefix", "test")
+            .with("scylla.cluster.ip.addresses", "127.0.0.1:9042")
+            .with("scylla.table.names", "ks.table");
+    if (translator != null) {
+      builder.with("scylla.address.translator", translator);
+    }
+    return new ScyllaVersionChecker(new ScyllaConnectorConfig(builder.build()))
+        .newClusterBuilder()
+        .getConfiguration()
+        .getPolicies()
+        .getAddressTranslator();
+  }
+
+  @Test
+  void newClusterBuilder_appliesEc2MultiRegionAddressTranslator() {
+    assertInstanceOf(EC2MultiRegionAddressTranslator.class, addressTranslator("EC2_MULTI_REGION"));
+  }
+
+  @Test
+  void newClusterBuilder_keepsDefaultAddressTranslator() {
+    assertFalse(addressTranslator(null) instanceof EC2MultiRegionAddressTranslator);
   }
 }
