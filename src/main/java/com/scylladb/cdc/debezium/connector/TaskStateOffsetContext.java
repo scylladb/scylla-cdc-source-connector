@@ -1,5 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.scylladb.cdc.model.worker.ChangeId;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.Task;
 import com.scylladb.cdc.model.worker.TaskState;
@@ -40,8 +41,16 @@ public class TaskStateOffsetContext implements OffsetContext {
    * row. Mirrors scylla-cdc-java's TaskAction (1.3.17).
    */
   void dataChangeEvent(Task task, RawChange change) {
-    TaskState state = change.isEndOfBatch() ? task.updateState(change.getId()).state : task.state;
-    sourceInfo.dataChangeEvent(state, change.getId());
+    dataChangeEvent(task, change.getId(), change.isEndOfBatch());
+  }
+
+  /**
+   * As {@link #dataChangeEvent(Task, RawChange)}, for a dispatched record: {@code endOfBatch} says
+   * whether it is the last record of its batch, whichever row that record came from.
+   */
+  void dataChangeEvent(Task task, ChangeId changeId, boolean endOfBatch) {
+    TaskState state = endOfBatch ? task.updateState(changeId).state : task.state;
+    sourceInfo.dataChangeEvent(state, changeId);
   }
 
   @Override

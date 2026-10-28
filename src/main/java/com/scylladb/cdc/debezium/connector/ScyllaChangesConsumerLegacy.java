@@ -1,9 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.scylladb.cdc.model.TaskId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.Task;
-import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.util.Clock;
 import java.util.HashMap;
@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Used when {@code cdc.output.format=legacy} is configured.
  */
-public class ScyllaChangesConsumerLegacy implements TaskAndRawChangeConsumer {
+public class ScyllaChangesConsumerLegacy implements WindowAwareChangeConsumer {
   private final Logger logger = LoggerFactory.getLogger(getClass());
 
   /** Threshold for logging warnings about preimage map size. */
@@ -52,6 +52,13 @@ public class ScyllaChangesConsumerLegacy implements TaskAndRawChangeConsumer {
       this.lastPreImage = null;
     }
   }
+
+  /**
+   * Nothing to do: this consumer dispatches each delta as it arrives, and a preimage it holds
+   * belongs to a delta of the same batch, so of the same window.
+   */
+  @Override
+  public void windowEnded(TaskId task) {}
 
   @Override
   public CompletableFuture<Void> consume(Task task, RawChange change) {

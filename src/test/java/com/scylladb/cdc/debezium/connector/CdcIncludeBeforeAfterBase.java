@@ -3,7 +3,6 @@ package com.scylladb.cdc.debezium.connector;
 import java.util.List;
 import java.util.Properties;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -547,10 +546,6 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
    * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
    */
   @Test
-  @Disabled(
-      "INSERT USING TTL with a non-frozen collection emits no record with images (#365 repros"
-          + " Full) and one record per delta row without them (None):"
-          + " https://github.com/scylladb/scylla-cdc-source-connector/issues/365")
   void testPerWriteTtlExpiryEmitsNoDelete() {
     int pk = reservePk();
     insertFullRowWithTtl(pk, TTL_SECONDS);

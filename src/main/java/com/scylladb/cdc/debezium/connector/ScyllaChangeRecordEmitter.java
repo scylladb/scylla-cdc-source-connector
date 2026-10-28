@@ -1,5 +1,6 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.google.common.base.Suppliers;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.cql.Cell;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.Schema;
@@ -64,6 +66,8 @@ public class ScyllaChangeRecordEmitter
   private final ScyllaSchema schema;
   private final TaskInfo taskInfo;
   private final ScyllaConnectorConfig connectorConfig;
+  private final Supplier<Set<String>> modifiedColumns;
+  private final Supplier<Set<String>> batchModifiedColumns;
 
   public ScyllaChangeRecordEmitter(
       ScyllaPartition partition,
@@ -72,10 +76,76 @@ public class ScyllaChangeRecordEmitter
       ScyllaSchema schema,
       Clock clock,
       ScyllaConnectorConfig connectorConfig) {
+    this(
+        partition,
+        taskInfo,
+        offsetContext,
+        schema,
+        clock,
+        connectorConfig,
+        modifiedColumnsOf(taskInfo.getChange()));
+  }
+
+  private ScyllaChangeRecordEmitter(
+      ScyllaPartition partition,
+      TaskInfo taskInfo,
+      OffsetContext offsetContext,
+      ScyllaSchema schema,
+      Clock clock,
+      ScyllaConnectorConfig connectorConfig,
+      Supplier<Set<String>> modifiedColumns) {
+    this(
+        partition,
+        taskInfo,
+        offsetContext,
+        schema,
+        clock,
+        connectorConfig,
+        modifiedColumns,
+        modifiedColumns);
+  }
+
+  /**
+   * @param modifiedColumns the columns this record's change modifies, from {@link
+   *     #modifiedColumnsOf(RawChange)}
+   * @param batchModifiedColumns the columns every record the batch gives this row modifies, this
+   *     one's included: a full {@code before} built from the postimage must skip all of them
+   */
+  ScyllaChangeRecordEmitter(
+      ScyllaPartition partition,
+      TaskInfo taskInfo,
+      OffsetContext offsetContext,
+      ScyllaSchema schema,
+      Clock clock,
+      ScyllaConnectorConfig connectorConfig,
+      Supplier<Set<String>> modifiedColumns,
+      Supplier<Set<String>> batchModifiedColumns) {
     super(partition, offsetContext, clock, connectorConfig);
     this.taskInfo = taskInfo;
     this.schema = schema;
     this.connectorConfig = connectorConfig;
+    this.modifiedColumns = modifiedColumns;
+    this.batchModifiedColumns = batchModifiedColumns;
+  }
+
+  /** The columns {@code change} modifies, read from it on the first {@code get()} only. */
+  static Supplier<Set<String>> modifiedColumnsOf(RawChange change) {
+    return Suppliers.memoize(() -> getModifiedColumns(change));
+  }
+
+  /**
+   * The union of {@code parts}, computed on the first {@code get()} only. Records of one row share
+   * it, and each part is memoized, so every change is read once however many records use it.
+   */
+  static Supplier<Set<String>> unionOf(Collection<Supplier<Set<String>>> parts) {
+    return Suppliers.memoize(
+        () -> {
+          Set<String> columns = new HashSet<>();
+          for (Supplier<Set<String>> part : parts) {
+            columns.addAll(part.get());
+          }
+          return columns;
+        });
   }
 
   public ChangeSchema getChangeSchema() {
@@ -88,6 +158,11 @@ public class ScyllaChangeRecordEmitter
 
   public ScyllaSchema getSchema() {
     return schema;
+  }
+
+  /** Package-private: visible for testing. */
+  TaskInfo getTaskInfo() {
+    return taskInfo;
   }
 
   @Override
@@ -212,7 +287,7 @@ public class ScyllaChangeRecordEmitter
 
     Struct afterStruct;
     Struct beforeStruct;
-    Set<String> modifiedColumns = getModifiedColumns(taskInfo.getChange());
+    Set<String> modifiedColumns = this.modifiedColumns.get();
 
     if (beforeMode == ScyllaConnectorConfig.CdcIncludeMode.ONLY_UPDATED
         || afterMode == ScyllaConnectorConfig.CdcIncludeMode.ONLY_UPDATED) {
@@ -249,7 +324,7 @@ public class ScyllaChangeRecordEmitter
                 taskInfo.getPreImage(),
                 taskInfo.getPostImage(),
                 includePkInPayloadBefore(),
-                modifiedColumns);
+                batchModifiedColumns);
       }
     } else {
       // Original behavior for FULL/NONE modes
@@ -266,7 +341,7 @@ public class ScyllaChangeRecordEmitter
               taskInfo.getPreImage(),
               taskInfo.getPostImage(),
               includePkInPayloadBefore(),
-              modifiedColumns);
+              batchModifiedColumns);
     }
 
     Struct payloadKeyStruct =
@@ -358,7 +433,7 @@ public class ScyllaChangeRecordEmitter
    * @param change the change record containing column values and cdc$deleted_* indicators
    * @return set of modified column names, or empty set if change is null
    */
-  private Set<String> getModifiedColumns(RawChange change) {
+  private static Set<String> getModifiedColumns(RawChange change) {
     if (change == null) {
       return Collections.emptySet();
     }
@@ -523,7 +598,7 @@ public class ScyllaChangeRecordEmitter
    * @param preImage the preimage containing old values for modified columns, or null
    * @param postImage the postimage containing all column values after the change, or null
    * @param includePk whether to include primary key columns
-   * @param modifiedColumns the set of modified column names (pre-computed from preImage)
+   * @param modifiedColumnsSupplier the modified column names, read only if both images exist
    * @return the populated before struct, or null if no preimage is available
    */
   private Struct fillBeforeStructForUpdate(
@@ -531,7 +606,7 @@ public class ScyllaChangeRecordEmitter
       RawChange preImage,
       RawChange postImage,
       boolean includePk,
-      Set<String> modifiedColumns) {
+      Supplier<Set<String>> modifiedColumnsSupplier) {
     // If no preimage, we have no "before" data
     if (preImage == null) {
       return null;
@@ -542,6 +617,7 @@ public class ScyllaChangeRecordEmitter
       return fillStructWithFullImage(
           collectionSchema.beforeSchema(), preImage, includePk, collectionSchema);
     }
+    Set<String> modifiedColumns = modifiedColumnsSupplier.get();
 
     // Both images present - combine data from preimage and postimage
     Struct valueStruct = new Struct(collectionSchema.beforeSchema());
