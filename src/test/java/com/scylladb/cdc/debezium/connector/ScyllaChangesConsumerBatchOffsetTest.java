@@ -314,7 +314,16 @@ class ScyllaChangesConsumerBatchOffsetTest {
     runScenario(
         config,
         Optional.of(changeId(10_500)),
-        this::advanced,
+        // A version with partition-delete preimages, where the removed wait used to apply
+        c ->
+            new ScyllaChangesConsumer(
+                dispatcher,
+                offsetContext,
+                null,
+                Clock.SYSTEM,
+                c,
+                ScyllaVersion.PARTITION_DELETE_PREIMAGE_SUPPORT,
+                Long.MAX_VALUE),
         List.of(
             row(OperationType.PARTITION_DELETE, 11_000, true, null, schema),
             row(OperationType.PRE_IMAGE, 12_000, null, null, schema),

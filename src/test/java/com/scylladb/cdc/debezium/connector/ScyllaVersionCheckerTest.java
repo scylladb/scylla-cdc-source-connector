@@ -11,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.datastax.driver.core.ExecutionInfo;
+import com.datastax.driver.core.Host;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
@@ -164,7 +166,10 @@ public class ScyllaVersionCheckerTest {
   private static Session sessionReturning(Row row) {
     Session session = mock(Session.class);
     ResultSet resultSet = mock(ResultSet.class);
+    ExecutionInfo executionInfo = mock(ExecutionInfo.class);
     when(session.execute(ScyllaVersionChecker.VERSION_QUERY)).thenReturn(resultSet);
+    when(resultSet.getExecutionInfo()).thenReturn(executionInfo);
+    when(executionInfo.getQueriedHost()).thenReturn(mock(Host.class));
     when(resultSet.one()).thenReturn(row);
     return session;
   }
