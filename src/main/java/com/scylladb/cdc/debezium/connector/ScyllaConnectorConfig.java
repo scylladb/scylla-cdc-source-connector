@@ -27,7 +27,7 @@ import org.apache.kafka.common.config.ConfigDef;
 public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   /**
-   * Debezium 3.x {@link Field#withEnum} accepts only {@link EnumeratedValue} enums. This keeps the
+   * Debezium 3.7 {@link Field#withEnum} accepts only {@link EnumeratedValue} enums. This keeps the
    * 2.x behaviour for third-party enums: lower-case names, checked case-insensitively.
    */
   private static <T extends Enum<T>> Field withPlainEnum(
@@ -667,7 +667,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
       CommonConnectorConfig.CONFIG_DEFINITION
           .edit()
           .name("Scylla")
-          // 3.x replaced the type/connector/events sections with Field.Group
+          // Debezium 3.7 replaced the type/connector/events sections with Field.Group
           .group(
               Field.Group.CONNECTION,
               CLUSTER_IP_ADDRESSES,

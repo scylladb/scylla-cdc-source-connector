@@ -108,7 +108,7 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
             DataChangeEvent::new,
             new ScyllaInconsistentSchemaHandler(),
             metadataProvider,
-            // 3.x heartbeats enqueue through the queue they are built with
+            // Since Debezium 3.3 heartbeats enqueue through the queue they are built with
             new HeartbeatImpl(
                 connectorConfig.getHeartbeatInterval(),
                 topicNamingStrategy.heartbeatTopic(),

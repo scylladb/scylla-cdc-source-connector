@@ -71,6 +71,60 @@ class ScyllaExtractNewRecordStateTest {
     return record(ENVELOPE.delete(row(), source(), Instant.EPOCH));
   }
 
+  private static SourceRecord update() {
+    return record(ENVELOPE.update(row(), row(), source(), Instant.EPOCH));
+  }
+
+  // Legacy format: non-key columns are wrapped in Cell structs, and a delete always carries the
+  // primary key in before, even without a preimage.
+  private static final Schema CELL_SCHEMA =
+      SchemaBuilder.struct()
+          .name("ks.t.v.Cell")
+          .optional()
+          .field("value", Schema.OPTIONAL_STRING_SCHEMA)
+          .build();
+  private static final Schema LEGACY_ROW_SCHEMA =
+      SchemaBuilder.struct()
+          .name("ks.t.Before")
+          .optional()
+          .field("id", Schema.INT32_SCHEMA)
+          .field("v", CELL_SCHEMA)
+          .build();
+  private static final Envelope LEGACY_ENVELOPE =
+      Envelope.defineSchema()
+          .withName("ks.t.Envelope")
+          .withRecord(LEGACY_ROW_SCHEMA)
+          .withSource(SOURCE_SCHEMA)
+          .build();
+
+  private static SourceRecord legacyRecord(Struct value) {
+    return new SourceRecord(
+        Map.of(), Map.of(), "ks.t", 0, KEY_SCHEMA, key(), LEGACY_ENVELOPE.schema(), value);
+  }
+
+  private static SourceRecord legacyInsert() {
+    Struct row =
+        new Struct(LEGACY_ROW_SCHEMA)
+            .put("id", 1)
+            .put("v", new Struct(CELL_SCHEMA).put("value", "a"));
+    return legacyRecord(LEGACY_ENVELOPE.create(row, source(), Instant.EPOCH));
+  }
+
+  private static SourceRecord legacyDelete() {
+    Struct before = new Struct(LEGACY_ROW_SCHEMA).put("id", 1);
+    return legacyRecord(LEGACY_ENVELOPE.delete(before, source(), Instant.EPOCH));
+  }
+
+  private static ScyllaExtractNewRecordState<SourceRecord> legacySmt(String... keyValues) {
+    Map<String, String> configs = new HashMap<>();
+    for (int i = 0; i < keyValues.length; i += 2) {
+      configs.put(keyValues[i], keyValues[i + 1]);
+    }
+    ScyllaExtractNewRecordState<SourceRecord> smt = new ScyllaExtractNewRecordState<>();
+    smt.configure(configs);
+    return smt;
+  }
+
   private static SourceRecord tombstone() {
     return new SourceRecord(Map.of(), Map.of(), "ks.t", 0, KEY_SCHEMA, key(), null, null);
   }
@@ -109,10 +163,31 @@ class ScyllaExtractNewRecordStateTest {
   }
 
   @Test
-  void deleteHandlingModeNone_emitsANullValueForADeleteWithPreimage() {
-    SourceRecord out = smt("delete.handling.mode", "none").apply(deleteWithPreimage());
+  void deleteHandlingModeNone_emitsANullValueAndKeepsTheTombstone() {
+    // Debezium 3.x's default would also null the delete, but it drops the tombstone
+    ScyllaExtractNewRecordState<SourceRecord> smt =
+        smt("delete.handling.mode", "none", "drop.tombstones", "false");
+    SourceRecord out = smt.apply(deleteWithPreimage());
     assertNotNull(out);
     assertNull(out.value());
+    SourceRecord tombstone = tombstone();
+    assertSame(tombstone, smt.apply(tombstone));
+  }
+
+  @Test
+  void deleteHandlingModeRewrite_marksInsertsAndUpdatesAsNotDeleted() {
+    ScyllaExtractNewRecordState<SourceRecord> smt = smt("delete.handling.mode", "rewrite");
+    assertEquals("false", ((Struct) smt.apply(insert()).value()).getString("__deleted"));
+    assertEquals("false", ((Struct) smt.apply(update()).value()).getString("__deleted"));
+  }
+
+  @Test
+  void deleteHandlingModeRewrite_withDropTombstonesFalse_keepsTheTombstone() {
+    ScyllaExtractNewRecordState<SourceRecord> smt =
+        smt("delete.handling.mode", "rewrite", "drop.tombstones", "false");
+    assertEquals("true", ((Struct) smt.apply(deleteWithPreimage()).value()).getString("__deleted"));
+    SourceRecord tombstone = tombstone();
+    assertSame(tombstone, smt.apply(tombstone));
   }
 
   @Test
@@ -153,5 +228,43 @@ class ScyllaExtractNewRecordStateTest {
         smt("delete.tombstone.handling.mode", "", "drop.tombstones", "false");
     SourceRecord tombstone = tombstone();
     assertSame(tombstone, smt.apply(tombstone));
+  }
+
+  @Test
+  void legacyInsert_unwrapsCells() {
+    Struct value = (Struct) legacySmt().apply(legacyInsert()).value();
+    assertEquals("a", value.getString("v"));
+  }
+
+  @Test
+  void legacyDelete_defaults_dropDeleteAndTombstone() {
+    ScyllaExtractNewRecordState<SourceRecord> smt = legacySmt();
+    assertNull(smt.apply(legacyDelete()));
+    assertNull(smt.apply(tombstone()));
+  }
+
+  @Test
+  void legacyDelete_dropTombstonesFalse_keepsOnlyTheTombstone() {
+    ScyllaExtractNewRecordState<SourceRecord> smt = legacySmt("drop.tombstones", "false");
+    assertNull(smt.apply(legacyDelete()));
+    SourceRecord tombstone = tombstone();
+    assertSame(tombstone, smt.apply(tombstone));
+  }
+
+  @Test
+  void legacyDelete_rewrite_marksTheKeyAsDeleted() {
+    Struct value =
+        (Struct) legacySmt("delete.handling.mode", "rewrite").apply(legacyDelete()).value();
+    assertEquals(1, value.getInt32("id"));
+    assertEquals("true", value.getString("__deleted"));
+  }
+
+  @Test
+  void legacyDelete_newOptionTombstone_isANullValueNotADrop() {
+    // Unlike an advanced-format delete without preimage, before is set, so it is no truncate
+    SourceRecord out =
+        legacySmt("delete.tombstone.handling.mode", "tombstone").apply(legacyDelete());
+    assertNotNull(out);
+    assertNull(out.value());
   }
 }
