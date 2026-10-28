@@ -16,6 +16,7 @@ import com.datastax.driver.core.Host;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.UnauthorizedException;
 import com.datastax.driver.core.policies.AddressTranslator;
 import com.datastax.driver.core.policies.EC2MultiRegionAddressTranslator;
 import io.debezium.config.Configuration;
@@ -194,6 +195,14 @@ public class ScyllaVersionCheckerTest {
   @Test
   void queryVersion_returnsNullWhenUnparseable() {
     assertNull(ScyllaVersionChecker.queryVersion(sessionReturning(versionRow("unknown"))));
+  }
+
+  @Test
+  void queryVersion_returnsNullWhenUnauthorized() {
+    Session session = mock(Session.class);
+    when(session.execute(ScyllaVersionChecker.VERSION_QUERY))
+        .thenThrow(new UnauthorizedException(null, "no SELECT permission on system.versions"));
+    assertNull(ScyllaVersionChecker.queryVersion(session));
   }
 
   private static AddressTranslator addressTranslator(String translator) {
