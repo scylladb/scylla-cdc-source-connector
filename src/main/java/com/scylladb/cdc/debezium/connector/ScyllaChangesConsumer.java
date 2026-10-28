@@ -1,26 +1,33 @@
 package com.scylladb.cdc.debezium.connector;
 
+import com.scylladb.cdc.model.TaskId;
+import com.scylladb.cdc.model.worker.ChangeId;
 import com.scylladb.cdc.model.worker.ChangeSchema;
 import com.scylladb.cdc.model.worker.RawChange;
 import com.scylladb.cdc.model.worker.Task;
 import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.util.Clock;
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Consumes CDC changes from Scylla and dispatches them to Kafka.
  *
- * <p>This consumer handles the accumulation of preimage/postimage events when configured, ensuring
- * all required events are collected before dispatching a complete change record.
+ * <p>Rows are buffered until the end of their CDC batch, then dispatched as records: per base-table
+ * row, its upsert deltas merged into one record (see {@link MergedRawChange}), followed by a record
+ * for its delete if the batch also deletes it. Each record carries its preimage/postimage when
+ * configured. ScyllaDB marks the batch's last row, so this does not depend on which images a given
+ * operation has (a new row has no preimage, a delete no postimage).
  */
-public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
+public class ScyllaChangesConsumer
+    implements TaskAndRawChangeConsumer, ScyllaWorkerTransport.WindowEndListener {
   private final Logger logger = LoggerFactory.getLogger(getClass());
 
   /**
@@ -29,23 +36,42 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
    */
   public static final String CONNECTOR_ERROR_MARKER = "[SCYLLA-CDC-CONNECTOR-ERROR]";
 
-  /**
-   * Interval between cleanup checks in terms of number of events processed. Cleanup runs
-   * approximately every N events to avoid checking on every single event.
-   */
-  private static final long CLEANUP_CHECK_INTERVAL = 1000;
-
   private final EventDispatcher<ScyllaPartition, CollectionId> dispatcher;
   private final ScyllaOffsetContext offsetContext;
   private final ScyllaSchema schema;
   private final Clock clock;
   private final boolean usePreimages;
   private final boolean usePostimages;
-  private final boolean waitPreimageForPartitionDelete;
-  private final Map<RowKey, TaskInfo> taskInfoMap;
+  // The batch each task is reading. A task's rows arrive in order on one consume() at a time, so a
+  // batch is only touched by its own task.
+  private final Map<TaskId, PendingBatch> pendingBatches = new ConcurrentHashMap<>();
   private final ScyllaConnectorConfig connectorConfig;
   private final long incompleteTaskTimeoutMs;
-  private final AtomicLong eventCounter = new AtomicLong(0);
+
+  /** The rows of one task's current CDC batch, buffered until the batch's last row. */
+  private static final class PendingBatch {
+    // The task as of the batch's first row; it only advances on an end-of-batch row.
+    private final Task task;
+    private final ChangeId changeId;
+    private final long createdAtMillis = System.currentTimeMillis();
+    private int lastBatchSeqNo = -1;
+    private boolean warnedSlow;
+    // The record each row is currently building.
+    private final Map<RowKey, TaskInfo> openRecords = new HashMap<>();
+    // All records of the batch, in the order they were opened.
+    private final List<TaskInfo> records = new ArrayList<>();
+
+    private PendingBatch(Task task, ChangeId changeId) {
+      this.task = task;
+      this.changeId = changeId;
+    }
+
+    private TaskInfo open(RowKey rowKey, TaskInfo taskInfo) {
+      openRecords.put(rowKey, taskInfo);
+      records.add(taskInfo);
+      return taskInfo;
+    }
+  }
 
   public ScyllaChangesConsumer(
       EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
@@ -72,8 +98,8 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
    * @param schema the schema
    * @param clock the clock
    * @param connectorConfig the connector configuration
-   * @param scyllaVersion the detected Scylla version, may be null
-   * @param incompleteTaskTimeoutMs timeout for incomplete tasks in milliseconds
+   * @param scyllaVersion the detected Scylla version, may be null; not used yet, #366 will need it
+   * @param incompleteTaskTimeoutMs how long after a batch's first row a further row logs a warning
    */
   ScyllaChangesConsumer(
       EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
@@ -93,26 +119,13 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     this.usePreimages = connectorConfig.getCdcIncludeBefore().requiresImage();
     // Use postimages if the new config requires image data
     this.usePostimages = connectorConfig.getCdcIncludeAfter().requiresImage();
-
-    // Wait for preimage on partition delete (tables without CK) if:
-    // 1. Scylla version >= 2026.1.0 (supports preimage for partition deletes)
-    // 2. Preimages are enabled in the config
-    this.waitPreimageForPartitionDelete =
-        usePreimages && scyllaVersion != null && scyllaVersion.supportsPartitionDeletePreimage();
-
-    if (usePreimages || usePostimages) {
-      // Use ConcurrentHashMap for thread safety
-      this.taskInfoMap = new ConcurrentHashMap<>();
-    } else {
-      this.taskInfoMap = null;
-    }
   }
 
   private TaskInfo createTaskInfo() {
     if (usePreimages && usePostimages) {
-      return new TaskInfo.BeforeAfter(waitPreimageForPartitionDelete);
+      return new TaskInfo.BeforeAfter();
     } else if (usePreimages) {
-      return new TaskInfo.Before(waitPreimageForPartitionDelete);
+      return new TaskInfo.Before();
     } else if (usePostimages) {
       return new TaskInfo.After();
     } else {
@@ -120,66 +133,84 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
     }
   }
 
-  /**
-   * Gets or creates a TaskInfo for the given row key.
-   *
-   * @param rowKey the row key identifying the specific row within the task
-   * @return the TaskInfo, never null when taskInfoMap is initialized
-   * @throws IllegalStateException if called when taskInfoMap is null (preimages/postimages
-   *     disabled)
-   */
-  private TaskInfo getOrCreateTaskInfo(RowKey rowKey) {
-    if (taskInfoMap == null) {
-      throw new IllegalStateException(
-          "getOrCreateTaskInfo called but taskInfoMap is null. "
-              + "This method should only be called when preimages or postimages are enabled.");
-    }
-    return taskInfoMap.computeIfAbsent(rowKey, k -> createTaskInfo());
+  private PendingBatch pendingBatch(Task task, RawChange change) {
+    return pendingBatches.computeIfAbsent(task.id, id -> new PendingBatch(task, change.getId()));
+  }
+
+  /** The record the row is building in the current batch, opening one if it has none. */
+  private TaskInfo openRecord(Task task, RawChange change, RowKey rowKey) {
+    PendingBatch batch = pendingBatch(task, change);
+    TaskInfo taskInfo = batch.openRecords.get(rowKey);
+    return taskInfo != null ? taskInfo : batch.open(rowKey, createTaskInfo());
+  }
+
+  private static boolean isDelete(RawChange change) {
+    RawChange.OperationType operationType = change.getOperationType();
+    return operationType == RawChange.OperationType.ROW_DELETE
+        || operationType == RawChange.OperationType.PARTITION_DELETE;
   }
 
   /**
-   * Cleans up stale incomplete tasks to prevent memory leaks.
-   *
-   * <p>Tasks that have been waiting for completion longer than the configured timeout are removed
-   * and logged as warnings.
+   * The record a delta joins: upserts merge into one record. A delete, or an upsert setting a
+   * column the record already sets (see {@link MergedRawChange#overlaps}), ends it and gets a
+   * record of its own, dispatched after it. ScyllaDB logs a row's upserts before its deletion. The
+   * new record shares the batch's preimage, the row state before the batch.
    */
-  private void cleanupStaleTasks() {
-    if (taskInfoMap == null || taskInfoMap.isEmpty()) {
+  private TaskInfo recordForDelta(Task task, RawChange change, RowKey rowKey) {
+    TaskInfo taskInfo = openRecord(task, change, rowKey);
+    RawChange current = taskInfo.getChange();
+    if (current == null
+        || (isDelete(current) == isDelete(change) && !MergedRawChange.overlaps(current, change))) {
+      return taskInfo;
+    }
+    return pendingBatch(task, change)
+        .open(rowKey, createTaskInfo().setPreImage(taskInfo.getPreImage()));
+  }
+
+  /**
+   * Handles a row arriving while the task has a batch pending. scylla-cdc-java reads a stream's
+   * rows in (cdc$time, batch_seq_no) order and a batch shares one cdc$time, so a batch never spans
+   * two windows or interleaves with another one. After a failure the library re-reads from its last
+   * end-of-batch row, so a row of the same batch with a sequence number already seen, or a row of
+   * an earlier batch, means a re-read: the buffered rows are dropped and rebuilt. A row of a later
+   * batch means the pending batch has no more rows in the log.
+   */
+  private void beforeRow(Task task, RawChange change) throws InterruptedException {
+    PendingBatch batch = pendingBatches.get(task.id);
+    if (batch == null) {
       return;
     }
-
-    long now = System.currentTimeMillis();
-    Iterator<Map.Entry<RowKey, TaskInfo>> iterator = taskInfoMap.entrySet().iterator();
-
-    while (iterator.hasNext()) {
-      Map.Entry<RowKey, TaskInfo> entry = iterator.next();
-      TaskInfo taskInfo = entry.getValue();
-      long age = now - taskInfo.getCreatedAtMillis();
-
-      if (age > incompleteTaskTimeoutMs) {
-        logger.error(
-            "{} Dropping stale incomplete task {} after {}ms. "
-                + "This may indicate missing preimage/postimage events. "
-                + "Task state: change={}, preImage={}, postImage={}",
-            CONNECTOR_ERROR_MARKER,
-            entry.getKey(),
-            age,
-            taskInfo.getChange() != null,
-            taskInfo.getPreImage() != null,
-            taskInfo.getPostImage() != null);
-        iterator.remove();
-      }
+    int order = change.getId().compareTo(batch.changeId);
+    if (order > 0) {
+      logger.warn(
+          "CDC batch {} has no end-of-batch row before the next batch; dispatching it",
+          batch.changeId);
+      dispatchPendingBatch(batch, null);
+    } else if (order < 0 || change.getBatchSequenceNumber() <= batch.lastBatchSeqNo) {
+      logger.info("Re-reading CDC batch {}; dropping its buffered rows", batch.changeId);
+      pendingBatches.remove(task.id);
+    } else if (!batch.warnedSlow
+        && System.currentTimeMillis() - batch.createdAtMillis > incompleteTaskTimeoutMs) {
+      batch.warnedSlow = true;
+      logger.warn(
+          "CDC batch {} is still being read after {}ms; its records wait for its last row",
+          batch.changeId,
+          incompleteTaskTimeoutMs);
     }
   }
 
   /**
-   * Periodically triggers cleanup based on event count.
-   *
-   * <p>This avoids checking on every event while still ensuring timely cleanup.
+   * Dispatches the task's pending batch before its offset moves to the next window, so the window
+   * checkpoint never passes undispatched rows. The window's rows are all read by then, so the batch
+   * has no more rows.
    */
-  private void maybeCleanupStaleTasks() {
-    if (eventCounter.incrementAndGet() % CLEANUP_CHECK_INTERVAL == 0) {
-      cleanupStaleTasks();
+  @Override
+  public void windowEnded(TaskId taskId) throws InterruptedException {
+    PendingBatch batch = pendingBatches.get(taskId);
+    if (batch != null) {
+      logger.warn(
+          "CDC batch {} has no end-of-batch row in its window; dispatching it", batch.changeId);
+      dispatchPendingBatch(batch, null);
     }
   }
 
@@ -187,64 +218,56 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
   public CompletableFuture<Void> consume(Task task, RawChange change) {
     try {
       logger.debug("Consuming RawChange of type {}", change.getOperationType());
-
-      // Periodically clean up stale incomplete tasks to prevent memory leaks
-      maybeCleanupStaleTasks();
+      beforeRow(task, change);
 
       RawChange.OperationType operationType = change.getOperationType();
-
-      if (taskInfoMap != null) {
-        RowKey rowKey = RowKey.from(task.id, change);
-        TaskInfo taskInfo = null;
-        switch (operationType) {
-          case PRE_IMAGE:
-            taskInfo = getOrCreateTaskInfo(rowKey).setPreImage(change);
-            break;
-          case POST_IMAGE:
-            taskInfo = getOrCreateTaskInfo(rowKey).setPostImage(change);
-            break;
-          case ROW_DELETE:
-          case ROW_INSERT:
-          case ROW_UPDATE:
-            taskInfo = getOrCreateTaskInfo(rowKey).setChange(change);
-            break;
-          case PARTITION_DELETE:
-            if (isSinglePartitionDelete(change.getSchema())) {
-              // TaskInfo.isComplete() handles the decision on whether to wait for preimage
-              // based on the waitPreimageForPartitionDelete flag passed to the constructor
-              taskInfo = getOrCreateTaskInfo(rowKey).setChange(change);
-            }
-            break;
-          default:
-        }
-        if (taskInfo == null) {
-          // If it is event that consumer ignores we record the offset without dispatching
-          updateOffset(task, change);
-        } else if (taskInfo.isComplete()) {
-          // If it is final event that task expects we record the offset and dispatch
-          taskInfoMap.remove(rowKey);
-          updateOffsetAndDispatch(task, change, taskInfo);
-        }
-        // If task is not complete yet (e.g., received PRE_IMAGE but waiting for change),
-        // just store the event and return. The offset is recorded when the task completes.
-        return CompletableFuture.completedFuture(null);
-      }
+      RowKey rowKey = RowKey.from(task.id, change);
+      boolean buffered = true;
       switch (operationType) {
+        case PRE_IMAGE:
+          if (usePreimages) {
+            openRecord(task, change, rowKey).setPreImage(change);
+          } else {
+            buffered = false;
+          }
+          break;
+        case POST_IMAGE:
+          if (usePostimages) {
+            openRecord(task, change, rowKey).setPostImage(change);
+          } else {
+            buffered = false;
+          }
+          break;
         case ROW_DELETE:
         case ROW_INSERT:
         case ROW_UPDATE:
-          updateOffsetAndDispatch(task, change, new TaskInfo.Basic().setChange(change));
+          recordForDelta(task, change, rowKey).setChange(change);
           break;
         case PARTITION_DELETE:
           if (isSinglePartitionDelete(change.getSchema())) {
-            updateOffsetAndDispatch(task, change, new TaskInfo.Basic().setChange(change));
+            recordForDelta(task, change, rowKey).setChange(change);
           } else {
-            updateOffset(task, change);
+            buffered = false;
           }
           break;
         default:
-          updateOffset(task, change);
+          buffered = false;
       }
+      PendingBatch batch = pendingBatches.get(task.id);
+      if (batch != null) {
+        batch.lastBatchSeqNo = change.getBatchSequenceNumber();
+      }
+      if (change.isEndOfBatch()) {
+        if (batch != null) {
+          dispatchPendingBatch(batch, change);
+        } else {
+          updateOffset(task, change);
+        }
+      } else if (!buffered) {
+        // If it is event that consumer ignores we record the offset without dispatching
+        updateOffset(task, change);
+      }
+      // A buffered row mid-batch records no offset: that happens when its batch is dispatched.
     } catch (InterruptedException e) {
       logger.error(
           "{} InterruptedException in consume for change {}: {}",
@@ -280,15 +303,49 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
             column -> column.getBaseTableColumnType() == ChangeSchema.ColumnType.CLUSTERING_KEY);
   }
 
-  TaskStateOffsetContext updateOffset(Task task, RawChange change) {
-    TaskStateOffsetContext taskStateOffsetContext = offsetContext.taskStateOffsetContext(task.id);
-    taskStateOffsetContext.dataChangeEvent(task, change);
-    return taskStateOffsetContext;
+  /**
+   * Dispatches every record of {@code batch} and forgets it. Only the last record carries the
+   * batch's own offset (#340): until then a restart must re-read the batch. The batch stays pending
+   * until every record is out: a failed window move is retried without re-reading the window.
+   *
+   * @param endOfBatch the batch's last row, or null if the log has no more rows for the batch
+   */
+  private void dispatchPendingBatch(PendingBatch batch, RawChange endOfBatch)
+      throws InterruptedException {
+    List<TaskInfo> ready = new ArrayList<>();
+    for (TaskInfo taskInfo : batch.records) {
+      if (taskInfo.getChange() == null) {
+        // Images whose delta the connector does not emit, e.g. the preimage of a per-row TTL
+        // service delete (#366).
+        logger.debug("Skipping CDC images without a supported change in {}", batch.changeId);
+        continue;
+      }
+      ready.add(taskInfo);
+    }
+    TaskStateOffsetContext taskStateOffsetContext =
+        offsetContext.taskStateOffsetContext(batch.task.id);
+    if (ready.isEmpty()) {
+      taskStateOffsetContext.dataChangeEvent(batch.task, batch.changeId, true);
+      pendingBatches.remove(batch.task.id);
+      return;
+    }
+    for (int i = 0; i < ready.size(); i++) {
+      TaskInfo taskInfo = ready.get(i);
+      boolean last = i == ready.size() - 1;
+      ChangeId changeId =
+          last && endOfBatch != null ? endOfBatch.getId() : taskInfo.getChange().getId();
+      taskStateOffsetContext.dataChangeEvent(batch.task, changeId, last);
+      dispatch(batch.task, taskStateOffsetContext, taskInfo);
+    }
+    pendingBatches.remove(batch.task.id);
   }
 
-  void updateOffsetAndDispatch(Task task, RawChange change, TaskInfo taskInfo)
+  private void updateOffset(Task task, RawChange change) {
+    offsetContext.taskStateOffsetContext(task.id).dataChangeEvent(task, change);
+  }
+
+  private void dispatch(Task task, TaskStateOffsetContext taskStateOffsetContext, TaskInfo taskInfo)
       throws InterruptedException {
-    TaskStateOffsetContext taskStateOffsetContext = updateOffset(task, change);
     dispatcher.dispatchDataChangeEvent(
         new ScyllaPartition(offsetContext, taskStateOffsetContext.sourceInfo),
         new CollectionId(task.id.getTable()),

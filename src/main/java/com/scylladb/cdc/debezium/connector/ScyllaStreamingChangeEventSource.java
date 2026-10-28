@@ -82,12 +82,20 @@ public class ScyllaStreamingChangeEventSource
 
       Driver3WorkerCQL cql = new Driver3WorkerCQL(session);
       RetryBackoff workerRetryBackoff = configuration.createCDCWorkerRetryBackoff();
-      ScyllaWorkerTransport workerTransport =
-          new ScyllaWorkerTransport(
-              context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
-
       // Create the appropriate consumer based on output format configuration
       TaskAndRawChangeConsumer changeConsumer = createChangeConsumer(offsetContext, scyllaVersion);
+      // The advanced consumer buffers a batch's rows; the window checkpoint must not pass them.
+      ScyllaWorkerTransport.WindowEndListener windowEndListener =
+          changeConsumer instanceof ScyllaWorkerTransport.WindowEndListener
+              ? (ScyllaWorkerTransport.WindowEndListener) changeConsumer
+              : task -> {};
+      ScyllaWorkerTransport workerTransport =
+          new ScyllaWorkerTransport(
+              context,
+              offsetContext,
+              dispatcher,
+              configuration.getHeartbeatIntervalMs(),
+              windowEndListener);
 
       WorkerConfiguration workerConfiguration =
           WorkerConfiguration.builder()
