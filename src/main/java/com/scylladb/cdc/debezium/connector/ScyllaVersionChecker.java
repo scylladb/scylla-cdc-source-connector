@@ -1,7 +1,9 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.Host;
 import com.datastax.driver.core.RemoteEndpointAwareNettySSLOptions;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.SSLOptions;
 import com.datastax.driver.core.Session;
@@ -25,8 +27,8 @@ import org.slf4j.LoggerFactory;
  * Utility class to detect the Scylla cluster version.
  *
  * <p>Connects to the cluster and reads the ScyllaDB version of the coordinator node from {@code
- * system.versions}. The connection respects all connector configuration including SSL/TLS, local
- * datacenter, address translator, and credentials.
+ * system.versions}. The connection uses the connector's contact points, credentials, local
+ * datacenter, address translator, and SSL/TLS settings.
  */
 public class ScyllaVersionChecker {
   private static final Logger logger = LoggerFactory.getLogger(ScyllaVersionChecker.class);
@@ -91,13 +93,20 @@ public class ScyllaVersionChecker {
    * @return the parsed version, or null if the row is missing or cannot be parsed
    */
   static ScyllaVersion queryVersion(Session session) {
-    Row row = session.execute(VERSION_QUERY).one();
-    String rawVersion = row == null ? null : row.getString("version");
-    logger.info("Detected Scylla version: {}", rawVersion);
+    ResultSet resultSet = session.execute(VERSION_QUERY);
+    Host host = resultSet.getExecutionInfo().getQueriedHost();
+    Row row = resultSet.one();
+    if (row == null) {
+      logger.warn("No local row in system.versions on host {}", host);
+      return null;
+    }
 
+    String rawVersion = row.getString("version");
     ScyllaVersion version = ScyllaVersion.parse(rawVersion);
     if (version == null) {
-      logger.warn("Failed to parse Scylla version from: {}", rawVersion);
+      logger.warn("Failed to parse Scylla version from: {} on host {}", rawVersion, host);
+    } else {
+      logger.info("Detected Scylla version: {} from host {}", rawVersion, host);
     }
     return version;
   }
