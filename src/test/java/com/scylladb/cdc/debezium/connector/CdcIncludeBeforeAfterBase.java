@@ -1398,8 +1398,10 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
    */
   protected static String buildDeleteRecord(
       int pk, String beforeMode, String afterMode, String source) {
-    // Note: For partition-key-only tables, Scylla sends PARTITION_DELETE which has no preimage
-    String before = "null"; // Partition delete has no preimage
+    // Partition-key-only tables get PARTITION_DELETE, which carries a preimage only from Scylla
+    // 2026.1.0. The emitter always uses the full preimage for deletes, regardless of before mode.
+    String before =
+        "none".equals(beforeMode) || !partitionDeleteHasPreimage() ? "null" : jsonFullImageSet1(pk);
     String after = "null"; // DELETE always has null after
     return buildRecord(pk, before, after, "d", source);
   }
@@ -1407,7 +1409,7 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
   /**
    * Builds a complete expected Kafka record JSON for TTL-based DELETE operation.
    *
-   * <p>TTL delete is a ROW_DELETE (not PARTITION_DELETE), so the preimage is available. The
+   * <p>TTL delete is a ROW_DELETE, so the preimage is available on every Scylla version. The
    * emitter's {@code emitDeleteRecord} always uses {@code fillStructWithFullImage} regardless of
    * the before/after mode, so the full preimage is always included.
    *
@@ -1416,7 +1418,7 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
    * @return complete JSON record string
    */
   protected static String buildTtlDeleteRecord(int pk, String source) {
-    // TTL delete is ROW_DELETE which has preimage available (unlike PARTITION_DELETE)
+    // TTL delete is ROW_DELETE, which always has a preimage
     String before = jsonFullImageSet1(pk);
     String after = "null"; // DELETE always has null after
     return buildRecord(pk, before, after, "d", source);

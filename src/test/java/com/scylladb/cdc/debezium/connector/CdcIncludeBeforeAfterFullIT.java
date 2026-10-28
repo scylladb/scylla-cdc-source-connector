@@ -18,12 +18,12 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
  * <ul>
  *   <li>INSERT: before=null, after=full image (all columns + PK)
  *   <li>UPDATE: before=full preimage (all columns + PK), after=full postimage (all columns + PK)
- *   <li>DELETE: before=null (Scylla doesn't send preimage for PARTITION_DELETE), after=null
+ *   <li>DELETE: before=full preimage on Scylla >= 2026.1.0, null on older versions; after=null
  * </ul>
  *
  * <p>Note: This table has only a partition key (no clustering key), so DELETE operations are
- * represented as PARTITION_DELETE by Scylla CDC. Scylla doesn't send preimage for partition
- * deletes, so the "before" field will be null for DELETE operations.
+ * represented as PARTITION_DELETE by Scylla CDC. Scylla sends a preimage for such deletes only from
+ * 2026.1.0, so on older versions the "before" field is null for DELETE operations.
  *
  * <p>The "full" mode provides complete row state in each message, which is useful for consumers
  * that need to know the entire row context.
@@ -48,7 +48,7 @@ public class CdcIncludeBeforeAfterFullIT extends CdcIncludeBeforeAfterBase<Strin
     if (pk != -1) {
       return pk;
     }
-    // For DELETE on partition-key-only tables, before/after are null.
+    // For DELETE on partition-key-only tables before Scylla 2026.1.0, before/after are null.
     // Extract from the "key" field instead.
     return extractIdFromKeyField(value);
   }
@@ -65,18 +65,18 @@ public class CdcIncludeBeforeAfterFullIT extends CdcIncludeBeforeAfterBase<Strin
   }
 
   /**
-   * DELETE: before=null (partition delete has no preimage), after=null.
+   * DELETE: before=full preimage on Scylla >= 2026.1.0, null on older versions; after=null.
    *
    * <p>This table has only a partition key (no clustering key), so DELETE operations are
-   * represented as PARTITION_DELETE by Scylla CDC. Scylla doesn't send preimage for partition
-   * deletes, so "before" is null. The "key" field contains the PK values for identification.
+   * represented as PARTITION_DELETE by Scylla CDC. Scylla sends a preimage for such deletes only
+   * from 2026.1.0. The "key" field contains the PK values for identification.
    */
   @Override
   String[] expectedDelete(int pk) {
     return new String[] {
       // INSERT record with full image
       buildInsertRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
-      // DELETE record: before=null because Scylla doesn't send preimage for PARTITION_DELETE
+      // DELETE record: before depends on Scylla version, see buildDeleteRecord
       buildDeleteRecord(pk, BEFORE_MODE, AFTER_MODE, expectedSource()),
       // Tombstone record (null value) for Kafka log compaction
       null

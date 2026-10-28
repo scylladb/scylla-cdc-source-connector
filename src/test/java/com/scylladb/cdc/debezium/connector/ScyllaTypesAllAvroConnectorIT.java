@@ -385,40 +385,43 @@ public class ScyllaTypesAllAvroConnectorIT
 
   @Override
   String[] expectedPrimitiveDelete(int pk) {
+    String image =
+        """
+        {
+          %s,
+          %s,
+          %s,
+          %s
+        }
+        """
+            .formatted(
+                primitiveColumnsValues(pk, "delete me"),
+                frozenCollectionsColumnsNull(),
+                nonFrozenCollectionsColumnsNull(),
+                udtColumnsNull());
     return new String[] {
       // INSERT record
       """
         {
           "before": null,
-          "after": {
-            %s,
-            %s,
-            %s,
-            %s
-          },
+          "after": %s,
           "key": {"id": %d},
           "op": "c",
           "source": %s
         }
         """
-          .formatted(
-              primitiveColumnsValues(pk, "delete me"),
-              frozenCollectionsColumnsNull(),
-              nonFrozenCollectionsColumnsNull(),
-              udtColumnsNull(),
-              pk,
-              expectedSource()),
+          .formatted(image, pk, expectedSource()),
       // DELETE record
       """
         {
-          "before": null,
+          "before": %s,
           "after": null,
           "key": {"id": %d},
           "op": "d",
           "source": %s
         }
         """
-          .formatted(pk, expectedSource()),
+          .formatted(explicitDeleteBefore(image), pk, expectedSource()),
       null
     };
   }
@@ -1114,40 +1117,43 @@ public class ScyllaTypesAllAvroConnectorIT
 
   @Override
   String[] expectedFrozenCollectionsDelete(int pk) {
+    String image =
+        """
+        {
+          %s,
+          %s,
+          %s,
+          %s
+        }
+        """
+            .formatted(
+                frozenAfterColumnsWithValues(pk),
+                frozenCollectionsColumnsValues(),
+                nonFrozenCollectionsColumnsNull(),
+                udtColumnsNull());
     return new String[] {
       // INSERT record
       """
         {
           "before": null,
-          "after": {
-            %s,
-            %s,
-            %s,
-            %s
-          },
+          "after": %s,
           "key": {"id": %d},
           "op": "c",
           "source": %s
         }
         """
-          .formatted(
-              frozenAfterColumnsWithValues(pk),
-              frozenCollectionsColumnsValues(),
-              nonFrozenCollectionsColumnsNull(),
-              udtColumnsNull(),
-              pk,
-              expectedSource()),
+          .formatted(image, pk, expectedSource()),
       // DELETE record
       """
         {
-          "before": null,
+          "before": %s,
           "after": null,
           "key": {"id": %d},
           "op": "d",
           "source": %s
         }
         """
-          .formatted(pk, expectedSource()),
+          .formatted(explicitDeleteBefore(image), pk, expectedSource()),
       null
     };
   }
@@ -1505,60 +1511,61 @@ public class ScyllaTypesAllAvroConnectorIT
 
   @Override
   String[] expectedNonFrozenCollectionsDelete(int pk) {
+    String image =
+        """
+        {
+          %s,
+          %s,
+          "list_col": [10],
+          "set_col": ["x"],
+          "map_col": [{"key": 10, "value": "ten"}],
+          "map_ascii_col": null,
+          "map_bigint_col": null,
+          "map_boolean_col": null,
+          "map_date_col": null,
+          "map_decimal_col": null,
+          "map_double_col": null,
+          "map_float_col": null,
+          "map_int_col": null,
+          "map_inet_col": null,
+          "map_smallint_col": null,
+          "map_text_col": null,
+          "map_time_col": null,
+          "map_timestamp_col": null,
+          "map_timeuuid_col": null,
+          "map_tinyint_col": null,
+          "map_uuid_col": null,
+          "map_varchar_col": null,
+          "map_varint_col": null,
+          "set_timeuuid_col": null,
+          %s
+        }
+        """
+            .formatted(
+                frozenAfterColumnsWithValues(pk), frozenCollectionsColumnsNull(), udtColumnsNull());
     return new String[] {
       // INSERT record
       """
         {
           "before": null,
-          "after": {
-            %s,
-            %s,
-            "list_col": [10],
-            "set_col": ["x"],
-            "map_col": [{"key": 10, "value": "ten"}],
-            "map_ascii_col": null,
-            "map_bigint_col": null,
-            "map_boolean_col": null,
-            "map_date_col": null,
-            "map_decimal_col": null,
-            "map_double_col": null,
-            "map_float_col": null,
-            "map_int_col": null,
-            "map_inet_col": null,
-            "map_smallint_col": null,
-            "map_text_col": null,
-            "map_time_col": null,
-            "map_timestamp_col": null,
-            "map_timeuuid_col": null,
-            "map_tinyint_col": null,
-            "map_uuid_col": null,
-            "map_varchar_col": null,
-            "map_varint_col": null,
-            "set_timeuuid_col": null,
-            %s
-          },
+          "after": %s,
           "key": {"id": %d},
           "op": "c",
           "source": %s
         }
         """
-          .formatted(
-              frozenAfterColumnsWithValues(pk),
-              frozenCollectionsColumnsNull(),
-              udtColumnsNull(),
-              pk,
-              expectedSource()),
+          .formatted(image, pk, expectedSource()),
       // DELETE record
       """
         {
-          "before": null,
+          "before": %s,
           "after": null,
           "key": {"id": %d},
           "op": "d",
           "source": %s
         }
         """
-          .formatted(pk, expectedSource()),
+          .formatted(explicitDeleteBefore(image), pk, expectedSource()),
       null
     };
   }
@@ -2660,40 +2667,43 @@ public class ScyllaTypesAllAvroConnectorIT
 
   @Override
   String[] expectedUdtDelete(int pk) {
+    String image =
+        """
+        {
+          %s,
+          %s,
+          %s,
+          %s
+        }
+        """
+            .formatted(
+                frozenAfterColumnsWithValues(pk),
+                frozenCollectionsColumnsNull(),
+                nonFrozenCollectionsColumnsNull(),
+                udtColumnsValues());
     return new String[] {
       // INSERT record
       """
         {
           "before": null,
-          "after": {
-            %s,
-            %s,
-            %s,
-            %s
-          },
+          "after": %s,
           "key": {"id": %d},
           "op": "c",
           "source": %s
         }
         """
-          .formatted(
-              frozenAfterColumnsWithValues(pk),
-              frozenCollectionsColumnsNull(),
-              nonFrozenCollectionsColumnsNull(),
-              udtColumnsValues(),
-              pk,
-              expectedSource()),
+          .formatted(image, pk, expectedSource()),
       // DELETE record
       """
         {
-          "before": null,
+          "before": %s,
           "after": null,
           "key": {"id": %d},
           "op": "d",
           "source": %s
         }
         """
-          .formatted(pk, expectedSource()),
+          .formatted(explicitDeleteBefore(image), pk, expectedSource()),
       null
     };
   }

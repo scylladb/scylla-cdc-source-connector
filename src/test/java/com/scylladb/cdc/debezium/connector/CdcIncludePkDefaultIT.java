@@ -12,8 +12,9 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
  * <p>Tests verify that primary key columns appear in the default locations: kafka-key,
  * payload-after, and payload-before. The payload "key" field should NOT be present.
  *
- * <p>Note: DELETE records have null before/after and no payload-key field, so they cannot be
- * matched. Only INSERT + tombstone can be verified for DELETE operations.
+ * <p>Note: DELETE records have no payload-key field. Before Scylla 2026.1.0 they also have null
+ * before/after, so only INSERT + tombstone can be verified. From 2026.1.0 the DELETE record is
+ * matched via the preimage in before.
  */
 public class CdcIncludePkDefaultIT extends CdcIncludePkBase<String, String> {
 
@@ -58,15 +59,29 @@ public class CdcIncludePkDefaultIT extends CdcIncludePkBase<String, String> {
 
   @Override
   String[] expectedDelete(int pk) {
-    // Without payload-key, DELETE records cannot be matched (null before/after)
-    // Only INSERT + tombstone (via kafka-key) can be verified
-    return new String[] {
-      // INSERT record
-      """
+    String insert =
+        """
         {
           "before": null,
           "after": {"id": %d, "name": "%s"},
           "op": "c",
+          "source": %s
+        }
+        """
+            .formatted(pk, deleteNameValue(pk), expectedSource());
+    if (!partitionDeleteHasPreimage()) {
+      // Without payload-key and preimage, DELETE records cannot be matched (null before/after)
+      // Only INSERT + tombstone (via kafka-key) can be verified
+      return new String[] {insert, null};
+    }
+    return new String[] {
+      insert,
+      // DELETE record: matched via the preimage in before
+      """
+        {
+          "before": {"id": %d, "name": "%s"},
+          "after": null,
+          "op": "d",
           "source": %s
         }
         """

@@ -81,14 +81,19 @@ public class CdcIncludePkAllLocationsIT extends CdcIncludePkBase<String, String>
       // DELETE record: key field present allows matching
       """
         {
-          "before": null,
+          "before": %s,
           "after": null,
           "key": {"id": %d},
           "op": "d",
           "source": %s
         }
         """
-          .formatted(pk, expectedSource()),
+          .formatted(
+              partitionDeleteHasPreimage()
+                  ? "{\"id\": %d, \"name\": \"%s\"}".formatted(pk, deleteNameValue(pk))
+                  : "null",
+              pk,
+              expectedSource()),
       // Tombstone record (matched via kafka-key)
       null
     };
