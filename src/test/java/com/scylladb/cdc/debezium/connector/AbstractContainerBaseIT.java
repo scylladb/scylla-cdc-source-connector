@@ -636,7 +636,6 @@ public abstract class AbstractContainerBaseIT {
             .withNetworkAliases("broker")
             .withListener("broker:19092")
             .withExposedPorts(KAFKA_PORT, KAFKA_CONNECT_PORT)
-            .withEnv("CONNECT_LOG4J_LOGGERS", "root=INFO,com.scylladb=DEBUG")
             .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
             .withStartupTimeout(Duration.ofMinutes(5));
 
@@ -648,7 +647,6 @@ public abstract class AbstractContainerBaseIT {
             .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "broker:19092")
             .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
             .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
-            .withEnv("CONNECT_LOG4J_LOGGERS", "root=INFO,com.scylladb=DEBUG")
             .dependsOn(confluentKafkaContainer)
             .withStartupTimeout(Duration.ofMinutes(5));
 
@@ -660,7 +658,11 @@ public abstract class AbstractContainerBaseIT {
               .withFileSystemBind("target/components/packages/", "/opt/custom-connectors")
               .withNetworkAliases("kafka-connect")
               .withExposedPorts(KAFKA_CONNECT_PORT)
-              .withEnv("CONNECT_LOG4J_LOGGERS", "root=INFO,com.scylladb=DEBUG")
+              // The root level has its own variable: a "root" entry in CONNECT_LOG4J_LOGGERS
+              // becomes a second root logger in the cp 8.x log4j2 template, which then drops to
+              // ERROR-only output.
+              .withEnv("CONNECT_LOG4J_ROOT_LOGLEVEL", "INFO")
+              .withEnv("CONNECT_LOG4J_LOGGERS", "com.scylladb=DEBUG")
               .withEnv("CONNECT_BOOTSTRAP_SERVERS", "broker:19092")
               .withEnv("CONNECT_REST_ADVERTISED_HOST_NAME", "connect")
               .withEnv("CONNECT_GROUP_ID", "kafka-connect")
