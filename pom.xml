@@ -130,7 +130,7 @@
 
                             <requirements>
                                 <requirement>Kafka Connect worker on Java 17+</requirement>
-                                <requirement>Confluent Platform 7.7+ or Apache Kafka 3.x+</requirement>
+                                <requirement>Confluent Platform 7.7+ / Apache Kafka 3.7+ on Java 17</requirement>
                             </requirements>
 
                             <deliveryGuarantee>
@@ -242,7 +242,7 @@
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
-            <!-- Override jackson-core pulled transitively from debezium-core; keep Jackson core modules aligned. -->
+            <!-- Override jackson-core pulled transitively from debezium-connector-common; keep Jackson core modules aligned. -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-core</artifactId>
@@ -354,7 +354,7 @@
             <artifactId>debezium-core</artifactId>
             <version>${debezium.version}</version>
         </dependency>
-        <!-- From 3.x the SMTs (io.debezium.transforms) live here; the relocated debezium-core
+        <!-- From 3.5 the SMTs (io.debezium.transforms) live here; the relocated debezium-core
              POM lists it, but Maven drops a relocated POM's own dependencies. -->
         <dependency>
             <groupId>io.debezium</groupId>

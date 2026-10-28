@@ -38,15 +38,22 @@ The connector is tested against the latest Apache Kafka 3.x, 4.x and currently l
 It should remain compatible with those versions.
 
 From 2.1.0 the connector is built on Debezium 3.7.0.Final and needs a Kafka Connect worker running
-on Java 17 or newer, such as the Confluent Platform 7.7+ or Apache Kafka 3.x+ images. The stock
-`cp-kafka-connect` images up to 7.6 ship Java 11, so they need 2.0.x or a Java 17 runtime. 2.1.0
-is also the first release that runs on Kafka Connect 4.4+ / Confluent Platform 8.4+, where 2.0.x
-tasks fail at start with `NoClassDefFoundError: org/apache/kafka/common/utils/Sanitizer`.
+on Java 17 or newer. The tested lower bound is Confluent Platform 7.7+ / Apache Kafka 3.7+ on Java
+17. The stock `cp-kafka-connect` images up to 7.6 ship Java 11, so they need 2.0.x or a Java 17
+runtime. 2.1.0 is also the first release that runs on Kafka Connect 4.4+ / Confluent Platform 8.4+,
+where 2.0.x tasks fail at start with `NoClassDefFoundError:
+org/apache/kafka/common/utils/Sanitizer`.
 
 Below is a summary of the Debezium and Kafka (Connect API) dependency versions used by the last few tagged connector releases.
 
 | Connector version | Debezium version    | Connect API |
 |-------------------|---------------------|-------------|
+| v2.1.0 (next)     | 3.7.0.Final         | 8.1.1-ccs   |
+| v2.0.8            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.7            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.6            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.5            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.4            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.3            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.2            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.1            | 2.7.4.Final         | 8.1.1-ccs   |
@@ -323,7 +330,7 @@ Delete and tombstone handling is configured with these options:
 | `delete.handling.mode` | `drop`, `rewrite`, `none` (any case) | `drop` | Debezium 2.x option, kept for compatibility: how to handle delete records. `drop` removes them; `rewrite` emits the `before` state with a string field `__deleted` set to `"true"`, and adds `__deleted` set to `"false"` to other records; `none` emits a record with a null value. Ignored when `delete.tombstone.handling.mode` is set. |
 | `delete.tombstone.handling.mode` | `drop`, `tombstone`, `rewrite`, `rewrite-with-tombstone`, `delete-to-tombstone` | unset | Debezium 3.x option. When set, Debezium's handling applies and the two options above are ignored: `drop` removes the delete and its tombstone; `tombstone` drops the tombstone and emits the delete with a null value but its value schema, which with schema-enabled JSON is not a Kafka tombstone; `rewrite` adds `__deleted` (`"true"` on deletes, `"false"` otherwise) and drops the tombstone; `rewrite-with-tombstone` does the same and keeps the tombstone; `delete-to-tombstone` turns the delete into a tombstone (null value and value schema) and drops the original one. |
 
-> **Upgrading to 2.1.0:** Debezium 3.x removed `drop.tombstones` and `delete.handling.mode`; `ScyllaExtractNewRecordState` keeps them with the 2.x defaults, so existing configurations produce the same records. A `DELETE` without a preimage has neither `before` nor `after`, which Debezium handles as a truncate and drops in every mode; to see such deletes downstream, set `drop.tombstones=false` and leave `delete.tombstone.handling.mode` unset.
+> **Upgrading to 2.1.0:** Debezium 3.2 removed `drop.tombstones` and `delete.handling.mode`; `ScyllaExtractNewRecordState` keeps them with the 2.x defaults, so existing configurations produce the same records. In the advanced format, a `DELETE` without a preimage has neither `before` nor `after`, which Debezium handles as a truncate and drops in every mode; to see such deletes downstream, keep the tombstone the connector emits with `tombstones.on.delete=true` (the default): set `drop.tombstones=false` with `delete.tombstone.handling.mode` unset, or use `delete.tombstone.handling.mode=rewrite-with-tombstone`. Legacy-format deletes always carry the primary key in `before`, so they follow the delete handling above.
 
 Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but when used with legacy format, it makes it impossible to differentiate between NULL value and non-modification.
 If the message is as following:
