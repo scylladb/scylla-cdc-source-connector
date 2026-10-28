@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.debezium.data.Envelope;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.kafka.common.config.ConfigValue;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
@@ -116,6 +118,21 @@ class ScyllaExtractNewRecordStateTest {
   @Test
   void deleteHandlingModeRewrite_marksTheDeletedRow() {
     SourceRecord out = smt("delete.handling.mode", "rewrite").apply(deleteWithPreimage());
+    assertEquals("true", ((Struct) out.value()).getString("__deleted"));
+  }
+
+  @Test
+  void deleteHandlingMode_isCaseInsensitive() {
+    // Debezium 2.x accepted any case
+    ConfigValue value =
+        new ScyllaExtractNewRecordState<SourceRecord>()
+            .config().validate(Map.of("delete.handling.mode", "REWRITE")).stream()
+                .filter(v -> v.name().equals("delete.handling.mode"))
+                .findFirst()
+                .orElseThrow();
+    assertTrue(value.errorMessages().isEmpty(), value.errorMessages().toString());
+
+    SourceRecord out = smt("delete.handling.mode", "REWRITE").apply(deleteWithPreimage());
     assertEquals("true", ((Struct) out.value()).getString("__deleted"));
   }
 

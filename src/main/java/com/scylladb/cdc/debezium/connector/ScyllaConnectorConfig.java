@@ -789,7 +789,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     if (value == null) {
       return SslProvider.JDK;
     }
-    return EnumUtils.getEnum(SslProvider.class, value.toUpperCase());
+    // Validation trims and ignores case, as Debezium 2.x did, so parse the same way
+    return EnumUtils.getEnum(SslProvider.class, value.trim().toUpperCase(Locale.ROOT));
   }
 
   public String getTrustStorePath() {
@@ -856,7 +857,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   public CQLConfiguration.ConsistencyLevel getConsistencyLevel() {
     String consistencyLevelValue = config.getString(ScyllaConnectorConfig.CONSISTENCY_LEVEL);
     try {
-      return CQLConfiguration.ConsistencyLevel.valueOf(consistencyLevelValue.toUpperCase());
+      return CQLConfiguration.ConsistencyLevel.valueOf(
+          consistencyLevelValue.trim().toUpperCase(Locale.ROOT));
     } catch (IllegalArgumentException ex) {
       return DEFAULT_CONSISTENCY_LEVEL;
     }
