@@ -60,6 +60,12 @@ tablet-enabled table. Such a connector generates task configurations containing 
 manifests, which older connector versions cannot parse: a task still running an older plugin fails
 to start with a `NumberFormatException`. Stop the connector, upgrade all workers, then resume it.
 
+Versions before 2.0.9 could commit an offset in the middle of a CDC batch
+([#340](https://github.com/scylladb/scylla-cdc-source-connector/issues/340)); 2.0.9 and later
+advance it only at the end of a batch. When upgrading from an earlier version, each Vnode whose
+last committed offset is mid-batch still skips the rest of that batch on the first start, once and
+without an error. The offset format is unchanged, so existing offsets stay valid.
+
 ## Connector installation
 
 ### Prebuilt images
@@ -292,7 +298,7 @@ To enable preimage support in legacy format, use the `experimental.preimages.ena
 experimental.preimages.enabled=true
 ```
 
-> **Note:** Legacy format does not support postimages. For postimage support, use the [advanced format](#advanced-format-details) with `cdc.include.after` configuration.
+> **Note:** Legacy format does not support postimages. For postimage support, use the [advanced format](#advanced-format-details) with `cdc.include.after` configuration. Postimage rows are skipped, so on a table with `postimage` enabled a restart can re-emit the last batch, as described for `cdc.include.after=none` in [Preimage/Postimage Configuration](#preimagepostimage-configuration-advanced-format-only).
 
 ### Single Message Transformations (SMTs) for Legacy Format
 
@@ -1326,6 +1332,8 @@ The connector supports including the complete row state before and/or after a ch
 | `cdc.include.primary-key.placement` | `kafka-key,payload-after,payload-before` | Comma-separated list of: `kafka-key`, `payload-after`, `payload-before`, `payload-key`, `kafka-headers` | Specifies where primary key (PK) and clustering key (CK) columns should be included in the output. See [Primary Key Placement](#primary-key-placement) for details. |
 | `cdc.include.primary-key.payload-key-name` | `key` | Any valid field name | Specifies the field name for the primary key object in the message payload when `payload-key` is included in `cdc.include.primary-key.placement`. |
 | `cdc.incomplete.task.timeout.ms` | `15000` | Positive integer (milliseconds) | Timeout for incomplete CDC tasks waiting for preimage/postimage events. Tasks that remain incomplete longer than this duration are dropped and logged as errors. |
+
+> **Note:** When the table has `postimage` enabled and `cdc.include.after=none`, the connector does not emit postimage rows. A batch that ends with one has its offset committed only with the next record or heartbeat (`heartbeat.interval.ms`) for the same Vnode, so a restart before then re-emits that batch. These are duplicates, not data loss, consistent with the connector's at-least-once semantics.
 
 #### Mode Descriptions
 
