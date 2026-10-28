@@ -553,7 +553,9 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
   void testPerWriteTtlExpiryEmitsNoDelete() throws InterruptedException {
     int pk = reservePk();
     insertFullRowWithTtl(pk, TTL_SECONDS);
-    Thread.sleep((TTL_SECONDS + 3) * 1000L);
+    // Outlast the IT connector's 5 s confidence and 10 s query windows, so a DELETE logged at
+    // expiry would already be consumed and break waitAndAssert's exact record count.
+    Thread.sleep((TTL_SECONDS + 20) * 1000L);
     waitAndAssert(pk, expectedInsert(pk));
   }
 
