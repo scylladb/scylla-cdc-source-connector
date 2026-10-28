@@ -7,6 +7,7 @@ import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.SSLOptions;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.UnauthorizedException;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.EC2MultiRegionAddressTranslator;
 import com.scylladb.cdc.cql.CQLConfiguration.AddressTranslatorType;
@@ -90,10 +91,21 @@ public class ScyllaVersionChecker {
   /**
    * Reads the ScyllaDB version through the given session.
    *
-   * @return the parsed version, or null if the row is missing or cannot be parsed
+   * @return the parsed version, or null if the row is missing, cannot be parsed, or the role may
+   *     not read it
    */
   static ScyllaVersion queryVersion(Session session) {
-    ResultSet resultSet = session.execute(VERSION_QUERY);
+    ResultSet resultSet;
+    try {
+      resultSet = session.execute(VERSION_QUERY);
+    } catch (UnauthorizedException e) {
+      // Unlike system.local, system.versions is not readable by every role.
+      logger.warn(
+          "Cannot read the Scylla version; GRANT SELECT ON system.versions to the connector's"
+              + " role: {}",
+          e.getMessage());
+      return null;
+    }
     Host host = resultSet.getExecutionInfo().getQueriedHost();
     Row row = resultSet.one();
     if (row == null) {
