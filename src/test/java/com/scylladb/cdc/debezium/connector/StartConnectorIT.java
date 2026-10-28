@@ -34,7 +34,7 @@ public class StartConnectorIT extends AbstractContainerBaseIT {
       session.execute(
           "CREATE KEYSPACE IF NOT EXISTS "
               + "connectortest"
-              + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
+              + " WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1} AND tablets = {'enabled': false};");
       // Create a table with cdc enabled
       session.execute(
           "CREATE TABLE IF NOT EXISTS "
