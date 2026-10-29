@@ -88,7 +88,7 @@ public class ScyllaOffsetContext implements OffsetContext {
   }
 
   @Override
-  public boolean isSnapshotRunning() {
+  public boolean isInitialSnapshotRunning() {
     throw new UnsupportedOperationException();
   }
 
@@ -96,7 +96,7 @@ public class ScyllaOffsetContext implements OffsetContext {
   public void markSnapshotRecord(SnapshotRecord snapshotRecord) {}
 
   @Override
-  public void preSnapshotStart() {}
+  public void preSnapshotStart(boolean onDemand) {}
 
   @Override
   public void preSnapshotCompletion() {}
