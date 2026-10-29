@@ -15,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -24,6 +25,52 @@ import org.apache.commons.lang3.EnumUtils;
 import org.apache.kafka.common.config.ConfigDef;
 
 public class ScyllaConnectorConfig extends CommonConnectorConfig {
+
+  /**
+   * Debezium 3.x {@link Field#withEnum} accepts only {@link EnumeratedValue} enums. This keeps the
+   * 2.x behaviour for third-party enums: lower-case names, checked case-insensitively.
+   */
+  private static <T extends Enum<T>> Field withPlainEnum(
+      Field field, Class<T> enumType, T defaultOption) {
+    PlainEnumRecommender recommender = new PlainEnumRecommender(enumType);
+    return field
+        .withType(ConfigDef.Type.STRING)
+        .withRecommender(recommender)
+        .withValidation(recommender)
+        .withAllowedValues(recommender.literals)
+        .withDefault(defaultOption.name().toLowerCase(Locale.ROOT));
+  }
+
+  private static final class PlainEnumRecommender implements Field.Recommender, Field.Validator {
+    private final Set<String> literals;
+
+    private PlainEnumRecommender(Class<? extends Enum<?>> enumType) {
+      this.literals =
+          Arrays.stream(enumType.getEnumConstants())
+              .map(e -> e.name().toLowerCase(Locale.ROOT))
+              .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    @Override
+    public List<Object> validValues(Field field, Configuration config) {
+      return new ArrayList<>(literals);
+    }
+
+    @Override
+    public boolean visible(Field field, Configuration config) {
+      return true;
+    }
+
+    @Override
+    public int validate(Configuration config, Field field, Field.ValidationOutput problems) {
+      String value = config.getString(field);
+      if (value == null || !literals.contains(value.trim().toLowerCase(Locale.ROOT))) {
+        problems.accept(field, value, "Value must be one of " + String.join(", ", literals));
+        return 1;
+      }
+      return 0;
+    }
+  }
 
   // Configuration key constants
   /** Configuration key for CDC output format. */
@@ -96,9 +143,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDescription("Flag to determine if SSL is enabled when connecting to ScyllaDB.");
 
   public static final Field SSL_PROVIDER =
-      Field.create("scylla.ssl.provider")
-          .withDisplayName("SSL Provider")
-          .withEnum(SslProvider.class, SslProvider.JDK)
+      withPlainEnum(
+              Field.create("scylla.ssl.provider").withDisplayName("SSL Provider"),
+              SslProvider.class,
+              SslProvider.JDK)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
               "The SSL Provider to use when connecting to ScyllaDB. "
@@ -248,9 +296,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
   public static final CQLConfiguration.ConsistencyLevel DEFAULT_CONSISTENCY_LEVEL =
       CQLConfiguration.ConsistencyLevel.QUORUM;
   public static final Field CONSISTENCY_LEVEL =
-      Field.create("scylla.consistency.level")
-          .withDisplayName("Consistency Level")
-          .withEnum(CQLConfiguration.ConsistencyLevel.class, DEFAULT_CONSISTENCY_LEVEL)
+      withPlainEnum(
+              Field.create("scylla.consistency.level").withDisplayName("Consistency Level"),
+              CQLConfiguration.ConsistencyLevel.class,
+              DEFAULT_CONSISTENCY_LEVEL)
           .withWidth(ConfigDef.Width.SHORT)
           .withImportance(ConfigDef.Importance.MEDIUM)
           .withDescription(
@@ -618,7 +667,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
       CommonConnectorConfig.CONFIG_DEFINITION
           .edit()
           .name("Scylla")
-          .type(
+          // 3.x replaced the type/connector/events sections with Field.Group
+          .group(
+              Field.Group.CONNECTION,
               CLUSTER_IP_ADDRESSES,
               USER,
               PASSWORD,
@@ -636,7 +687,8 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               SSL_CIPHER_SUITES,
               SSL_OPENSLL_KEYCERTCHAIN,
               SSL_OPENSLL_PRIVATEKEY)
-          .connector(
+          .group(
+              Field.Group.CONNECTOR,
               QUERY_TIME_WINDOW_SIZE,
               CONFIDENCE_WINDOW_SIZE,
               MINIMAL_WAIT_FOR_WINDOW_MS,
@@ -660,9 +712,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
               POOLING_MAX_REQUESTS_PER_CONNECTION,
               POOLING_MAX_QUEUE_SIZE,
               POOLING_POOL_TIMEOUT_MS)
-          .events(TABLE_NAMES)
+          .group(Field.Group.FILTERS, TABLE_NAMES)
           .excluding(Heartbeat.HEARTBEAT_INTERVAL)
-          .events(CUSTOM_HEARTBEAT_INTERVAL)
+          .group(Field.Group.ADVANCED_HEARTBEAT, CUSTOM_HEARTBEAT_INTERVAL)
           // Exclude some Debezium options, which are not applicable/not supported by
           // the Scylla CDC Source Connector.
           .excluding(
