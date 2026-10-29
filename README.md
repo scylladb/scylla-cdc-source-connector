@@ -250,6 +250,13 @@ Data change event's value consists of a schema and a payload section. The payloa
     - `ts_us`: the time that the change was made in the database (in microseconds).
     - `keyspace_name`, `table_name`: the name of keyspace and table this data change event originated from. 
 
+### Data change event headers
+From 2.1.0 the connector runs on Debezium 3.x, which can add four headers to every record:
+`__debezium.context.connectorLogicalName`, `__debezium.context.taskId`,
+`__debezium.context.connectorName` and `__debezium.context.runId`. The connector turns them off
+by default, so records keep the shape of 2.0.x. Set `extended.headers.enabled=true` (default
+`false`) to add them. `taskId` is always `"0"`, and `runId` changes on every task start.
+
 ---
 
 ## Legacy Format Details

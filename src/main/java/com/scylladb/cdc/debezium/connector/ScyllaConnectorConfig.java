@@ -521,6 +521,11 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
       CommonConnectorConfig.SOURCE_INFO_STRUCT_MAKER.withDefault(
           ScyllaSourceInfoStructMaker.class.getName());
 
+  // Debezium 3.x adds four __debezium.context.* headers to every record by default; off keeps the
+  // records of 2.0.x
+  public static final Field EXTENDED_HEADERS_ENABLED =
+      CommonConnectorConfig.EXTENDED_HEADERS_ENABLED.withDefault(false);
+
   public static final Field RETRY_BACKOFF_BASE_MS =
       Field.create("worker.retry.backoff.base")
           .withDisplayName("Worker's retry base backoff (ms)")
@@ -715,6 +720,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .group(Field.Group.FILTERS, TABLE_NAMES)
           .excluding(Heartbeat.HEARTBEAT_INTERVAL)
           .group(Field.Group.ADVANCED_HEARTBEAT, CUSTOM_HEARTBEAT_INTERVAL)
+          .group(Field.Group.ADVANCED, EXTENDED_HEADERS_ENABLED)
           // Exclude some Debezium options, which are not applicable/not supported by
           // the Scylla CDC Source Connector.
           .excluding(
@@ -769,6 +775,12 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
     this.nonFrozenCollectionEmptyRepresentation =
         NonFrozenCollectionEmptyRepresentation.parse(
             config.getString(CDC_NON_FROZEN_COLLECTION_EMPTY_REPRESENTATION));
+  }
+
+  @Override
+  public boolean isExtendedHeadersEnabled() {
+    // CommonConnectorConfig reads Debezium's own field, whose default is true
+    return config.getBoolean(EXTENDED_HEADERS_ENABLED);
   }
 
   public static ConfigDef configDef() {
