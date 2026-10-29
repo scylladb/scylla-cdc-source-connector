@@ -46,10 +46,7 @@ jobs:
             kafka_version: "7.7.4"
             kafka_connect_mode: distributed
             scylla_version: "6.2"
-          - kafka_provider: confluent
-            kafka_version: "7.6.6"
-            kafka_connect_mode: distributed
-            scylla_version: "6.2"
+          # confluent 7.6.6 removed: Java 11 image; unsupported from 2.1.0, see DRIVER-1222
           - kafka_provider: debezium
             kafka_version: "3.4.1"
             kafka_connect_mode: distributed
