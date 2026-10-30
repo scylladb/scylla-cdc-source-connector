@@ -24,14 +24,26 @@ FULL_VERSION_RE := ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)?$$
 
 .PHONY: github-release resolve-scylla-version resolve-kafka-version
 
+# Export data to the recipe instead of interpolating tag-derived strings as shell code.
+github-release: export RELEASE_TAG := $(RELEASE_TAG)
+github-release: export FAT_JAR := $(FAT_JAR)
+github-release: export CONNECT_ZIP := $(CONNECT_ZIP)
 github-release:
-	if gh release view "$(RELEASE_TAG)" > /dev/null 2>&1; then \
-		gh release upload "$(RELEASE_TAG)" "$(FAT_JAR)" "$(CONNECT_ZIP)" --clobber; \
+	@set -euo pipefail
+	[[ "$${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)*$$ ]] || { echo "Invalid release tag" >&2; exit 1; }
+	# Verify the authoritative tag was pushed before creating or updating a release.
+	gh api "repos/$${GITHUB_REPOSITORY:-scylladb/scylla-cdc-source-connector}/git/ref/tags/$${RELEASE_TAG}" >/dev/null
+	if draft=$$(gh release view "$${RELEASE_TAG}" --json isDraft --jq .isDraft); then \
+		if [[ "$$draft" != "false" ]]; then \
+			echo "Existing release is a draft; publish it deliberately before retrying" >&2; exit 1; \
+		fi; \
+		gh release upload "$${RELEASE_TAG}" "$${FAT_JAR}" "$${CONNECT_ZIP}" --clobber; \
 	else \
-		gh release create "$(RELEASE_TAG)" \
-			"$(FAT_JAR)" \
-			"$(CONNECT_ZIP)" \
-			--title "$(RELEASE_TAG)" \
+		gh release create "$${RELEASE_TAG}" \
+			"$${FAT_JAR}" \
+			"$${CONNECT_ZIP}" \
+			--verify-tag \
+			--title "$${RELEASE_TAG}" \
 			--generate-notes; \
 	fi
 
