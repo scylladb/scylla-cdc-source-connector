@@ -129,7 +129,8 @@
                             </tags>
 
                             <requirements>
-                                <requirement>Kafka 2.6.0+</requirement>
+                                <requirement>Kafka Connect worker on Java 17+</requirement>
+                                <requirement>Confluent Platform 7.7+ or Apache Kafka 3.x+</requirement>
                             </requirements>
 
                             <deliveryGuarantee>
