@@ -24,10 +24,16 @@ public final class KafkaConnectUtils {
   static final long CONFIDENCE_WINDOW_SIZE_MS = 5_000;
 
   /**
-   * Worst-case delay before the IT connector consumes a logged change. Wait this long before
-   * asserting that no further record arrives.
+   * How long to keep watching for a further record before asserting that none arrives. A heuristic
+   * allowance, not a delivery bound: it covers the IT query and confidence windows (15 s) plus an
+   * assumed 5 s connector lag, but not a worker retry, which can back off for up to 30 s ({@code
+   * worker.maximum.backoff}).
    */
-  static final long CDC_QUIET_PERIOD_MS = QUERY_TIME_WINDOW_SIZE_MS + CONFIDENCE_WINDOW_SIZE_MS;
+  static final long CDC_QUIET_PERIOD_MS =
+      QUERY_TIME_WINDOW_SIZE_MS
+          + CONFIDENCE_WINDOW_SIZE_MS
+          // Delivery lag: reading a closed window, producing to Kafka, the test consumer's poll.
+          + 5_000;
 
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
