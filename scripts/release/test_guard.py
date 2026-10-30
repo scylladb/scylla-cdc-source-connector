@@ -882,13 +882,17 @@ class MavenOutputTests(unittest.TestCase):
                  "run", "mvn", "-B", "-ntp", "release:perform"],
                 cwd=root, env=env, capture_output=True, timeout=30,
             )
-            self.assertEqual(sorted(path.name for path in root.iterdir()), ["mvn"])
+            self.assertEqual(sorted(path.name for path in root.iterdir()), ["logs", "mvn"])
+            for name, console in (("stdout", result.stdout), ("stderr", result.stderr)):
+                self.assertEqual((root / f"logs/{name}.log").read_bytes(), console)
+                self.assertNotIn(b"dummy-secret", console)
             return result
 
     def test_raw_encoded_and_unknown_output_is_withheld_on_success_and_failure(self):
         payload = (b"dummy-secret\nAuthorization: Bearer unknown-token\n"
                    b"$'dummy\\x2dsecret'\nAuthoriz\\u0061tion: unknown-token\n"
-                   b"dummy&#45;secret\n%64%75%6d%6d%79%2dsecret\n\xff\x00")
+                   b"dummy&#45;secret\ndummy%2dsecret\n"
+                   b"%64%75%6d%6d%79%2dsecret\n\xff\x00")
         for status in (0, 17):
             with self.subTest(status=status):
                 result = self.run_guard(
@@ -896,11 +900,12 @@ class MavenOutputTests(unittest.TestCase):
                     f"raise SystemExit({status})\n"
                 )
                 self.assertEqual(result.returncode, status)
-                message = (b"Release Maven command succeeded; output withheld.\n"
-                           if status == 0 else
-                           b"Release Maven command failed; output withheld.\n")
-                self.assertEqual(result.stdout, message if status == 0 else b"")
-                self.assertEqual(result.stderr, message if status else b"")
+                expected = (b"[REDACTED]\nAuthorization: [REDACTED]\n"
+                            b"$'[REDACTED]'\nAuthoriz\\u0061tion: [REDACTED]\n"
+                            b"[REDACTED]\n[REDACTED]\n[REDACTED]\n\xff\x00")
+                # run_guard also compares each console stream to its uploaded log.
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(result.stderr, expected)
 
     def test_output_larger_than_previous_capture_limit_is_discarded(self):
         result = self.run_guard(
@@ -909,15 +914,15 @@ class MavenOutputTests(unittest.TestCase):
             " for fd in (1, 2): os.write(fd, b'x' * (1024 * 1024))\n"
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, b"Release Maven command succeeded; output withheld.\n")
-        self.assertEqual(result.stderr, b"")
+        self.assertEqual(result.stdout, guard.OVERFLOW_LOG)
+        self.assertEqual(result.stderr, guard.OVERFLOW_LOG)
 
     def test_signal_exit_status_is_preserved(self):
         result = self.run_guard(
             "import os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n"
         )
         self.assertEqual(result.returncode, 128 + signal.SIGTERM)
-        self.assertEqual(result.stderr, b"Release Maven command failed; output withheld.\n")
+        self.assertEqual(result.stderr, b"")
 
     def test_closed_console_does_not_change_completed_maven_status(self):
         for status in (0, 17):
