@@ -1,19 +1,41 @@
 package com.scylladb.cdc.debezium.connector;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.EndPoint;
+import com.datastax.driver.core.ExecutionInfo;
+import com.datastax.driver.core.Host;
+import com.datastax.driver.core.HostDistance;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.DriverException;
+import com.datastax.driver.core.exceptions.UnauthorizedException;
+import com.datastax.driver.core.policies.EC2MultiRegionAddressTranslator;
+import com.datastax.driver.core.policies.LoadBalancingPolicy;
+import com.datastax.driver.core.policies.Policies;
 import io.debezium.config.Configuration;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -148,5 +170,106 @@ public class ScyllaVersionCheckerTest {
       assertNoOpenFileDescriptors(certPath);
       assertNoOpenFileDescriptors(privateKeyPath);
     }
+  }
+
+  private static Session sessionReturning(Row row) {
+    Session session = mock(Session.class);
+    ResultSet resultSet = mock(ResultSet.class);
+    ExecutionInfo executionInfo = mock(ExecutionInfo.class);
+    when(session.execute(ScyllaVersionChecker.VERSION_QUERY)).thenReturn(resultSet);
+    when(resultSet.getExecutionInfo()).thenReturn(executionInfo);
+    when(executionInfo.getQueriedHost()).thenReturn(mock(Host.class));
+    when(resultSet.one()).thenReturn(row);
+    return session;
+  }
+
+  private static Row versionRow(String version) {
+    Row row = mock(Row.class);
+    when(row.getString("version")).thenReturn(version);
+    return row;
+  }
+
+  @Test
+  void queryVersion_parsesSystemVersions() {
+    Session session = sessionReturning(versionRow("2026.1.14-0.20260924.0dbea6201d67"));
+    assertEquals(new ScyllaVersion(2026, 1, 14), ScyllaVersionChecker.queryVersion(session));
+  }
+
+  @Test
+  void queryVersion_returnsNullWhenRowMissing() {
+    assertNull(ScyllaVersionChecker.queryVersion(sessionReturning(null)));
+  }
+
+  @Test
+  void queryVersion_returnsNullWhenUnparseable() {
+    assertNull(ScyllaVersionChecker.queryVersion(sessionReturning(versionRow("unknown"))));
+  }
+
+  @Test
+  void queryVersion_returnsNullWhenUnauthorized() {
+    Session session = mock(Session.class);
+    when(session.execute(ScyllaVersionChecker.VERSION_QUERY))
+        .thenThrow(new UnauthorizedException(null, "no SELECT permission on system.versions"));
+    assertNull(ScyllaVersionChecker.queryVersion(session));
+  }
+
+  private static ScyllaConnectorConfig config(String translator) {
+    Configuration.Builder builder =
+        Configuration.create()
+            .with("name", "test-connector")
+            .with("topic.prefix", "test")
+            .with("scylla.cluster.ip.addresses", "127.0.0.1:9042")
+            .with("scylla.table.names", "ks.table");
+    if (translator != null) {
+      builder.with("scylla.address.translator", translator);
+    }
+    return new ScyllaConnectorConfig(builder.build());
+  }
+
+  private static Policies policies(String translator) throws Exception {
+    return new ScyllaVersionChecker(config(translator))
+        .newClusterBuilder()
+        .getConfiguration()
+        .getPolicies();
+  }
+
+  private static Host host(String address) throws Exception {
+    Host host = mock(Host.class);
+    EndPoint endPoint = mock(EndPoint.class);
+    when(endPoint.resolve()).thenReturn(new InetSocketAddress(InetAddress.getByName(address), 1));
+    when(host.getEndPoint()).thenReturn(endPoint);
+    return host;
+  }
+
+  @Test
+  void newClusterBuilder_appliesEc2MultiRegionAddressTranslator() throws Exception {
+    assertInstanceOf(
+        EC2MultiRegionAddressTranslator.class, policies("EC2_MULTI_REGION").getAddressTranslator());
+  }
+
+  @Test
+  void newClusterBuilder_keepsDefaultAddressTranslator() throws Exception {
+    assertFalse(policies(null).getAddressTranslator() instanceof EC2MultiRegionAddressTranslator);
+  }
+
+  @Test
+  void newClusterBuilder_connectsOnlyToContactPoints() throws Exception {
+    LoadBalancingPolicy policy = policies(null).getLoadBalancingPolicy();
+    Host contactPoint = host("127.0.0.1");
+    policy.init(mock(Cluster.class), List.of(contactPoint));
+    assertEquals(HostDistance.LOCAL, policy.distance(contactPoint));
+    assertEquals(HostDistance.IGNORED, policy.distance(host("127.0.0.2")));
+  }
+
+  @Test
+  void getVersion_returnsNullWhenTheClusterCannotBeConfigured() {
+    ScyllaVersionChecker checker =
+        new ScyllaVersionChecker(config(null)) {
+          @Override
+          Cluster.Builder newClusterBuilder() {
+            throw new DriverException("Could not create a DNS context");
+          }
+        };
+    assertNull(checker.getVersion());
   }
 }

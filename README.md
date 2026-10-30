@@ -130,7 +130,7 @@ Scylla CDC Source Connector exposes many configuration properties. These are the
 | (until 1.2.2)`scylla.name`<br/>(since 1.2.3)`topic.prefix` | **Yes** | A unique name that identifies the Scylla cluster and that is used as a prefix for all schemas, topics. The logical name allows you to easily differentiate between your different Scylla cluster deployments. Each distinct Scylla installation should have a separate namespace and be monitored by at most one Scylla CDC Source Connector. It should consist of alphanumeric or underscore (`_`) characters. |
 | `scylla.cluster.ip.addresses`                              | **Yes** | List of IP addresses of nodes in the Scylla cluster that the connector will use to open initial connections to the cluster. In the form of a comma-separated list of pairs <IP>:<PORT> (`host1:port1,host2:port2`). |
 | `scylla.table.names`                                       | **Yes** | List of CDC-enabled table names for connector to read. See [Change Data Capture (CDC)](https://docs.scylladb.com/using-scylla/cdc/) for more information about configuring CDC on Scylla. Provided as a comma-separated list of pairs `<keyspace name>.<table name>`. |
-| `scylla.user`                                              | No | The username to connect to Scylla with. If not set, no authorization is done. |
+| `scylla.user`                                              | No | The username to connect to Scylla with. If not set, no authorization is done. The connector logs the ScyllaDB version at startup only if this role has `SELECT` on `system.versions`. |
 | `scylla.password`                                          | No | The password to connect to Scylla with. If not set, no authorization is done. |
 
 ### Choosing an Output Format
