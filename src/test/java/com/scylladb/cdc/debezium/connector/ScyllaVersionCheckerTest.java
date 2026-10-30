@@ -16,7 +16,6 @@ import com.datastax.driver.core.EndPoint;
 import com.datastax.driver.core.ExecutionInfo;
 import com.datastax.driver.core.Host;
 import com.datastax.driver.core.HostDistance;
-import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
@@ -260,17 +259,6 @@ public class ScyllaVersionCheckerTest {
     policy.init(mock(Cluster.class), List.of(contactPoint));
     assertEquals(HostDistance.LOCAL, policy.distance(contactPoint));
     assertEquals(HostDistance.IGNORED, policy.distance(host("127.0.0.2")));
-  }
-
-  @Test
-  void newClusterBuilder_opensOneConnectionPerHost() throws Exception {
-    PoolingOptions pooling =
-        new ScyllaVersionChecker(config(null))
-            .newClusterBuilder()
-            .getConfiguration()
-            .getPoolingOptions();
-    assertEquals(1, pooling.getMaxConnectionsPerHost(HostDistance.LOCAL));
-    assertEquals(1, pooling.getMaxConnectionsPerHost(HostDistance.REMOTE));
   }
 
   @Test

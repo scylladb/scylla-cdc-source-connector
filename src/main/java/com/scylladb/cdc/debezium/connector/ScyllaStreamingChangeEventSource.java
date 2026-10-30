@@ -64,8 +64,7 @@ public class ScyllaStreamingChangeEventSource
       ScyllaPartition partition,
       ScyllaOffsetContext offsetContext)
       throws InterruptedException {
-    // Detect Scylla version for feature compatibility checks
-    ScyllaVersion scyllaVersion = new ScyllaVersionChecker(configuration).getVersion();
+    ScyllaVersion scyllaVersion = configuration.getDetectedScyllaVersion();
 
     Driver3Session session = null;
     boolean sharedSession = false;

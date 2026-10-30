@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -51,6 +52,13 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public static final Field WORKER_CONFIG =
       Field.create("scylla.worker.config")
+          .withDescription("Internal use only")
+          .withType(ConfigDef.Type.STRING)
+          .withInvisibleRecommender();
+
+  /** The ScyllaDB version {@link ScyllaConnector} detected, passed on to its tasks. */
+  public static final Field DETECTED_SCYLLA_VERSION =
+      Field.create("scylla.detected.version")
           .withDescription("Internal use only")
           .withType(ConfigDef.Type.STRING)
           .withInvisibleRecommender();
@@ -795,6 +803,28 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
 
   public long getInitialLookbackMs() {
     return config.getLong(ScyllaConnectorConfig.INITIAL_LOOKBACK_MS);
+  }
+
+  /** A task's configuration: the connector's, plus its share of the CDC tasks and the version. */
+  static Map<String, String> taskConfig(
+      Configuration config, String workerConfig, ScyllaVersion scyllaVersion) {
+    Configuration.Builder builder =
+        config
+            .edit()
+            .with(ScyllaConnectorConfig.WORKER_CONFIG, workerConfig)
+            .withDefault(
+                ScyllaConnectorConfig.CUSTOM_HEARTBEAT_INTERVAL,
+                ScyllaConnectorConfig.CUSTOM_HEARTBEAT_INTERVAL.defaultValue());
+    if (scyllaVersion != null) {
+      builder.with(ScyllaConnectorConfig.DETECTED_SCYLLA_VERSION, scyllaVersion.toString());
+    }
+    return builder.build().asMap();
+  }
+
+  /** The ScyllaDB version the connector detected, or null if it could not. */
+  public ScyllaVersion getDetectedScyllaVersion() {
+    String version = config.getString(DETECTED_SCYLLA_VERSION);
+    return version == null ? null : ScyllaVersion.parse(version);
   }
 
   public long getHeartbeatIntervalMs() {
