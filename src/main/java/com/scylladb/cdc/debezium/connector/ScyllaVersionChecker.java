@@ -2,23 +2,31 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Host;
+import com.datastax.driver.core.HostDistance;
+import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.RemoteEndpointAwareNettySSLOptions;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.SSLOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.exceptions.UnauthorizedException;
-import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.EC2MultiRegionAddressTranslator;
+import com.datastax.driver.core.policies.HostFilterPolicy;
+import com.datastax.driver.core.policies.RoundRobinPolicy;
 import com.scylladb.cdc.cql.CQLConfiguration.AddressTranslatorType;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslProvider;
 import java.io.BufferedInputStream;
 import java.io.FileInputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.security.KeyStore;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.TrustManagerFactory;
 import org.slf4j.Logger;
@@ -28,8 +36,8 @@ import org.slf4j.LoggerFactory;
  * Utility class to detect the Scylla cluster version.
  *
  * <p>Connects to the cluster and reads the ScyllaDB version of the coordinator node from {@code
- * system.versions}. The connection uses the connector's contact points, credentials, local
- * datacenter, address translator, and SSL/TLS settings.
+ * system.versions}. The connection uses the connector's contact points, credentials, address
+ * translator, and SSL/TLS settings.
  */
 public class ScyllaVersionChecker {
   private static final Logger logger = LoggerFactory.getLogger(ScyllaVersionChecker.class);
@@ -50,7 +58,14 @@ public class ScyllaVersionChecker {
    * @return the detected ScyllaVersion, or null if detection fails
    */
   public ScyllaVersion getVersion() {
-    Cluster.Builder clusterBuilder = newClusterBuilder();
+    Cluster.Builder clusterBuilder;
+    try {
+      clusterBuilder = newClusterBuilder();
+    } catch (Exception e) {
+      // e.g. EC2MultiRegionAddressTranslator failing to create its DNS context
+      logger.warn("Failed to configure the version check: {}", e.getMessage());
+      return null;
+    }
     if (config.getSslEnabled()) {
       try {
         clusterBuilder.withSSL(buildSslOptions());
@@ -69,19 +84,30 @@ public class ScyllaVersionChecker {
     }
   }
 
-  /** Builds the cluster with the connector's connection settings, except SSL. */
-  Cluster.Builder newClusterBuilder() {
+  /**
+   * Builds the cluster with the connector's connection settings, except SSL. Every task runs this
+   * check, so it connects only to the contact points, with one connection per host (per shard).
+   */
+  Cluster.Builder newClusterBuilder() throws UnknownHostException {
     Cluster.Builder clusterBuilder = Cluster.builder();
+    Set<InetAddress> contactAddresses = new HashSet<>();
     for (InetSocketAddress contactPoint : config.getContactPoints()) {
       clusterBuilder.addContactPoint(contactPoint.getHostString()).withPort(contactPoint.getPort());
+      contactAddresses.addAll(
+          Arrays.asList(InetAddress.getAllByName(contactPoint.getHostString())));
     }
     if (config.getUser() != null && config.getPassword() != null) {
       clusterBuilder.withCredentials(config.getUser(), config.getPassword());
     }
-    if (config.getLocalDCName() != null) {
-      clusterBuilder.withLoadBalancingPolicy(
-          DCAwareRoundRobinPolicy.builder().withLocalDc(config.getLocalDCName()).build());
-    }
+    // Round-robin rather than DC-aware: a contact point outside the local DC would be ignored.
+    clusterBuilder.withLoadBalancingPolicy(
+        new HostFilterPolicy(
+            new RoundRobinPolicy(),
+            host -> contactAddresses.contains(host.getEndPoint().resolve().getAddress())));
+    clusterBuilder.withPoolingOptions(
+        new PoolingOptions()
+            .setConnectionsPerHost(HostDistance.LOCAL, 1, 1)
+            .setConnectionsPerHost(HostDistance.REMOTE, 1, 1));
     if (config.getAddressTranslator() == AddressTranslatorType.EC2_MULTI_REGION) {
       clusterBuilder.withAddressTranslator(new EC2MultiRegionAddressTranslator());
     }

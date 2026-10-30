@@ -11,23 +11,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.EndPoint;
 import com.datastax.driver.core.ExecutionInfo;
 import com.datastax.driver.core.Host;
+import com.datastax.driver.core.HostDistance;
+import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.exceptions.DriverException;
 import com.datastax.driver.core.exceptions.UnauthorizedException;
-import com.datastax.driver.core.policies.AddressTranslator;
 import com.datastax.driver.core.policies.EC2MultiRegionAddressTranslator;
+import com.datastax.driver.core.policies.LoadBalancingPolicy;
+import com.datastax.driver.core.policies.Policies;
 import io.debezium.config.Configuration;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -205,7 +214,7 @@ public class ScyllaVersionCheckerTest {
     assertNull(ScyllaVersionChecker.queryVersion(session));
   }
 
-  private static AddressTranslator addressTranslator(String translator) {
+  private static ScyllaConnectorConfig config(String translator) {
     Configuration.Builder builder =
         Configuration.create()
             .with("name", "test-connector")
@@ -215,20 +224,64 @@ public class ScyllaVersionCheckerTest {
     if (translator != null) {
       builder.with("scylla.address.translator", translator);
     }
-    return new ScyllaVersionChecker(new ScyllaConnectorConfig(builder.build()))
+    return new ScyllaConnectorConfig(builder.build());
+  }
+
+  private static Policies policies(String translator) throws Exception {
+    return new ScyllaVersionChecker(config(translator))
         .newClusterBuilder()
         .getConfiguration()
-        .getPolicies()
-        .getAddressTranslator();
+        .getPolicies();
+  }
+
+  private static Host host(String address) throws Exception {
+    Host host = mock(Host.class);
+    EndPoint endPoint = mock(EndPoint.class);
+    when(endPoint.resolve()).thenReturn(new InetSocketAddress(InetAddress.getByName(address), 1));
+    when(host.getEndPoint()).thenReturn(endPoint);
+    return host;
   }
 
   @Test
-  void newClusterBuilder_appliesEc2MultiRegionAddressTranslator() {
-    assertInstanceOf(EC2MultiRegionAddressTranslator.class, addressTranslator("EC2_MULTI_REGION"));
+  void newClusterBuilder_appliesEc2MultiRegionAddressTranslator() throws Exception {
+    assertInstanceOf(
+        EC2MultiRegionAddressTranslator.class, policies("EC2_MULTI_REGION").getAddressTranslator());
   }
 
   @Test
-  void newClusterBuilder_keepsDefaultAddressTranslator() {
-    assertFalse(addressTranslator(null) instanceof EC2MultiRegionAddressTranslator);
+  void newClusterBuilder_keepsDefaultAddressTranslator() throws Exception {
+    assertFalse(policies(null).getAddressTranslator() instanceof EC2MultiRegionAddressTranslator);
+  }
+
+  @Test
+  void newClusterBuilder_connectsOnlyToContactPoints() throws Exception {
+    LoadBalancingPolicy policy = policies(null).getLoadBalancingPolicy();
+    Host contactPoint = host("127.0.0.1");
+    policy.init(mock(Cluster.class), List.of(contactPoint));
+    assertEquals(HostDistance.LOCAL, policy.distance(contactPoint));
+    assertEquals(HostDistance.IGNORED, policy.distance(host("127.0.0.2")));
+  }
+
+  @Test
+  void newClusterBuilder_opensOneConnectionPerHost() throws Exception {
+    PoolingOptions pooling =
+        new ScyllaVersionChecker(config(null))
+            .newClusterBuilder()
+            .getConfiguration()
+            .getPoolingOptions();
+    assertEquals(1, pooling.getMaxConnectionsPerHost(HostDistance.LOCAL));
+    assertEquals(1, pooling.getMaxConnectionsPerHost(HostDistance.REMOTE));
+  }
+
+  @Test
+  void getVersion_returnsNullWhenTheClusterCannotBeConfigured() {
+    ScyllaVersionChecker checker =
+        new ScyllaVersionChecker(config(null)) {
+          @Override
+          Cluster.Builder newClusterBuilder() {
+            throw new DriverException("Could not create a DNS context");
+          }
+        };
+    assertNull(checker.getVersion());
   }
 }
