@@ -1253,12 +1253,15 @@ public abstract class ScyllaTypesAllBase<K, V> extends ScyllaTypesIT<K, V> {
    * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
    */
   @Test
-  void testPrimitivePerWriteTtlExpiryEmitsNoDelete() throws InterruptedException {
+  void testPrimitivePerWriteTtlExpiryEmitsNoDelete() {
     int pk = reservePk();
     primitiveInsertFullRowWithTtl(pk, "some text", TTL_SECONDS);
-    // A DELETE logged at expiry would be consumed by now and break waitAndAssert's exact count.
-    Thread.sleep(TTL_SECONDS * 1000L + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
-    waitAndAssert(pk, expectedPrimitiveInsert(pk));
+    // A DELETE logged at expiry trails the INSERT by the TTL, then its delivery. The quiet period
+    // is a heuristic allowance for that delivery, not a bound: it excludes worker retry backoff.
+    waitAndAssertNoMore(
+        pk,
+        expectedPrimitiveInsert(pk),
+        TTL_SECONDS * 1000L + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
   }
 
   @Test
