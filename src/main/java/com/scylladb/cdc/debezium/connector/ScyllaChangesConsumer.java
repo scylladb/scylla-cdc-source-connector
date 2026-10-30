@@ -71,7 +71,7 @@ public class ScyllaChangesConsumer implements TaskAndRawChangeConsumer {
    * @param schema the schema
    * @param clock the clock
    * @param connectorConfig the connector configuration
-   * @param scyllaVersion the detected Scylla version, may be null; not used yet, #366 will need it
+   * @param scyllaVersion the detected Scylla version, may be null; not used yet
    * @param incompleteTaskTimeoutMs timeout for incomplete tasks in milliseconds
    */
   ScyllaChangesConsumer(

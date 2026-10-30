@@ -2,8 +2,6 @@ package com.scylladb.cdc.debezium.connector;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Host;
-import com.datastax.driver.core.HostDistance;
-import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.RemoteEndpointAwareNettySSLOptions;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
@@ -58,21 +56,26 @@ public class ScyllaVersionChecker {
    * @return the detected ScyllaVersion, or null if detection fails
    */
   public ScyllaVersion getVersion() {
+    SSLOptions sslOptions = null;
+    if (config.getSslEnabled()) {
+      try {
+        sslOptions = buildSslOptions();
+      } catch (Exception e) {
+        logger.warn("Failed to configure SSL for version check: {}", e.getMessage());
+        return null;
+      }
+    }
     Cluster.Builder clusterBuilder;
     try {
+      // After SSL: an address translator holds a DNS context that only the cluster closes.
       clusterBuilder = newClusterBuilder();
     } catch (Exception e) {
       // e.g. EC2MultiRegionAddressTranslator failing to create its DNS context
       logger.warn("Failed to configure the version check: {}", e.getMessage());
       return null;
     }
-    if (config.getSslEnabled()) {
-      try {
-        clusterBuilder.withSSL(buildSslOptions());
-      } catch (Exception e) {
-        logger.warn("Failed to configure SSL for version check: {}", e.getMessage());
-        return null;
-      }
+    if (sslOptions != null) {
+      clusterBuilder.withSSL(sslOptions);
     }
 
     try (Cluster cluster = clusterBuilder.build();
@@ -85,8 +88,8 @@ public class ScyllaVersionChecker {
   }
 
   /**
-   * Builds the cluster with the connector's connection settings, except SSL. Every task runs this
-   * check, so it connects only to the contact points, with one connection per host (per shard).
+   * Builds the cluster with the connector's connection settings, except SSL. It connects only to
+   * the contact points; the driver opens one connection per shard on each.
    */
   Cluster.Builder newClusterBuilder() throws UnknownHostException {
     Cluster.Builder clusterBuilder = Cluster.builder();
@@ -104,10 +107,6 @@ public class ScyllaVersionChecker {
         new HostFilterPolicy(
             new RoundRobinPolicy(),
             host -> contactAddresses.contains(host.getEndPoint().resolve().getAddress())));
-    clusterBuilder.withPoolingOptions(
-        new PoolingOptions()
-            .setConnectionsPerHost(HostDistance.LOCAL, 1, 1)
-            .setConnectionsPerHost(HostDistance.REMOTE, 1, 1));
     if (config.getAddressTranslator() == AddressTranslatorType.EC2_MULTI_REGION) {
       clusterBuilder.withAddressTranslator(new EC2MultiRegionAddressTranslator());
     }
@@ -118,7 +117,7 @@ public class ScyllaVersionChecker {
    * Reads the ScyllaDB version through the given session.
    *
    * @return the parsed version, or null if the row is missing, cannot be parsed, or the role may
-   *     not read it
+   *     not read it; other driver errors propagate
    */
   static ScyllaVersion queryVersion(Session session) {
     ResultSet resultSet;
