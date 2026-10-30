@@ -2,7 +2,7 @@
 
 ## Overview
 
-Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster. It is a Debezium connector, compatible with Kafka Connect (with Kafka 2.6.0+) and built on top of scylla-cdc-java library.
+Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster. It is a Debezium connector, compatible with Kafka Connect running on Java 17+ and built on top of scylla-cdc-java library.
 
 The connector reads the CDC log for specified tables and produces Kafka messages for each row-level `INSERT`, `UPDATE` or `DELETE` operation. The connector is able to split reading the CDC log accross multiple processes: the connector can start a separate Kafka Connect task for reading each [Vnode of Scylla cluster](https://docs.scylladb.com/architecture/ringarchitecture/) allowing for high throughput. You can limit the number of started tasks by using `tasks.max` property.
 
@@ -24,7 +24,7 @@ The connector has the following capabilities:
 - Full support for collection types (`LIST`, `SET`, `MAP`) and User Defined Types (`UDT`) - see [Collection and UDT Type Support](#collection-and-udt-type-support)
 
 The connector has the following limitations:
-- Only Kafka 2.6.0+ is supported
+- From 2.1.0, the Kafka Connect worker must run on Java 17 or newer (see [Compatibility](#compatibility))
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
     - Row range deletes - those changes are ignored
     - Partition deletes - see [Partition Delete Support](#partition-delete-support) section below
@@ -36,6 +36,12 @@ The connector has the following limitations:
 
 The connector is tested against the latest Apache Kafka 3.x, 4.x and currently last 6 minor Confluent Platform releases.
 It should remain compatible with those versions.
+
+From 2.1.0 the connector is built on Debezium 3.7.0.Final and needs a Kafka Connect worker running
+on Java 17 or newer: Confluent Platform 7.7+ or Apache Kafka 3.x+ on Java 17. Confluent Platform
+7.6 and older ship Java 11 and are no longer supported; stay on 2.0.x there. 2.1.0 is also the
+first release that runs on Kafka Connect 4.4+ / Confluent Platform 8.4+, where 2.0.x tasks fail at
+start with `NoClassDefFoundError: org/apache/kafka/common/utils/Sanitizer`.
 
 Below is a summary of the Debezium and Kafka (Connect API) dependency versions used by the last few tagged connector releases.
 
@@ -60,8 +66,8 @@ tablet-enabled table. Such a connector generates task configurations containing 
 manifests, which older connector versions cannot parse: a task still running an older plugin fails
 to start with a `NumberFormatException`. Stop the connector, upgrade all workers, then resume it.
 
-Versions before 2.0.9 could commit an offset in the middle of a CDC batch
-([#340](https://github.com/scylladb/scylla-cdc-source-connector/issues/340)); 2.0.9 and later
+Versions before 2.1.0 could commit an offset in the middle of a CDC batch
+([#340](https://github.com/scylladb/scylla-cdc-source-connector/issues/340)); 2.1.0 and later
 advance it only at the end of a batch. When upgrading from an earlier version, each Vnode whose
 last committed offset is mid-batch still skips the rest of that batch on the first start, once and
 without an error. The offset format is unchanged, so existing offsets stay valid.
@@ -94,7 +100,7 @@ Copy the JAR file with connector into your Kafka Connect deployment and append t
 
 #### Debezium Docker image
 
-When building a Debezium-based Kafka Connect image, use a Debezium image version that matches the connector release line in the compatibility table. For the 2.0.x connector releases, use the Debezium 2.7.4.Final images from Quay:
+When building a Debezium-based Kafka Connect image, use a Debezium image version that matches the connector release line in the compatibility table. For the 2.0.x connector releases, use the Debezium 2.7.4.Final images from Quay, as below. For 2.1.x, use the 3.7.0.Final images and drop the `zip -d` step: Debezium 3.7 no longer ships `debezium-core`, and its CloudEvents converter initializes cleanly.
 
 ```dockerfile
 FROM quay.io/debezium/connect-base:2.7.4.Final
@@ -308,6 +314,8 @@ The connector provides two single message transformations (SMTs) that are primar
 `ScyllaExtractNewRecordState` (class: `com.scylladb.cdc.debezium.connector.transforms.ScyllaExtractNewRecordState`) works exactly like `io.debezium.transforms.ExtractNewRecordState` (in fact it is called underneath), but also flattens structure by extracting values from Cell structs (the `{"value": ...}` wrapper used in legacy format).
 
 > **Note:** This transform works with both output formats. For legacy format (the default), it unwraps Cell structs. For advanced format (where values are already direct), it is effectively a pass-through for the value extraction part.
+
+> **Upgrading to 2.1.0:** Debezium 3.x removed the `drop.tombstones` and `delete.handling.mode` options of `ExtractNewRecordState`. `ScyllaExtractNewRecordState` keeps them, with the 2.x defaults (`drop.tombstones=true`, `delete.handling.mode=drop`), so existing configurations produce the same records. Setting Debezium's `delete.tombstone.handling.mode` switches to the Debezium 3.x handling and ignores both legacy options. Note that a `DELETE` without a preimage has neither `before` nor `after`, which Debezium handles as a truncate and drops in every mode; to see such deletes downstream, set `drop.tombstones=false` and keep `delete.tombstone.handling.mode` unset.
 
 Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but when used with legacy format, it makes it impossible to differentiate between NULL value and non-modification.
 If the message is as following:
