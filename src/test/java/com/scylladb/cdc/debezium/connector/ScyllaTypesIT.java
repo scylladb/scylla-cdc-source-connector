@@ -139,11 +139,30 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
    * @param mode the JSON comparison mode to use
    */
   void waitAndAssert(int pk, String[] expected, JSONCompareMode mode) {
+    collectAndAssert(pk, expected, mode, 0);
+  }
+
+  /**
+   * Like {@link #waitAndAssert(int, String[])}, but keeps collecting records for {@code quietMs}
+   * after the last expected record arrives, so a record arriving later still fails the assertion.
+   * Use it to check that nothing beyond {@code expected} is emitted.
+   *
+   * @param pk the primary key to filter records by
+   * @param expected the expected JSON records
+   * @param quietMs how long to keep collecting after the last expected record arrives
+   */
+  void waitAndAssertNoMore(int pk, String[] expected, long quietMs) {
+    collectAndAssert(pk, expected, JSONCompareMode.NON_EXTENSIBLE, quietMs);
+  }
+
+  private void collectAndAssert(int pk, String[] expected, JSONCompareMode mode, long quietMs) {
     List<ConsumerRecord<K, V>> matchingRecords = new ArrayList<>();
     int startIndex = recordsIndexBeforeTest.get();
 
-    long startTime = System.currentTimeMillis();
-    while (System.currentTimeMillis() - startTime < KafkaConnectUtils.CONSUMER_TIMEOUT) {
+    long endMs = System.currentTimeMillis() + KafkaConnectUtils.CONSUMER_TIMEOUT;
+    boolean allArrived = false;
+    while (true) {
+      long now = System.currentTimeMillis();
       matchingRecords.clear();
       synchronized (receivedRecords) {
         for (int i = startIndex; i < receivedRecords.size(); i++) {
@@ -163,7 +182,13 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
           }
         }
       }
-      if (matchingRecords.size() >= expected.length) {
+      if (!allArrived && matchingRecords.size() >= expected.length) {
+        allArrived = true;
+        endMs = now + quietMs;
+      }
+      // now predates this pass, so the records asserted include all that arrived before endMs. An
+      // extra record ends the wait early: it already fails.
+      if (matchingRecords.size() > expected.length || now >= endMs) {
         break;
       }
       try {

@@ -219,7 +219,7 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
    * indefinitely. Only the INSERT record should appear.
    */
   @Test
-  void testPerRowTtlNullExpiration() throws InterruptedException {
+  void testPerRowTtlNullExpiration() {
     int pk = reservePk();
 
     // Insert with null expiration — row should not expire
@@ -230,13 +230,11 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
             + pk
             + ", 'no_ttl_test', null)");
 
-    // Allow one 1 s TTL scan, then for a spurious DELETE to be consumed
-    Thread.sleep(1000 + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
-
     String key = "{\"id\": " + pk + "}";
 
-    // Only the INSERT record should be produced — null expiration means no TTL
-    waitAndAssert(
+    // Only the INSERT record should be produced — null expiration means no TTL. After it, collect
+    // for one 1 s TTL scan plus the time a spurious DELETE would take to be consumed.
+    waitAndAssertNoMore(
         pk,
         new String[] {
           expectedRecord(
@@ -244,6 +242,7 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
               "null",
               "{\"id\": " + pk + ", \"text_col\": \"no_ttl_test\", \"expiration\": null}",
               key),
-        });
+        },
+        1000 + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
   }
 }

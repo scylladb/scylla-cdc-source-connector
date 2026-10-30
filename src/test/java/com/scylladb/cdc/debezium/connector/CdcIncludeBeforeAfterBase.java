@@ -551,12 +551,12 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
       "INSERT USING TTL with a non-frozen collection emits no record with images (#365 repros"
           + " Full) and one record per delta row without them (None):"
           + " https://github.com/scylladb/scylla-cdc-source-connector/issues/365")
-  void testPerWriteTtlExpiryEmitsNoDelete() throws InterruptedException {
+  void testPerWriteTtlExpiryEmitsNoDelete() {
     int pk = reservePk();
     insertFullRowWithTtl(pk, TTL_SECONDS);
-    // A DELETE logged at expiry would be consumed by now and break waitAndAssert's exact count.
-    Thread.sleep(TTL_SECONDS * 1000L + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
-    waitAndAssert(pk, expectedInsert(pk));
+    // A DELETE logged at expiry trails the INSERT by the TTL, then takes up to the quiet period.
+    waitAndAssertNoMore(
+        pk, expectedInsert(pk), TTL_SECONDS * 1000L + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
   }
 
   /** Tests UPDATE operation that modifies all active columns. */
