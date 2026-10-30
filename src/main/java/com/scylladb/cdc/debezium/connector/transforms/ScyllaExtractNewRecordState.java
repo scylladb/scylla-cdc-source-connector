@@ -1,6 +1,10 @@
 package com.scylladb.cdc.debezium.connector.transforms;
 
+import static io.debezium.transforms.ExtractNewRecordStateConfigDefinition.HANDLE_TOMBSTONE_DELETES;
+import static io.debezium.transforms.ExtractNewRecordStateConfigDefinition.REPLACE_NULL_WITH_DEFAULT;
+
 import io.debezium.transforms.ExtractNewRecordState;
+import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.common.cache.Cache;
 import org.apache.kafka.common.cache.LRUCache;
@@ -50,7 +54,30 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
 
   @Override
   public void configure(Map<String, ?> configs) {
+    Object newMode = configs.get(HANDLE_TOMBSTONE_DELETES.name());
+    boolean legacyHandling = newMode == null || newMode.toString().isBlank();
+    if (newMode != null && legacyHandling) {
+      // Debezium validates the option as an enum, so a blank value would fail: treat it as unset
+      Map<String, Object> withoutMode = new HashMap<>(configs);
+      withoutMode.remove(HANDLE_TOMBSTONE_DELETES.name());
+      configs = withoutMode;
+    }
     super.configure(configs);
+    // Debezium 3.2 dropped drop.tombstones and delete.handling.mode. Unless the new option is set,
+    // keep the 2.x defaults (both drop) and honour the old options, as Debezium 2.x did.
+    if (legacyHandling) {
+      extractRecordStrategy.close();
+      extractRecordStrategy =
+          new LegacyDeleteHandlingStrategy<>(
+              LegacyDeleteHandlingStrategy.DeleteHandling.parse(
+                  stringOrNull(configs.get(LegacyDeleteHandlingStrategy.DELETE_HANDLING_MODE))),
+              booleanOr(
+                  configs.get(LegacyDeleteHandlingStrategy.DROP_TOMBSTONES),
+                  LegacyDeleteHandlingStrategy.DEFAULT_DROP_TOMBSTONES),
+              booleanOr(
+                  configs.get(REPLACE_NULL_WITH_DEFAULT.name()),
+                  (Boolean) REPLACE_NULL_WITH_DEFAULT.defaultValue()));
+    }
     Object formatValue = configs.get(CDC_OUTPUT_FORMAT_CONFIG);
     if (formatValue != null) {
       // Legacy format is the default; only disable Cell unwrapping for advanced format
@@ -58,9 +85,37 @@ public class ScyllaExtractNewRecordState<R extends ConnectRecord<R>>
     }
   }
 
+  private static String stringOrNull(Object value) {
+    return value == null ? null : value.toString();
+  }
+
+  private static boolean booleanOr(Object value, boolean defaultValue) {
+    return value == null ? defaultValue : Boolean.parseBoolean(value.toString().trim());
+  }
+
   @Override
   public ConfigDef config() {
     ConfigDef config = super.config();
+    config.define(
+        LegacyDeleteHandlingStrategy.DROP_TOMBSTONES,
+        ConfigDef.Type.BOOLEAN,
+        LegacyDeleteHandlingStrategy.DEFAULT_DROP_TOMBSTONES,
+        ConfigDef.Importance.LOW,
+        "Debezium 2.x option, kept for compatibility: drop tombstones. Ignored when "
+            + HANDLE_TOMBSTONE_DELETES.name()
+            + " is set.");
+    config.define(
+        LegacyDeleteHandlingStrategy.DELETE_HANDLING_MODE,
+        ConfigDef.Type.STRING,
+        LegacyDeleteHandlingStrategy.DeleteHandling.DEFAULT.value(),
+        ConfigDef.CaseInsensitiveValidString.in(
+            LegacyDeleteHandlingStrategy.DeleteHandling.literals()),
+        ConfigDef.Importance.MEDIUM,
+        "Debezium 2.x option, kept for compatibility: how to handle delete records ("
+            + String.join(", ", LegacyDeleteHandlingStrategy.DeleteHandling.literals())
+            + "). Ignored when "
+            + HANDLE_TOMBSTONE_DELETES.name()
+            + " is set.");
     config.define(
         CDC_OUTPUT_FORMAT_CONFIG,
         ConfigDef.Type.STRING,
