@@ -548,14 +548,14 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
    */
   @Test
   @Disabled(
-      "INSERT USING TTL with a non-frozen collection emits no record:"
+      "INSERT USING TTL with a non-frozen collection emits no record with images (#365 repros"
+          + " Full) and one record per delta row without them (None):"
           + " https://github.com/scylladb/scylla-cdc-source-connector/issues/365")
   void testPerWriteTtlExpiryEmitsNoDelete() throws InterruptedException {
     int pk = reservePk();
     insertFullRowWithTtl(pk, TTL_SECONDS);
-    // Outlast the IT connector's 5 s confidence and 10 s query windows, so a DELETE logged at
-    // expiry would already be consumed and break waitAndAssert's exact record count.
-    Thread.sleep((TTL_SECONDS + 20) * 1000L);
+    // A DELETE logged at expiry would be consumed by now and break waitAndAssert's exact count.
+    Thread.sleep(TTL_SECONDS * 1000L + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
     waitAndAssert(pk, expectedInsert(pk));
   }
 
@@ -1382,7 +1382,8 @@ public abstract class CdcIncludeBeforeAfterBase<K, V> extends ScyllaTypesIT<K, V
   protected static String buildDeleteRecord(
       int pk, String beforeMode, String afterMode, String source) {
     // Partition-key-only tables get PARTITION_DELETE, which carries a preimage only from Scylla
-    // 2026.1.0. The emitter always uses the full preimage for deletes, regardless of before mode.
+    // 2026.1.0. With before mode none, before is null; otherwise the emitter uses the full
+    // preimage for deletes, even in only-updated mode.
     String before =
         "none".equals(beforeMode) || !partitionDeleteHasPreimage() ? "null" : jsonFullImageSet1(pk);
     String after = "null"; // DELETE always has null after

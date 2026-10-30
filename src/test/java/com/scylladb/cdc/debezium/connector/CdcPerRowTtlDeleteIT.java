@@ -37,7 +37,7 @@ import org.junit.jupiter.api.TestInfo;
  *
  * <ul>
  *   <li>INSERT with a near-future expiration followed by background deletion produces INSERT +
- *       DELETE CDC records
+ *       DELETE CDC records (disabled pending #366)
  *   <li>INSERT with null expiration (no TTL) does not expire
  *   <li>Explicit DELETE of a row with per-row TTL produces normal DELETE CDC records
  * </ul>
@@ -140,7 +140,7 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
             + "')");
 
     // Wait for the background deletion thread to scan and delete the expired row.
-    // The scan interval is controlled by alternator_ttl_period_in_seconds (default varies).
+    // The scan runs every alternator_ttl_period_in_seconds (1 s in ITs, default 24h).
     Thread.sleep(15000);
 
     String key = "{\"id\": " + pk + "}";
@@ -230,8 +230,8 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
             + pk
             + ", 'no_ttl_test', null)");
 
-    // Wait to confirm no DELETE is generated
-    Thread.sleep(10000);
+    // Allow one 1 s TTL scan, then for a spurious DELETE to be consumed
+    Thread.sleep(1000 + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
 
     String key = "{\"id\": " + pk + "}";
 

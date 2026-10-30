@@ -19,6 +19,16 @@ import org.junit.jupiter.api.Assertions;
 public final class KafkaConnectUtils {
   protected static final int CONSUMER_TIMEOUT = 65 * 1000;
 
+  // Lower than defaults to speed up tests
+  static final long QUERY_TIME_WINDOW_SIZE_MS = 10_000;
+  static final long CONFIDENCE_WINDOW_SIZE_MS = 5_000;
+
+  /**
+   * Worst-case delay before the IT connector consumes a logged change. Wait this long before
+   * asserting that no further record arrives.
+   */
+  static final long CDC_QUIET_PERIOD_MS = QUERY_TIME_WINDOW_SIZE_MS + CONFIDENCE_WINDOW_SIZE_MS;
+
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   // Retry configuration with exponential backoff
@@ -577,9 +587,10 @@ public final class KafkaConnectUtils {
         "connector.class", "com.scylladb.cdc.debezium.connector.ScyllaConnector");
     connectorConfiguration.put("scylla.cluster.ip.addresses", "scylla:9042");
     connectorConfiguration.put("tasks.max", "1");
-    // Lower than defaults to speed up tests
-    connectorConfiguration.put("scylla.query.time.window.size", "10000");
-    connectorConfiguration.put("scylla.confidence.window.size", "5000");
+    connectorConfiguration.put(
+        "scylla.query.time.window.size", String.valueOf(QUERY_TIME_WINDOW_SIZE_MS));
+    connectorConfiguration.put(
+        "scylla.confidence.window.size", String.valueOf(CONFIDENCE_WINDOW_SIZE_MS));
     connectorConfiguration.put("key.converter", "org.apache.kafka.connect.json.JsonConverter");
     connectorConfiguration.put("key.converter.schemas.enable", "false");
     connectorConfiguration.put("value.converter", "org.apache.kafka.connect.json.JsonConverter");
@@ -600,9 +611,10 @@ public final class KafkaConnectUtils {
         "connector.class", "com.scylladb.cdc.debezium.connector.ScyllaConnector");
     connectorConfiguration.put("scylla.cluster.ip.addresses", "scylla:9042");
     connectorConfiguration.put("tasks.max", "1");
-    // Lower than defaults to speed up tests
-    connectorConfiguration.put("scylla.query.time.window.size", "10000");
-    connectorConfiguration.put("scylla.confidence.window.size", "5000");
+    connectorConfiguration.put(
+        "scylla.query.time.window.size", String.valueOf(QUERY_TIME_WINDOW_SIZE_MS));
+    connectorConfiguration.put(
+        "scylla.confidence.window.size", String.valueOf(CONFIDENCE_WINDOW_SIZE_MS));
     connectorConfiguration.put("key.converter", "io.confluent.connect.avro.AvroConverter");
     connectorConfiguration.put("key.converter.schemas.enable", "true");
     connectorConfiguration.put("value.converter", "io.confluent.connect.avro.AvroConverter");
