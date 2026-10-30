@@ -392,7 +392,10 @@ public abstract class AbstractContainerBaseIT {
     String modules = System.getProperty("it.scylla.log.modules", "init=info");
 
     StringBuilder cmd =
-        new StringBuilder("--developer-mode=1 --overprovisioned=1 --default-log-level=")
+        new StringBuilder("--developer-mode=1 --overprovisioned=1")
+            // Per-row TTL rows are only deleted (and CDC-logged) by this scan; default is 24h.
+            .append(" --alternator-ttl-period-in-seconds=1")
+            .append(" --default-log-level=")
             .append(defaultLevel);
 
     if (!modules.trim().isEmpty()) {

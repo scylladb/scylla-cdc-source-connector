@@ -1,6 +1,5 @@
 package com.scylladb.cdc.debezium.connector;
 
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -34,16 +33,6 @@ public abstract class ScyllaTypesAllBase<K, V> extends ScyllaTypesIT<K, V> {
   abstract String[] expectedPrimitiveInsert(int pk);
 
   abstract String[] expectedPrimitiveDelete(int pk);
-
-  /**
-   * Returns expected records for a per-write TTL-based row deletion ({@code INSERT ... USING TTL}).
-   * Per-row TTL (the {@code timestamp TTL} column feature) is tested in {@link
-   * CdcPerRowTtlDeleteIT}.
-   *
-   * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
-   *     ScyllaDB does not currently generate CDC events for per-write TTL expirations
-   */
-  abstract String[] expectedPrimitiveTtlDelete(int pk);
 
   abstract String[] expectedPrimitiveUpdateFromValueToNil(int pk);
 
@@ -1258,22 +1247,20 @@ public abstract class ScyllaTypesAllBase<K, V> extends ScyllaTypesIT<K, V> {
   }
 
   /**
-   * Tests that per-write TTL-based row deletion generates a DELETE CDC record.
+   * Tests that expiry of a per-write TTL ({@code USING TTL}) produces no DELETE record: only the
+   * INSERT is emitted. Only per-row TTL emits CDC deletes, see {@link CdcPerRowTtlDeleteIT}.
    *
    * @see <a href="https://github.com/scylladb/scylladb/issues/8380">scylladb/scylladb#8380</a>
-   *     ScyllaDB does not currently generate CDC events for per-write TTL expirations
-   * @see CdcPerRowTtlDeleteIT for per-row TTL tests
    */
   @Test
-  void testPrimitiveTtlDelete() throws InterruptedException {
-    Assumptions.assumeTrue(
-        PARSED_SCYLLA_VERSION != null
-            && PARSED_SCYLLA_VERSION.isAtLeast(ScyllaVersion.PER_ROW_TTL_SUPPORT),
-        "Per-write TTL CDC tests require ScyllaDB >= " + ScyllaVersion.PER_ROW_TTL_SUPPORT);
+  void testPrimitivePerWriteTtlExpiryEmitsNoDelete() {
     int pk = reservePk();
-    primitiveInsertFullRowWithTtl(pk, "ttl_delete_me", TTL_SECONDS);
-    Thread.sleep((TTL_SECONDS + 3) * 1000L);
-    waitAndAssert(pk, expectedPrimitiveTtlDelete(pk));
+    primitiveInsertFullRowWithTtl(pk, "some text", TTL_SECONDS);
+    // A DELETE logged at expiry trails the INSERT by the TTL, then takes up to the quiet period.
+    waitAndAssertNoMore(
+        pk,
+        expectedPrimitiveInsert(pk),
+        TTL_SECONDS * 1000L + KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
   }
 
   @Test
