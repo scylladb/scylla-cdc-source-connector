@@ -15,18 +15,35 @@ import java.util.Set;
 
 public class ScyllaWorkerTransport implements WorkerTransport {
 
+  /** Told when a task has read its whole window, before its offset moves to the next one. */
+  @FunctionalInterface
+  public interface WindowEndListener {
+    void windowEnded(TaskId task) throws InterruptedException;
+  }
+
   private final ChangeEventSource.ChangeEventSourceContext context;
   // private final ScyllaPartition partition;
   private final ScyllaOffsetContext offsetContext;
   private final EventDispatcher<ScyllaPartition, CollectionId> dispatcher;
   private final Map<TaskId, Threads.Timer> heartbeatTimers;
   private final long heartbeatIntervalMs;
+  private final WindowEndListener windowEndListener;
 
   public ScyllaWorkerTransport(
       ChangeEventSource.ChangeEventSourceContext context,
       ScyllaOffsetContext offsetContext,
       EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
       long heartbeatIntervalMs) {
+    this(context, offsetContext, dispatcher, heartbeatIntervalMs, task -> {});
+  }
+
+  public ScyllaWorkerTransport(
+      ChangeEventSource.ChangeEventSourceContext context,
+      ScyllaOffsetContext offsetContext,
+      EventDispatcher<ScyllaPartition, CollectionId> dispatcher,
+      long heartbeatIntervalMs,
+      WindowEndListener windowEndListener) {
+    this.windowEndListener = windowEndListener;
     this.context = context;
     this.offsetContext = offsetContext;
     this.dispatcher = dispatcher;
@@ -62,6 +79,12 @@ public class ScyllaWorkerTransport implements WorkerTransport {
 
   @Override
   public void moveStateToNextWindow(TaskId task, TaskState newState) {
+    try {
+      windowEndListener.windowEnded(task);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    }
     Threads.Timer heartbeatTimer =
         heartbeatTimers.computeIfAbsent(task, (t) -> buildHeartbeatTimer());
 

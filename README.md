@@ -298,7 +298,7 @@ To enable preimage support in legacy format, use the `experimental.preimages.ena
 experimental.preimages.enabled=true
 ```
 
-> **Note:** Legacy format does not support postimages. For postimage support, use the [advanced format](#advanced-format-details) with `cdc.include.after` configuration. Postimage rows are skipped, so on a table with `postimage` enabled a restart can re-emit the last batch, as described for `cdc.include.after=none` in [Preimage/Postimage Configuration](#preimagepostimage-configuration-advanced-format-only).
+> **Note:** Legacy format does not support postimages. For postimage support, use the [advanced format](#advanced-format-details) with `cdc.include.after` configuration. Postimage rows are skipped, so on a table with `postimage` enabled a batch that ends with one has its offset committed only with the next record or heartbeat (`heartbeat.interval.ms`) for the same Vnode, and a restart before then re-emits that batch. These are duplicates, not data loss, consistent with the connector's at-least-once semantics.
 
 ### Single Message Transformations (SMTs) for Legacy Format
 
@@ -960,7 +960,7 @@ With `cdc.include.before=full` and `cdc.include.after=full`, an `UPDATE` will in
 
 ScyllaDB stores static columns in a separate *static row* within the partition. A single CQL statement that writes a static column **and** clustered columns is therefore recorded as **two** entries in the CDC log, sharing one `cdc$time` and distinguished by `cdc$batch_seq_no`, with `cdc$end_of_batch` set only on the last.
 
-The connector emits one Kafka record per CDC log change entry (preimage and postimage entries are folded into it, not emitted separately) and does not merge entries by `cdc$time`, so **one statement produces two change events**. The split originates in ScyllaDB's CDC log, so it affects any CDC consumer, and it applies to both the legacy and advanced output formats.
+The legacy format emits one Kafka record per CDC log change entry, and the advanced format one per row within a batch (preimage and postimage entries are folded in, not emitted separately). But the static row and the clustered row are different rows, so in both the legacy and advanced output formats **one statement produces two change events**. The split originates in ScyllaDB's CDC log, so it affects any CDC consumer.
 
 ### Example
 
@@ -1009,9 +1009,9 @@ There is no schema flag for this. The underlying `scylla-cdc-java` library repor
 * Do not read the other columns' nulls as "set to NULL". In the legacy format an explicit NULL is `{"value": null}`, whereas an untouched column is `null` (see [Cell Representation](#cell-representation)).
 * To avoid the split, write static columns in a statement of their own, separate from clustered columns. The static write still produces its own event with a null clustering key.
 
-### Known limitation with preimages
+### Static events without a preimage
 
-With `cdc.include.before=full` (or `only-updated`), a static event for which ScyllaDB produces no preimage is **not emitted**. ScyllaDB produces a preimage only where prior state exists, so the first write to a partition's static row has none; that event never completes and is dropped. Static writes for which a preimage is produced are not affected. Use `cdc.include.after=full` with `cdc.include.before=none` if you need a full image of the static event. Tracked in [#341](https://github.com/scylladb/scylla-cdc-source-connector/issues/341).
+With `cdc.include.before=full` (or `only-updated`), a static event for which ScyllaDB produces no preimage is emitted with `before` set to `null`. ScyllaDB produces a preimage only where prior state exists, so the first write to a partition's static row has none. Static writes for which a preimage is produced carry it as usual. See [#341](https://github.com/scylladb/scylla-cdc-source-connector/issues/341).
 
 ---
 
@@ -1331,9 +1331,7 @@ The connector supports including the complete row state before and/or after a ch
 | `cdc.include.after`  | `none`  | `none`, `full`, `only-updated` | Specifies whether to include the 'after' state of the row in CDC messages. Requires the Scylla table to have postimage enabled (`WITH cdc = {'postimage': true}`) for `full` or `only-updated` modes. |
 | `cdc.include.primary-key.placement` | `kafka-key,payload-after,payload-before` | Comma-separated list of: `kafka-key`, `payload-after`, `payload-before`, `payload-key`, `kafka-headers` | Specifies where primary key (PK) and clustering key (CK) columns should be included in the output. See [Primary Key Placement](#primary-key-placement) for details. |
 | `cdc.include.primary-key.payload-key-name` | `key` | Any valid field name | Specifies the field name for the primary key object in the message payload when `payload-key` is included in `cdc.include.primary-key.placement`. |
-| `cdc.incomplete.task.timeout.ms` | `15000` | Positive integer (milliseconds) | Timeout for incomplete CDC tasks waiting for preimage/postimage events. Tasks that remain incomplete longer than this duration are dropped and logged as errors. |
-
-> **Note:** When the table has `postimage` enabled and `cdc.include.after=none`, the connector does not emit postimage rows. A batch that ends with one has its offset committed only with the next record or heartbeat (`heartbeat.interval.ms`) for the same Vnode, so a restart before then re-emits that batch. These are duplicates, not data loss, consistent with the connector's at-least-once semantics.
+| `cdc.incomplete.task.timeout.ms` | `15000` | Positive integer (milliseconds) | A warning is logged when a row of a CDC batch arrives this long after the batch's first row. The batch keeps waiting for its last row: a slow read does not split it. |
 
 #### Mode Descriptions
 
@@ -1350,6 +1348,8 @@ The connector supports including the complete row state before and/or after a ch
 | **INSERT** | Always `null` (no previous state) | Full image regardless of mode (all columns with values) |
 | **UPDATE** | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null |
 | **DELETE** | Full preimage regardless of mode (all columns) | Always `null` (row was deleted) |
+
+ScyllaDB logs a preimage only for a row that existed before the change. An UPDATE or DELETE of a row with no prior state, such as an upsert of a new row, therefore has `before` set to `null` even with `cdc.include.before=full`.
 
 #### Scylla Table Configuration
 
