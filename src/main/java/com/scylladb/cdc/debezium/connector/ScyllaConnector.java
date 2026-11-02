@@ -43,6 +43,8 @@ public class ScyllaConnector extends SourceConnector {
   private ExecutorService masterExecutor;
   private Driver3Session masterSession;
   private volatile TaskReconfigurationRefresher taskReconfigurationRefresher;
+  // Detected once here rather than by every task: the probe opens a connection per shard.
+  private ScyllaVersion scyllaVersion;
 
   public ScyllaConnector() {}
 
@@ -59,6 +61,8 @@ public class ScyllaConnector extends SourceConnector {
               + "Please migrate to the advanced format by setting 'cdc.output.format=advanced'. "
               + "See the connector documentation for migration instructions.");
     }
+
+    this.scyllaVersion = new ScyllaVersionChecker(connectorConfig).getVersion();
 
     // Start master, which will watch for
     // new generations.
@@ -127,16 +131,7 @@ public class ScyllaConnector extends SourceConnector {
                 maxWorkerConfigBytes)
             .buildTaskConfigs(maxTasks);
     return workerConfigs.stream()
-        .map(
-            c ->
-                config
-                    .edit()
-                    .with(ScyllaConnectorConfig.WORKER_CONFIG, c)
-                    .withDefault(
-                        ScyllaConnectorConfig.CUSTOM_HEARTBEAT_INTERVAL,
-                        ScyllaConnectorConfig.CUSTOM_HEARTBEAT_INTERVAL.defaultValue())
-                    .build()
-                    .asMap())
+        .map(c -> ScyllaConnectorConfig.taskConfig(config, c, scyllaVersion))
         .collect(Collectors.toList());
   }
 

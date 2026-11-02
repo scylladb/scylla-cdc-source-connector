@@ -147,6 +147,16 @@ class ScyllaChangesConsumerBatchOffsetTest {
     return schema;
   }
 
+  /** A table without clustering key, where a row delete arrives as PARTITION_DELETE. */
+  private static ChangeSchema pkOnlySchema() {
+    ChangeSchema schema = Mockito.mock(ChangeSchema.class);
+    ChangeSchema.ColumnDefinition pk = Mockito.mock(ChangeSchema.ColumnDefinition.class);
+    Mockito.when(pk.getColumnName()).thenReturn("pk");
+    Mockito.when(pk.getBaseTableColumnType()).thenReturn(ChangeSchema.ColumnType.PARTITION_KEY);
+    Mockito.when(schema.getNonCdcColumnDefinitions()).thenReturn(List.of(pk));
+    return schema;
+  }
+
   /**
    * Feeds rows the way scylla-cdc-java's {@code TaskAction} does: the task handed to the consumer
    * advances only on end-of-batch rows, and after each row the transport is told that state.
@@ -292,6 +302,46 @@ class ScyllaChangesConsumerBatchOffsetTest {
             row(OperationType.POST_IMAGE, 12_000, true, 0, schema)));
     assertEquals(2, snapshots.size());
     assertEquals(3, snapshots.get(0).rowIndex);
+  }
+
+  /**
+   * Deleting a missing partition writes no PRE_IMAGE (#368). Both deletes must be dispatched; a
+   * task left waiting would never complete with this consumer's infinite timeout.
+   */
+  private void assertPartitionDeletesDispatched(ScyllaConnectorConfig config)
+      throws InterruptedException {
+    ChangeSchema schema = pkOnlySchema();
+    runScenario(
+        config,
+        Optional.of(changeId(10_500)),
+        // A version with partition-delete preimages, where the removed wait used to apply
+        c ->
+            new ScyllaChangesConsumer(
+                dispatcher,
+                offsetContext,
+                null,
+                Clock.SYSTEM,
+                c,
+                ScyllaVersion.PARTITION_DELETE_PREIMAGE_SUPPORT,
+                Long.MAX_VALUE),
+        List.of(
+            row(OperationType.PARTITION_DELETE, 11_000, true, null, schema),
+            row(OperationType.PRE_IMAGE, 12_000, null, null, schema),
+            row(OperationType.PARTITION_DELETE, 12_000, true, null, schema)));
+    assertEquals(2, snapshots.size());
+    assertEquals(0, snapshots.get(0).rowIndex);
+    assertEquals(2, snapshots.get(1).rowIndex);
+  }
+
+  @Test
+  void preImages_partitionDeleteWithOrWithoutPreimageIsDispatched() throws InterruptedException {
+    assertPartitionDeletesDispatched(config(CdcIncludeMode.FULL, CdcIncludeMode.NONE));
+  }
+
+  @Test
+  void preAndPostImages_partitionDeleteWithOrWithoutPreimageIsDispatched()
+      throws InterruptedException {
+    assertPartitionDeletesDispatched(config(CdcIncludeMode.FULL, CdcIncludeMode.FULL));
   }
 
   @Test
