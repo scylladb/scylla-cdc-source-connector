@@ -229,7 +229,7 @@
         <!-- added for transitive dependencies -->
         <log4j.version>2.25.5</log4j.version>
         <jackson.version>2.22.4</jackson.version>
-        <guava.version>33.5.0-jre</guava.version>
+        <guava.version>33.7.1-jre</guava.version>
         <jetty.version>12.1.14</jetty.version>
         <commons.version>3.19.0</commons.version>
     </properties>
@@ -443,7 +443,7 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>33.5.0-jre</version>
+            <version>33.7.1-jre</version>
         </dependency>
 
         <dependency>
