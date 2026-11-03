@@ -67,9 +67,6 @@ public class CdcStaticColumnSplitIT extends AbstractContainerBaseIT {
   private static final long CDC_LOG_TIMEOUT_MS = 30_000;
   private static final long KAFKA_TIMEOUT_MS = 65_000;
 
-  /** Quiet period used to be confident no further records are in flight. */
-  private static final long QUIET_PERIOD_MS = 15_000;
-
   private final List<String> registeredConnectors = new ArrayList<>();
 
   @AfterEach
@@ -206,7 +203,7 @@ public class CdcStaticColumnSplitIT extends AbstractContainerBaseIT {
       insertTouchingStatic(session, fullTableName, 3);
 
       List<ConsumerRecord<String, String>> records =
-          waitForKafkaRecords(consumer, 7, QUIET_PERIOD_MS);
+          waitForKafkaRecords(consumer, 7, KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
 
       List<ConsumerRecord<String, String>> pk1Records = recordsForPk(records, 1);
       List<JSONObject> pk1 = values(pk1Records);
@@ -315,7 +312,7 @@ public class CdcStaticColumnSplitIT extends AbstractContainerBaseIT {
       updateTouchingStatic(session, fullTableName, 1); // same statement shape, non-static column
 
       List<ConsumerRecord<String, String>> records =
-          waitForKafkaRecords(consumer, 2, QUIET_PERIOD_MS);
+          waitForKafkaRecords(consumer, 2, KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
       List<JSONObject> pk1 = values(recordsForPk(records, 1));
 
       assertEquals(2, pk1.size(), "without a static column the same statements yield two records");
@@ -364,7 +361,7 @@ public class CdcStaticColumnSplitIT extends AbstractContainerBaseIT {
       updateTouchingStatic(session, fullTableName, 1);
 
       List<ConsumerRecord<String, String>> records =
-          waitForKafkaRecords(consumer, 3, QUIET_PERIOD_MS);
+          waitForKafkaRecords(consumer, 3, KafkaConnectUtils.CDC_QUIET_PERIOD_MS);
 
       // before/after are null by design under none/none (see CdcIncludeBeforeAfterNoneIT); the
       // identifying information is in the payload `key` struct and the message key.

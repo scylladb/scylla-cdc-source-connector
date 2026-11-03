@@ -1,6 +1,7 @@
 package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
@@ -139,11 +140,31 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
    * @param mode the JSON comparison mode to use
    */
   void waitAndAssert(int pk, String[] expected, JSONCompareMode mode) {
+    collectAndAssert(pk, expected, mode, 0);
+  }
+
+  /**
+   * Like {@link #waitAndAssert(int, String[])}, but keeps collecting records for {@code quietMs}
+   * after the last expected record arrives, so a record arriving later still fails the assertion.
+   * Use it to check that nothing beyond {@code expected} is emitted.
+   *
+   * @param pk the primary key to filter records by
+   * @param expected the expected JSON records
+   * @param quietMs how long to keep collecting after the last expected record arrives
+   */
+  void waitAndAssertNoMore(int pk, String[] expected, long quietMs) {
+    collectAndAssert(pk, expected, JSONCompareMode.NON_EXTENSIBLE, quietMs);
+  }
+
+  private void collectAndAssert(int pk, String[] expected, JSONCompareMode mode, long quietMs) {
     List<ConsumerRecord<K, V>> matchingRecords = new ArrayList<>();
     int startIndex = recordsIndexBeforeTest.get();
 
-    long startTime = System.currentTimeMillis();
-    while (System.currentTimeMillis() - startTime < KafkaConnectUtils.CONSUMER_TIMEOUT) {
+    long endMs = System.currentTimeMillis() + KafkaConnectUtils.CONSUMER_TIMEOUT;
+    boolean allArrived = false;
+    while (true) {
+      // Taken before the snapshot, so the records asserted include all that arrived before endMs.
+      long passStartMs = System.currentTimeMillis();
       matchingRecords.clear();
       synchronized (receivedRecords) {
         for (int i = startIndex; i < receivedRecords.size(); i++) {
@@ -163,14 +184,24 @@ public abstract class ScyllaTypesIT<K, V> extends AbstractContainerBaseIT {
           }
         }
       }
-      if (matchingRecords.size() >= expected.length) {
+      if (!allArrived && matchingRecords.size() >= expected.length) {
+        if (quietMs == 0) {
+          break;
+        }
+        allArrived = true;
+        // Taken after the snapshot, so the full quietMs follows the expected records' observation.
+        endMs = System.currentTimeMillis() + quietMs;
+      }
+      // An extra record ends the wait early: it already fails.
+      if (matchingRecords.size() > expected.length || passStartMs >= endMs) {
         break;
       }
       try {
         Thread.sleep(100);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        break;
+        // An observation cut short must not pass.
+        fail("Interrupted while collecting records for PK " + pk, e);
       }
     }
 
