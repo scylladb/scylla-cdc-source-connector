@@ -31,6 +31,10 @@ jobs:
       matrix:
         include:
           - kafka_provider: confluent
+            kafka_version: "8.4.0"
+            kafka_connect_mode: distributed
+            scylla_version: "6.2"
+          - kafka_provider: confluent
             kafka_version: "8.0.0"
             kafka_connect_mode: distributed
             scylla_version: "6.2"
@@ -49,6 +53,10 @@ jobs:
           # confluent 7.6.6 removed: its stock image ships Java 11, and 2.1.0 needs a Java 17 worker
           - kafka_provider: debezium
             kafka_version: "3.4.1"
+            kafka_connect_mode: distributed
+            scylla_version: "6.2"
+          - kafka_provider: apache
+            kafka_version: "4.4.0"
             kafka_connect_mode: distributed
             scylla_version: "6.2"
           - kafka_provider: apache

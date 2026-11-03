@@ -220,7 +220,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
         <maven.compiler.testRelease>17</maven.compiler.testRelease>
-        <debezium.version>2.7.4.Final</debezium.version>
+        <debezium.version>3.7.0.Final</debezium.version>
         <!-- Docs claim java 8 supported, but support is deprecated -->
         <kafka.version>8.1.1-ccs</kafka.version>
         <scylla.driver.version>3.11.5.20</scylla.driver.version>
@@ -241,7 +241,7 @@
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
-            <!-- Override jackson-core pulled transitively from debezium-core; keep Jackson core modules aligned. -->
+            <!-- Override jackson-core pulled transitively from debezium-connector-common; keep Jackson core modules aligned. -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-core</artifactId>
@@ -350,7 +350,13 @@
         </dependency>
         <dependency>
             <groupId>io.debezium</groupId>
-            <artifactId>debezium-core</artifactId>
+            <artifactId>debezium-connector-common</artifactId>
+            <version>${debezium.version}</version>
+        </dependency>
+        <!-- From 3.5 the SMTs (io.debezium.transforms) live here. -->
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-connect-plugins</artifactId>
             <version>${debezium.version}</version>
         </dependency>
         <dependency>

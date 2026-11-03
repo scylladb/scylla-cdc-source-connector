@@ -7,7 +7,9 @@ import io.debezium.config.Configuration;
 import io.debezium.config.Field;
 import io.debezium.connector.base.ChangeEventQueue;
 import io.debezium.connector.common.BaseSourceTask;
+import io.debezium.connector.common.DebeziumHeaderProducer;
 import io.debezium.document.DocumentReader;
+import io.debezium.heartbeat.HeartbeatImpl;
 import io.debezium.pipeline.ChangeEventSourceCoordinator;
 import io.debezium.pipeline.DataChangeEvent;
 import io.debezium.pipeline.ErrorHandler;
@@ -45,6 +47,15 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
   private volatile ChangeEventQueue<DataChangeEvent> queue;
   private volatile ErrorHandler errorHandler;
 
+  // BaseSourceTask calls this before start() (and again on a retriable restart)
+  @Override
+  public ScyllaTaskContext preStart(Configuration configuration) {
+    this.taskContext =
+        new ScyllaTaskContext(
+            configuration, getTasks(configuration), getCoordinationGroups(configuration));
+    return taskContext;
+  }
+
   @Override
   protected ChangeEventSourceCoordinator<ScyllaPartition, ScyllaOffsetContext> start(
       Configuration configuration) {
@@ -60,11 +71,8 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
       this.schema = new ScyllaSchema(connectorConfig, structSchema);
     }
 
-    List<Pair<TaskId, SortedSet<StreamId>>> tasks = getTasks(configuration);
-    Set<CoordinationGroup<TaskId, TaskId>> coordinationGroups =
-        getCoordinationGroups(configuration);
-
-    this.taskContext = new ScyllaTaskContext(configuration, tasks, coordinationGroups);
+    List<Pair<TaskId, SortedSet<StreamId>>> tasks = taskContext.getTasks();
+    Set<CoordinationGroup<TaskId, TaskId>> coordinationGroups = taskContext.getCoordinationGroups();
 
     this.queue =
         new ChangeEventQueue.Builder<DataChangeEvent>()
@@ -100,10 +108,16 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
             DataChangeEvent::new,
             new ScyllaInconsistentSchemaHandler(),
             metadataProvider,
-            connectorConfig.createHeartbeat(
-                topicNamingStrategy, connectorConfig.schemaNameAdjuster(), null, null),
+            // Since Debezium 3.3 heartbeats enqueue through the queue they are built with
+            new HeartbeatImpl(
+                connectorConfig.getHeartbeatInterval(),
+                topicNamingStrategy.heartbeatTopic(),
+                connectorConfig.getLogicalName(),
+                connectorConfig.schemaNameAdjuster(),
+                queue),
             SchemaNameAdjuster.create(),
-            signalProcessor);
+            signalProcessor,
+            new DebeziumHeaderProducer(taskContext));
 
     final Clock clock = Clock.system();
 
@@ -174,6 +188,16 @@ public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaO
 
   @Override
   protected void doStop() {}
+
+  @Override
+  protected String connectorName() {
+    return Module.name();
+  }
+
+  @Override
+  protected Optional<ErrorHandler> getErrorHandler() {
+    return Optional.ofNullable(errorHandler);
+  }
 
   @Override
   protected Iterable<Field> getAllConfigurationFields() {
