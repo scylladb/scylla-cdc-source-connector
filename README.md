@@ -25,7 +25,6 @@ The connector has the following capabilities:
 
 The connector has the following limitations:
 - Only Kafka 2.6.0+ is supported
-- Kafka Connect 4.4+ and Confluent Platform 8.4+ are not supported yet: the connector cannot start a task on them until the Debezium 3.7 migration ([#382](https://github.com/scylladb/scylla-cdc-source-connector/pull/382)) lands
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
     - Row range deletes - those changes are ignored
     - Partition deletes - see [Partition Delete Support](#partition-delete-support) section below
@@ -238,6 +237,19 @@ Data change event's value consists of a schema and a payload section. The payloa
     - `ts_ms`: the time that the change was made in the database (in milliseconds). You can compute a difference between `source.ts_ms` and (top-level) `ts_ms` to determine the lag between the source Scylla change and the connector.
     - `ts_us`: the time that the change was made in the database (in microseconds).
     - `keyspace_name`, `table_name`: the name of keyspace and table this data change event originated from. 
+
+### Data change event headers
+From 2.1.0 the connector runs on Debezium 3.x, which can add four headers to every data change
+record: `__debezium.context.connectorLogicalName`, `__debezium.context.taskId`,
+`__debezium.context.connectorName` and `__debezium.context.runId`. The connector turns them off
+by default, so records keep the shape of 2.0.x. Set `extended.headers.enabled=true` (default
+`false`) to add them. `taskId` is always `"0"`, and `runId` changes on every task start.
+
+The `source` field's schema changes with Debezium 3.x, its values do not: the schema gets version
+`1`, and the `snapshot` enum lists `true`, `first`, `first_in_data_collection`,
+`last_in_data_collection`, `last`, `false` and `incremental` (2.0.x: `true`, `last`, `false`,
+`incremental`). With a schema registry, the first record after the upgrade registers a new
+value schema version for each topic.
 
 ---
 

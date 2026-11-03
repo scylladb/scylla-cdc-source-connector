@@ -1,14 +1,19 @@
 package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.scylladb.cdc.cql.CQLConfiguration;
 import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.NonFrozenCollectionEmptyRepresentation;
 import io.debezium.config.Configuration;
+import io.debezium.connector.common.DebeziumHeaderProducer;
 import io.netty.handler.ssl.SslProvider;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.apache.kafka.common.config.ConfigValue;
 import org.junit.jupiter.api.Test;
 
@@ -78,6 +83,10 @@ public class ScyllaConnectorConfigTest {
     assertNull(new ScyllaConnectorConfig(taskConfig).getDetectedScyllaVersion());
   }
 
+  private NonFrozenCollectionEmptyRepresentation parse(String value) {
+    return NonFrozenCollectionEmptyRepresentation.parse(value);
+  }
+
   @Test
   void paddedEnumValuesValidateAndParse() {
     Configuration configuration =
@@ -95,7 +104,34 @@ public class ScyllaConnectorConfigTest {
     assertEquals(CQLConfiguration.ConsistencyLevel.LOCAL_ONE, config.getConsistencyLevel());
   }
 
-  private NonFrozenCollectionEmptyRepresentation parse(String value) {
-    return NonFrozenCollectionEmptyRepresentation.parse(value);
+  @Test
+  void extendedHeadersAreOffByDefault() {
+    assertFalse(
+        new ScyllaConnectorConfig(createMinimalConfigBuilder().build()).isExtendedHeadersEnabled());
+    assertEquals(
+        false, ScyllaConnectorConfig.configDef().defaultValues().get("extended.headers.enabled"));
+  }
+
+  @Test
+  void extendedHeadersCanBeEnabled_andTheProducerNamesFourContextHeaders() {
+    Configuration configuration =
+        createMinimalConfigBuilder().with("extended.headers.enabled", true).build();
+    assertTrue(new ScyllaConnectorConfig(configuration).isExtendedHeadersEnabled());
+
+    // The producer builds these regardless of the option; EventDispatcher, not run here, adds them
+    // to data change records only when it is on
+    Map<String, Object> headers = new HashMap<>();
+    new DebeziumHeaderProducer(new ScyllaTaskContext(configuration, List.of()))
+        .contextHeaders()
+        .forEach(header -> headers.put(header.key(), header.value()));
+    assertEquals(
+        Set.of(
+            "__debezium.context.connectorLogicalName",
+            "__debezium.context.taskId",
+            "__debezium.context.connectorName",
+            "__debezium.context.runId"),
+        headers.keySet());
+    assertEquals("test", headers.get("__debezium.context.connectorLogicalName"));
+    assertEquals("0", headers.get("__debezium.context.taskId"));
   }
 }
