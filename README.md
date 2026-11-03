@@ -317,6 +317,16 @@ The connector provides two single message transformations (SMTs) that are primar
 
 > **Note:** This transform works with both output formats. For legacy format (the default), it unwraps Cell structs. For advanced format (where values are already direct), it is effectively a pass-through for the value extraction part.
 
+Delete and tombstone handling is configured with these options:
+
+| Property | Default | Values | Description |
+|----------|---------|--------|-------------|
+| `drop.tombstones` | `true` | `true`, `false` | Debezium 2.x option, kept for compatibility: drop tombstones. Ignored when `delete.tombstone.handling.mode` is set. |
+| `delete.handling.mode` | `drop` | `drop`, `rewrite`, `none` (any case) | Debezium 2.x option, kept for compatibility: how to handle delete records. `drop` removes them; `rewrite` emits the `before` state with a string field `__deleted` set to `"true"`, and adds `__deleted` set to `"false"` to other records; `none` emits a record with a null value. Ignored when `delete.tombstone.handling.mode` is set. |
+| `delete.tombstone.handling.mode` | unset | `drop`, `tombstone`, `rewrite`, `rewrite-with-tombstone`, `delete-to-tombstone` | Debezium 3.x option. When set, Debezium's handling applies and the two options above are ignored: `drop` removes the delete and its tombstone; `tombstone` drops the tombstone and emits the delete with a null value but its value schema, which with schema-enabled JSON is not a Kafka tombstone; `rewrite` adds `__deleted` (`"true"` on deletes, `"false"` otherwise) and drops the tombstone; `rewrite-with-tombstone` does the same and keeps the tombstone; `delete-to-tombstone` turns the delete into a tombstone (null value and value schema) and drops the original one. |
+
+> **Upgrading to 2.1.0:** Debezium 3.2 removed `drop.tombstones` and `delete.handling.mode`; `ScyllaExtractNewRecordState` keeps them with the 2.x defaults, so existing configurations produce the same records. In the advanced format, a `DELETE` without a preimage has neither `before` nor `after`, which Debezium handles as a truncate and drops in every mode; to see such deletes downstream, keep the tombstone the connector emits with `tombstones.on.delete=true` (the default): set `drop.tombstones=false` with `delete.tombstone.handling.mode` unset, or use `delete.tombstone.handling.mode=rewrite-with-tombstone`. Legacy-format deletes always carry the primary key in `before`, so they follow the delete handling above.
+
 Such transformation makes message structure simpler (and easier to use with e.g. Elasticsearch), but when used with legacy format, it makes it impossible to differentiate between NULL value and non-modification.
 If the message is as following:
 ```json
