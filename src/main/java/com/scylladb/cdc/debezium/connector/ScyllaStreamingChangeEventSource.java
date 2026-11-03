@@ -10,7 +10,6 @@ import com.scylladb.cdc.model.GenerationId;
 import com.scylladb.cdc.model.RetryBackoff;
 import com.scylladb.cdc.model.StreamId;
 import com.scylladb.cdc.model.TaskId;
-import com.scylladb.cdc.model.worker.TaskAndRawChangeConsumer;
 import com.scylladb.cdc.model.worker.Worker;
 import com.scylladb.cdc.model.worker.WorkerConfiguration;
 import com.scylladb.cdc.transport.CoordinationGroup;
@@ -81,12 +80,15 @@ public class ScyllaStreamingChangeEventSource
 
       Driver3WorkerCQL cql = new Driver3WorkerCQL(session);
       RetryBackoff workerRetryBackoff = configuration.createCDCWorkerRetryBackoff();
+      // Create the appropriate consumer based on output format configuration
+      WindowAwareChangeConsumer changeConsumer = createChangeConsumer(offsetContext, scyllaVersion);
       ScyllaWorkerTransport workerTransport =
           new ScyllaWorkerTransport(
-              context, offsetContext, dispatcher, configuration.getHeartbeatIntervalMs());
-
-      // Create the appropriate consumer based on output format configuration
-      TaskAndRawChangeConsumer changeConsumer = createChangeConsumer(offsetContext, scyllaVersion);
+              context,
+              offsetContext,
+              dispatcher,
+              configuration.getHeartbeatIntervalMs(),
+              changeConsumer);
 
       WorkerConfiguration workerConfiguration =
           WorkerConfiguration.builder()
@@ -116,7 +118,7 @@ public class ScyllaStreamingChangeEventSource
    * @param scyllaVersion the detected Scylla version, may be null
    * @return the appropriate consumer implementation
    */
-  private TaskAndRawChangeConsumer createChangeConsumer(
+  private WindowAwareChangeConsumer createChangeConsumer(
       ScyllaOffsetContext offsetContext, ScyllaVersion scyllaVersion) {
     if (configuration.getCdcOutputFormat() == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
       return new ScyllaChangesConsumerLegacy(

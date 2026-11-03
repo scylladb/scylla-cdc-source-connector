@@ -455,8 +455,10 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
-              "Timeout in milliseconds for incomplete CDC tasks waiting for preimage/postimage events. "
-                  + "Tasks that remain incomplete longer than this duration will be dropped and logged as errors. "
+              "In the advanced format, a warning is logged when a row of a CDC batch arrives this "
+                  + "many milliseconds after the batch's first buffered row (an image the connector "
+                  + "does not use is not buffered). The batch keeps waiting for its last row: a slow "
+                  + "read does not split it. "
                   + "Default is 15000 (15 seconds).")
           .withValidation(Field::isPositiveLong)
           .withDefault(15000L);
