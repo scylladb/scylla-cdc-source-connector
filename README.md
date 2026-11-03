@@ -2,7 +2,7 @@
 
 ## Overview
 
-Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster. It is a Debezium connector, compatible with Kafka Connect (with Kafka 2.6.0+) and built on top of scylla-cdc-java library.
+Scylla CDC Source Connector is a source connector capturing row-level changes in the tables of a Scylla cluster. It is a Debezium connector, compatible with Kafka Connect running on Java 17+ and built on top of scylla-cdc-java library.
 
 The connector reads the CDC log for specified tables and produces Kafka messages for each row-level `INSERT`, `UPDATE` or `DELETE` operation. The connector is able to split reading the CDC log accross multiple processes: the connector can start a separate Kafka Connect task for reading each [Vnode of Scylla cluster](https://docs.scylladb.com/architecture/ringarchitecture/) allowing for high throughput. You can limit the number of started tasks by using `tasks.max` property.
 
@@ -24,7 +24,7 @@ The connector has the following capabilities:
 - Full support for collection types (`LIST`, `SET`, `MAP`) and User Defined Types (`UDT`) - see [Collection and UDT Type Support](#collection-and-udt-type-support)
 
 The connector has the following limitations:
-- Only Kafka 2.6.0+ is supported
+- From 2.1.0, the Kafka Connect worker must run on Java 17 or newer (see [Compatibility](#compatibility))
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
     - Row range deletes - those changes are ignored
     - Partition deletes - see [Partition Delete Support](#partition-delete-support) section below
@@ -38,10 +38,24 @@ CI runs the integration tests on Confluent Platform, Apache Kafka and Debezium K
 images; [`pr-verify.yml`](.github/workflows/pr-verify.yml) lists the versions, as aliases resolved
 at run time.
 
+From 2.1.0 the connector is built on Debezium 3.7.0.Final and needs a Kafka Connect worker running
+on Java 17 or newer. It is tested on Confluent Platform 7.7+ and Apache Kafka 4.0+. The stock
+`cp-kafka-connect` images up to 7.6 ship Java 11; use 2.0.x with them. 2.1.0 is also the first
+release that runs on Kafka Connect 4.4+ / Confluent Platform 8.4+, where 2.0.x tasks fail at start
+with `NoClassDefFoundError: org/apache/kafka/common/utils/Sanitizer`. When upgrading to 2.1.0,
+replace the old plugin JARs instead of adding the new ones next to them: Debezium 2.7 and 3.x JARs
+must not share the connector's plugin directory.
+
 Below is a summary of the Debezium and Kafka (Connect API) dependency versions used by the last few tagged connector releases.
 
 | Connector version | Debezium version    | Connect API |
 |-------------------|---------------------|-------------|
+| v2.1.0 (next)     | 3.7.0.Final         | 8.1.1-ccs   |
+| v2.0.8            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.7            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.6            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.5            | 2.7.4.Final         | 8.1.1-ccs   |
+| v2.0.4            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.3            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.2            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.1            | 2.7.4.Final         | 8.1.1-ccs   |
@@ -95,7 +109,7 @@ Copy the JAR file with connector into your Kafka Connect deployment and append t
 
 #### Debezium Docker image
 
-When building a Debezium-based Kafka Connect image, use a Debezium image version that matches the connector release line in the compatibility table. For the 2.0.x connector releases, use the Debezium 2.7.4.Final images from Quay:
+When building a Debezium-based Kafka Connect image, use a Debezium image version that matches the connector release line in the compatibility table. For the 2.0.x connector releases, use the Debezium 2.7.4.Final images from Quay, as below. For 2.1.x, use the 3.7.0.Final images. The `zip -d` step edits `debezium-core`, which 3.7 no longer ships: the CloudEvents converter moved to `debezium-connect-plugins`, which the connector also bundles. This setup has not been verified on a 3.7 image yet.
 
 ```dockerfile
 FROM quay.io/debezium/connect-base:2.7.4.Final

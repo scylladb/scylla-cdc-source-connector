@@ -57,8 +57,9 @@ To learn more about Scylla CDC, visit [Change Data Capture (CDC) page](https://d
 ## Kafka setup
 
 Scylla CDC Source Connector works well with both [open-source Kafka](https://kafka.apache.org/) 
-and [Confluent Platform](https://www.confluent.io/). Kafka version 2.6.0 or greater is
-required. In this quickstart we will show how to install the Confluent Platform and deploy 
+and [Confluent Platform](https://www.confluent.io/). From 2.1.0 the Kafka Connect worker must
+run on Java 17 or newer; see [Compatibility](README.md#compatibility). In this quickstart we
+will show how to install the Confluent Platform and deploy 
 the connector (applicable to both open-source Kafka and Confluent Platform).
 
 ### Installing Confluent Platform
