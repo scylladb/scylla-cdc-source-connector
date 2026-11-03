@@ -2,9 +2,14 @@ package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.scylladb.cdc.cql.CQLConfiguration;
 import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.NonFrozenCollectionEmptyRepresentation;
 import io.debezium.config.Configuration;
+import io.netty.handler.ssl.SslProvider;
+import java.util.Map;
+import org.apache.kafka.common.config.ConfigValue;
 import org.junit.jupiter.api.Test;
 
 public class ScyllaConnectorConfigTest {
@@ -71,6 +76,23 @@ public class ScyllaConnectorConfigTest {
         Configuration.from(
             ScyllaConnectorConfig.taskConfig(createMinimalConfigBuilder().build(), "worker", null));
     assertNull(new ScyllaConnectorConfig(taskConfig).getDetectedScyllaVersion());
+  }
+
+  @Test
+  void paddedEnumValuesValidateAndParse() {
+    Configuration configuration =
+        createMinimalConfigBuilder()
+            .with("scylla.ssl.provider", " openssl ")
+            .with("scylla.consistency.level", " LOCAL_ONE ")
+            .build();
+
+    Map<String, ConfigValue> results = configuration.validate(ScyllaConnectorConfig.EXPOSED_FIELDS);
+    assertTrue(results.get("scylla.ssl.provider").errorMessages().isEmpty());
+    assertTrue(results.get("scylla.consistency.level").errorMessages().isEmpty());
+
+    ScyllaConnectorConfig config = new ScyllaConnectorConfig(configuration);
+    assertEquals(SslProvider.OPENSSL, config.getSslProvider());
+    assertEquals(CQLConfiguration.ConsistencyLevel.LOCAL_ONE, config.getConsistencyLevel());
   }
 
   private NonFrozenCollectionEmptyRepresentation parse(String value) {
