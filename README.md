@@ -25,6 +25,7 @@ The connector has the following capabilities:
 
 The connector has the following limitations:
 - Only Kafka 2.6.0+ is supported
+- Kafka Connect 4.4+ and Confluent Platform 8.4+ are not supported yet: the connector cannot start a task on them until the Debezium 3.7 migration ([#382](https://github.com/scylladb/scylla-cdc-source-connector/pull/382)) lands
 - Only row-level operations are produced (`INSERT`, `UPDATE`, `DELETE`):
     - Row range deletes - those changes are ignored
     - Partition deletes - see [Partition Delete Support](#partition-delete-support) section below
@@ -35,7 +36,8 @@ The connector has the following limitations:
 [![Integration testing](https://github.com/scylladb/scylla-cdc-source-connector/actions/workflows/pr-verify.yml/badge.svg?branch=master)](https://github.com/scylladb/scylla-cdc-source-connector/actions/workflows/pr-verify.yml?query=branch%3Amaster)
 
 CI runs the integration tests on Confluent Platform, Apache Kafka and Debezium Kafka Connect
-images; [`pr-verify.yml`](.github/workflows/pr-verify.yml) lists the exact versions.
+images; [`pr-verify.yml`](.github/workflows/pr-verify.yml) lists the versions, as aliases resolved
+at run time.
 
 Below is a summary of the Debezium and Kafka (Connect API) dependency versions used by the last few tagged connector releases.
 

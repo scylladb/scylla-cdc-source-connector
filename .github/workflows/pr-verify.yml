@@ -24,41 +24,53 @@ jobs:
       contents: read
       checks: write
 
-    # The versions tested before this workflow was split up. Moving to the version aliases
-    # resolve-kafka-version / resolve-scylla-version support is tracked in DRIVER-1176.
+    # Versions are aliases resolved at run time (see the Makefile), so the matrix follows new
+    # releases without edits. ScyllaDB rotates through LATEST, LTS-LATEST and LTS-PRIOR.
+    # Connect images must run Java 17 or later (the connector's baseline): confluent 7.6 and
+    # older ship Java 11, so 7-LATEST must stay on 7.7 or later.
+    # Kafka is capped at apache 4.3 / confluent 8.3 / debezium 3.7 (Kafka 4.3) for now: newer
+    # Connect cannot start a task until the Debezium 3.7 migration (#382) lands. Switch back to
+    # LATEST / PREVIOUS then.
     strategy:
       fail-fast: false
       matrix:
         include:
           - kafka_provider: confluent
-            kafka_version: "8.0.0"
+            kafka_version: "8.3"
             kafka_connect_mode: distributed
-            scylla_version: "6.2"
+            scylla_version: LATEST
           - kafka_provider: confluent
-            kafka_version: "7.9.2"
+            kafka_version: "8.2"
             kafka_connect_mode: distributed
-            scylla_version: "6.2"
+            scylla_version: LTS-LATEST
           - kafka_provider: confluent
-            kafka_version: "7.8.3"
+            kafka_version: 7-LATEST
             kafka_connect_mode: distributed
-            scylla_version: "6.2"
+            scylla_version: LTS-PRIOR
           - kafka_provider: confluent
-            kafka_version: "7.7.4"
-            kafka_connect_mode: distributed
-            scylla_version: "6.2"
-          # confluent 7.6.6 removed: its stock image ships Java 11, and 2.1.0 needs a Java 17 worker
-          - kafka_provider: debezium
-            kafka_version: "3.4.1"
-            kafka_connect_mode: distributed
-            scylla_version: "6.2"
-          - kafka_provider: apache
-            kafka_version: "4.0.0"
-            kafka_connect_mode: distributed
-            scylla_version: "6.2"
-          - kafka_provider: apache
-            kafka_version: "4.0.0"
+            kafka_version: "8.3"
             kafka_connect_mode: standalone
-            scylla_version: "6.2"
+            scylla_version: LATEST
+          - kafka_provider: apache
+            kafka_version: "4.3"
+            kafka_connect_mode: distributed
+            scylla_version: LATEST
+          - kafka_provider: apache
+            kafka_version: "4.2"
+            kafka_connect_mode: distributed
+            scylla_version: LTS-LATEST
+          - kafka_provider: apache
+            kafka_version: 3-LATEST
+            kafka_connect_mode: distributed
+            scylla_version: LTS-PRIOR
+          - kafka_provider: apache
+            kafka_version: "4.3"
+            kafka_connect_mode: standalone
+            scylla_version: LATEST
+          - kafka_provider: debezium
+            kafka_version: "3.7"
+            kafka_connect_mode: distributed
+            scylla_version: LATEST
 
     uses: ./.github/workflows/lib-integration-test.yml
     with:
