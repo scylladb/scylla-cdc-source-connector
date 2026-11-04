@@ -34,8 +34,8 @@ The connector has the following limitations:
 
 [![Integration testing](https://github.com/scylladb/scylla-cdc-source-connector/actions/workflows/pr-verify.yml/badge.svg?branch=master)](https://github.com/scylladb/scylla-cdc-source-connector/actions/workflows/pr-verify.yml?query=branch%3Amaster)
 
-The connector is tested against the latest Apache Kafka 3.x, 4.x and currently last 6 minor Confluent Platform releases.
-It should remain compatible with those versions.
+CI runs the integration tests on Confluent Platform, Apache Kafka and Debezium Kafka Connect
+images; [`pr-verify.yml`](.github/workflows/pr-verify.yml) lists the exact versions.
 
 Below is a summary of the Debezium and Kafka (Connect API) dependency versions used by the last few tagged connector releases.
 
@@ -60,8 +60,8 @@ tablet-enabled table. Such a connector generates task configurations containing 
 manifests, which older connector versions cannot parse: a task still running an older plugin fails
 to start with a `NumberFormatException`. Stop the connector, upgrade all workers, then resume it.
 
-Versions before 2.0.9 could commit an offset in the middle of a CDC batch
-([#340](https://github.com/scylladb/scylla-cdc-source-connector/issues/340)); 2.0.9 and later
+Versions before 2.1.0 could commit an offset in the middle of a CDC batch
+([#340](https://github.com/scylladb/scylla-cdc-source-connector/issues/340)); 2.1.0 and later
 advance it only at the end of a batch. When upgrading from an earlier version, each Vnode whose
 last committed offset is mid-batch still skips the rest of that batch on the first start, once and
 without an error. The offset format is unchanged, so existing offsets stay valid.
