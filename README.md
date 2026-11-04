@@ -40,11 +40,12 @@ at run time.
 
 From 2.1.0 the connector is built on Debezium 3.7.0.Final and needs a Kafka Connect worker running
 on Java 17 or newer. It is tested on Confluent Platform 7.7+ and Apache Kafka 4.0+. The stock
-`cp-kafka-connect` images up to 7.6 ship Java 11; use 2.0.x with them. 2.1.0 is also the first
-release that runs on Kafka Connect 4.4+ / Confluent Platform 8.4+, where 2.0.x tasks fail at start
-with `NoClassDefFoundError: org/apache/kafka/common/utils/Sanitizer`. When upgrading to 2.1.0,
-replace the old plugin JARs instead of adding the new ones next to them: Debezium 2.7 and 3.x JARs
-must not share the connector's plugin directory.
+`cp-kafka-connect` images 6.0 to 7.6 ship Java 11; use 2.0.x with them. The 5.x images ship
+Java 8, which neither 2.0.x nor 2.1.0 supports. 2.1.0 is also the first release that runs on Kafka
+Connect 4.4+ / Confluent Platform 8.4+, where 2.0.x tasks fail at start with
+`NoClassDefFoundError: org/apache/kafka/common/utils/Sanitizer`. When upgrading to 2.1.0, replace
+the old plugin JARs instead of adding the new ones next to them: Debezium 2.7 and 3.x JARs must not
+share the connector's plugin directory.
 
 Below is a summary of the Debezium and Kafka (Connect API) dependency versions used by the last few tagged connector releases.
 
