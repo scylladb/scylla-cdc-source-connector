@@ -11,7 +11,6 @@ import java.util.Properties;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
@@ -37,7 +36,7 @@ import org.junit.jupiter.api.TestInfo;
  *
  * <ul>
  *   <li>INSERT with a near-future expiration followed by background deletion produces INSERT +
- *       DELETE CDC records (disabled pending #366)
+ *       DELETE CDC records
  *   <li>INSERT with null expiration (no TTL) does not expire
  *   <li>Explicit DELETE of a row with per-row TTL produces normal DELETE CDC records
  * </ul>
@@ -120,9 +119,6 @@ public class CdcPerRowTtlDeleteIT extends ScyllaTypesIT<String, String> {
    * a generous timeout to account for the background scan interval.
    */
   @Test
-  @Disabled(
-      "Expiry is logged as cdc$operation -4, which scylla-cdc-java cannot parse:"
-          + " https://github.com/scylladb/scylla-cdc-source-connector/issues/366")
   void testPerRowTtlDelete() throws InterruptedException {
     int pk = reservePk();
 
