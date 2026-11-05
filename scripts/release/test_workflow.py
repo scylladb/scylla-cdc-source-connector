@@ -1,7 +1,11 @@
 """Check the release workflow's credential boundaries without release credentials."""
 
+import os
 from pathlib import Path
 import re
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +27,75 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(release.index("Check release credential safety"),
                         release.index("RELEASE_GPG_PRIVATE_KEY:"))
         self.assertLess(release.index("check-tokens"), release.index("Prepare release"))
+
+    def test_only_credentialed_work_is_serialized(self):
+        validate, release = self.workflow.split("\n  release:\n", 1)
+        self.assertNotRegex(validate, r"(?m)^\s*concurrency:")
+        self.assertIn("    concurrency:\n      group: connector-release\n"
+                      "      cancel-in-progress: false\n", release)
+
+    def run_shell_step(self, name, env, cwd=None):
+        step = next(step for step in self.steps if step.splitlines()[0] == name)
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        return subprocess.run(["bash", "-c", script], cwd=cwd,
+                              env={**os.environ, **env}, capture_output=True, text=True)
+
+    def test_invalid_inputs_fail_before_build_and_approval(self):
+        names = [step.splitlines()[0] for step in self.steps]
+        self.assertLess(names.index("Validate release inputs"),
+                        names.index("Set up validation Java"))
+        defaults = {"GITHUB_REF": "refs/heads/master", "RELEASE_TARGET_TAG": "master",
+                    "RELEASE_VERSION": ""}
+        cases = [({}, True), ({"RELEASE_TARGET_TAG": "v1.2.3"}, True),
+                 ({"RELEASE_VERSION": "3.0.1"}, True),
+                 ({"GITHUB_REF": "refs/heads/other"}, False),
+                 ({"RELEASE_TARGET_TAG": "other"}, False),
+                 ({"RELEASE_TARGET_TAG": "v1.2.3~1"}, False),
+                 ({"RELEASE_VERSION": "v3.0.1"}, False),
+                 ({"RELEASE_VERSION": "3.0.1-SNAPSHOT"}, False),
+                 ({"RELEASE_VERSION": "3.0.1\n"}, False)]
+        for overrides, valid in cases:
+            with self.subTest(overrides=overrides):
+                result = self.run_shell_step("Validate release inputs", {**defaults, **overrides})
+                self.assertEqual(result.returncode == 0, valid, result.stdout + result.stderr)
+
+    def test_master_advance_fails_before_approval(self):
+        with tempfile.TemporaryDirectory() as temp:
+            origin = Path(temp) / "origin.git"
+            checkout = Path(temp) / "checkout"
+
+            def git(*args, cwd=temp):
+                return subprocess.run(["git", *map(str, args)], cwd=cwd, check=True,
+                                      capture_output=True, text=True).stdout.strip()
+
+            git("init", "--bare", "--initial-branch=master", origin)
+            git("clone", origin, checkout)
+            git("config", "user.name", "Release tests", cwd=checkout)
+            git("config", "user.email", "release-tests@example.com", cwd=checkout)
+            git("commit", "--allow-empty", "--no-gpg-sign", "-m", "Initial target", cwd=checkout)
+            git("push", "origin", "master", cwd=checkout)
+            env = {"RELEASE_TARGET_COMMIT": git("rev-parse", "HEAD", cwd=checkout)}
+            result = self.run_shell_step("Recheck master before approval", env, cwd=checkout)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            git("commit", "--allow-empty", "--no-gpg-sign", "-m", "Advance master", cwd=checkout)
+            git("push", "origin", "master", cwd=checkout)
+            result = self.run_shell_step("Recheck master before approval", env, cwd=checkout)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("master advanced during validation", result.stdout)
+
+    def test_readiness_is_rechecked_after_build_before_approval(self):
+        validate, release = self.workflow.split("\n  release:\n", 1)
+        build = validate.index("Validate target without release credentials")
+        self.assertLess(build, validate.index("Recheck master before approval"))
+        self.assertLess(build, validate.index("Recheck for open release blockers before approval"))
+        self.assertIn("if: inputs.target-tag == 'master'", validate)
+        blockers = next(step for step in self.steps
+                        if step.startswith("Recheck for open release blockers before approval\n"))
+        self.assertIn("if: inputs.dry-run == false", blockers)
+        # Approval and the publishing queue can outlast validation; retain fresh checks.
+        self.assertIn("master advanced after validation", release)
+        self.assertIn("Check for open release blockers", release)
+        self.assertIn("Recheck master before publication", release)
 
     def test_release_output_uploads_only_sanitized_maven_streams(self):
         uploads = [step for step in self.steps

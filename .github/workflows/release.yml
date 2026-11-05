@@ -23,14 +23,9 @@ on:
         type: string
         description: 'release-version: override next version'
 
-# Only one release may prepare/publish at a time; never cancel a publishing job.
-concurrency:
-  group: connector-release
-  cancel-in-progress: false
-
 jobs:
   validate:
-    name: Validate release
+    name: Pre-release checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,6 +39,25 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Validate release inputs
+        env:
+          RELEASE_TARGET_TAG: ${{ inputs.target-tag }}
+          RELEASE_VERSION: ${{ inputs.release-version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != refs/heads/master ]]; then
+            echo "::error::Releases must be dispatched from master."
+            exit 1
+          fi
+          if [[ "$RELEASE_TARGET_TAG" != master && ! "$RELEASE_TARGET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unsupported target tag; expected master or vX.Y.Z"
+            exit 1
+          fi
+          if [[ -n "$RELEASE_VERSION" && ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release version must be X.Y.Z"
+            exit 1
+          fi
 
       - name: Check for open release blockers
         if: inputs.dry-run == false
@@ -75,10 +89,6 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$RELEASE_TARGET_TAG" != master ]]; then
-            if [[ ! "$RELEASE_TARGET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Unsupported target tag; expected master or vX.Y.Z"
-              exit 1
-            fi
             git checkout --detach "refs/tags/$RELEASE_TARGET_TAG~1" --
           fi
           git rev-parse HEAD | sed 's/^/sha=/' >> "$GITHUB_OUTPUT"
@@ -92,6 +102,36 @@ jobs:
             export MAVEN_OPTS="${MAVEN_OPTS:-} -DskipTests=true -DskipITs=true"
           fi
           python3 "$RELEASE_GUARD" run mvn -B --no-transfer-progress -Prelease -Dgpg.skip=true verify
+
+      - name: Recheck master before approval
+        if: inputs.target-tag == 'master'
+        env:
+          RELEASE_TARGET_COMMIT: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin master
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$RELEASE_TARGET_COMMIT" ]]; then
+            echo "::error::master advanced during validation; start a new release workflow."
+            exit 1
+          fi
+
+      - name: Recheck for open release blockers before approval
+        if: inputs.dry-run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash "$RUNNER_TEMP/release-safety/check-blockers.sh"
+
+      - name: Summarize pre-release checks
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Pre-release checks passed
+
+          Release inputs, tooling, target policy, and the unsigned release build passed.
+          Project tests ran unless skip-tests was selected.
+
+          The Release job now requires approval for the protected release environment.
+          Signing and publishing credentials are only used after approval.
+          EOF
 
       - name: Upload sanitized validation-stdout
         if: always()
@@ -116,6 +156,11 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     environment: release
+    # Let pre-release checks run independently; serialize only credentialed work.
+    # Never cancel an in-progress signing or publishing job.
+    concurrency:
+      group: connector-release
+      cancel-in-progress: false
     permissions:
       contents: write
       issues: write

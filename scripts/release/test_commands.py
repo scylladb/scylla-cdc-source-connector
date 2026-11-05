@@ -209,7 +209,7 @@ class ReleaseCommandTests(unittest.TestCase):
     def test_blocker_checks_use_launch_tools_and_fail_closed(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         commands = [script for script in workflow_commands(workflow) if "check-blockers.sh" in script]
-        self.assertEqual(len(commands), 3)
+        self.assertEqual(len(commands), 4)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             preserved = root / "release-safety"
@@ -351,7 +351,8 @@ class ReleaseCommandTests(unittest.TestCase):
         command = next(script for script in workflow_commands(workflow)
                        if "Unsupported target tag" in script)
         result = subprocess.run(["bash", "-eo", "pipefail", "-c", command], cwd=ROOT,
-                                env={**os.environ, "RELEASE_TARGET_TAG": "unsupported"},
+                                env={**os.environ, "GITHUB_REF": "refs/heads/master",
+                                     "RELEASE_TARGET_TAG": "unsupported", "RELEASE_VERSION": ""},
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 1)
         self.assertIn("::error::Unsupported target tag", result.stdout)
@@ -403,14 +404,17 @@ class ReleaseCommandTests(unittest.TestCase):
 
     def test_invalid_target_rejected_before_source_selection(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        resolve = next(script for script in workflow_commands(workflow)
-                       if "sed 's/^/sha=/'" in script)
+        commands = list(workflow_commands(workflow))
+        validate = next(script for script in commands if "Unsupported target tag" in script)
+        resolve = next(script for script in commands if "sed 's/^/sha=/'" in script)
+        self.assertLess(commands.index(validate), commands.index(resolve))
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
             for tag in ("feature", "v1.0", "--help", "v1.0.0; echo unsafe"):
                 result = subprocess.run(
-                    ["bash", "-eo", "pipefail", "-c", resolve], cwd=ROOT,
-                    env={**os.environ, "RELEASE_TARGET_TAG": tag, "GITHUB_OUTPUT": str(output)},
+                    ["bash", "-eo", "pipefail", "-c", validate + "\n" + resolve], cwd=ROOT,
+                    env={**os.environ, "GITHUB_REF": "refs/heads/master", "RELEASE_VERSION": "",
+                         "RELEASE_TARGET_TAG": tag, "GITHUB_OUTPUT": str(output)},
                     capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Unsupported target tag", result.stdout)

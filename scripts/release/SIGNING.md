@@ -9,10 +9,14 @@ The public certificate in `publisher.asc` is safe to commit and is registered on
 * Expiration: `2028-10-19T15:46:37+00:00`
 
 The workflow first runs a `validate` job on its own runner without production
-signing or package-publishing credentials. It checks the release tooling and
-target policy, then builds the release profile with signing disabled. Project
-tests run here unless `skip-tests` is selected; release helper tests always run.
-Validation records the exact target commit as a job output.
+signing or package-publishing credentials. Shown as `Pre-release checks`, it checks
+the dispatch branch, target-tag and optional release-version syntax before setting
+up Java or Maven. It checks the release tooling and target policy, then builds the
+release profile with signing disabled. Project tests run here unless `skip-tests`
+is selected; release helper tests always run.
+Validation records the exact target commit as a job output and rechecks `master`
+and release blockers after the build, before approval is requested. The summary
+explains that the remaining approval grants access to release credentials.
 
 The `release` job depends on successful validation and uses a fresh runner. Only
 this job uses the GitHub deployment environment `release`, so approval is requested
@@ -23,10 +27,13 @@ signature verification, and publication happen after approval; project tests are
 not repeated with production credentials. Historical tags are resolved only by
 validation, so moving a tag during the approval wait cannot change the source.
 
-Workflow-level concurrency serializes the entire run, including validation, dry
-runs and approval waits. A run waiting for approval holds the group. With the
-default single pending slot, another dispatch waits before validation; a later
-dispatch replaces that pending run. Cancel obsolete approval waits deliberately.
+Job-level concurrency serializes only `release`, including signed dry runs, with
+`cancel-in-progress: false`. Validation can run while another release is waiting
+for approval or publishing. The protected job still rechecks the validated commit
+and release blockers after approval, since either can change while it waits.
+With the default single pending slot, a newer queued release job can replace a
+pending one; an active publishing job is never canceled by this concurrency rule.
+Cancel obsolete approval waits deliberately.
 See [GitHub's concurrency rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
 
 Before running it, a repository owner must create that environment if missing,
