@@ -135,17 +135,11 @@ class ScyllaExtractNewRecordStateTest {
   }
 
   private static ScyllaExtractNewRecordState<SourceRecord> smt(String... keyValues) {
-    if (keyValues.length % 2 != 0) {
-      throw new IllegalArgumentException("Expected key/value pairs");
-    }
-    Map<String, String> configs = new HashMap<>();
-    configs.put("cdc.output.format", "advanced");
-    for (int i = 0; i < keyValues.length; i += 2) {
-      configs.put(keyValues[i], keyValues[i + 1]);
-    }
-    ScyllaExtractNewRecordState<SourceRecord> smt = new ScyllaExtractNewRecordState<>();
-    smt.configure(configs);
-    return smt;
+    String[] withFormat = new String[keyValues.length + 2];
+    withFormat[0] = "cdc.output.format";
+    withFormat[1] = "advanced";
+    System.arraycopy(keyValues, 0, withFormat, 2, keyValues.length);
+    return legacyFormatSmt(withFormat);
   }
 
   @Test
