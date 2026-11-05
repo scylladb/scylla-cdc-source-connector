@@ -88,25 +88,55 @@ async function adapter(f, hash, overrides = {}, load = () => guard) {
 test('canonical policy matches mixed support files and keeps runtime or unknown paths visible', async () => {
   const files = ['.github/workflows/pr-verify.yml', '.github/.hidden', 'README.md',
     'README-QUICKSTART.md', 'QUICKSTART-ELASTICSEARCH-INTEGRATION.md', 'cp-quickstart/README.md',
+    'docs/guide.md', 'scripts/release/SIGNING.md', 'Makefile',
+    '.github/workflows/release.yml', '.github/workflows/release-dry-run.yml',
+    '.github/actions/release-validate/action.yml', '.github/actions/release-prepare/action.yml',
+    'scripts/release/guard.py', 'scripts/release/assets.py',
     'src/test/java/ConnectorTest.java', 'src/test/resources/logback.xml',
     'images/scylla-cdc-source-connector-control-center1.png', '.gitignore', 'renovate.json',
     'scripts/release/test_guard.py', 'scripts/release/test_workflow.py',
     'scripts/release/test_github_release.py'].map(name => file(name));
   assert.equal((await guard.snapshot(fixture({files}).github, repo, 20)).omit, true);
-  for (const name of ['.github/workflows/release.yml', '.github/workflows/release-dry-run.yml',
-    '.github/actions/release-validate/action.yml', '.github/actions/release-prepare/action.yml',
-    'pom.xml', 'Makefile', 'LICENSE',
-    'src/main/java/Runtime.java', 'src/main/resources/config.properties', 'scripts/release/guard.py',
+  for (const name of ['pom.xml', 'LICENSE',
+    'src/main/java/Runtime.java', 'src/main/resources/config.properties',
     'images/connector.png', 'images/scylla.png', 'images/new.png', 'examples/run.sh',
-    'cp-quickstart/run.sh', 'unknown.txt', 'docs/code.java', 'docs/guide.md']) {
+    'cp-quickstart/run.sh', 'unknown.txt', 'docs/code.java', 'scripts/runtime.py']) {
     const current = await guard.snapshot(fixture({files: [...files, file(name)]}).github, repo, 20);
     assert.equal(current.omit, false, name);
   }
 });
 
+test('Makefile-only, CI and release-tooling PRs are omitted from release notes', async () => {
+  // Regressions for the support-only changes included in v2.1.0 (#329, #338,
+  // #398 and #399), plus future documentation outside the named READMEs.
+  for (const names of [
+    ['Makefile'],
+    ['.github/workflows/release.yml'],
+    ['.github/workflows/integration-test-manually.yml', '.github/workflows/lib-integration-test.yml',
+      '.github/workflows/pr-verify.yml', '.gitignore', 'Makefile'],
+    ['.github/workflows/release.yml', 'scripts/release/SIGNING.md',
+      'scripts/release/test_commands.py', 'scripts/release/test_workflow.py'],
+    ['.github/workflows/release.yml', '.github/workflows/release-dry-run.yml',
+      '.github/actions/release-prepare/action.yml', '.github/actions/release-validate/action.yml',
+      'scripts/release/workflow_helpers.py', 'scripts/release/assets.py'],
+    ['docs/upgrading.md', 'CONTRIBUTING.md', 'src/test/java/ConnectorTest.java']
+  ]) {
+    const current = await guard.snapshot(fixture({files: names.map(name => file(name))}).github, repo, 20);
+    assert.equal(current.omit, true, names.join(', '));
+  }
+});
+
+test('documentation with Maven metadata or dependencies remains visible', async () => {
+  const files = ['README.md', 'README-QUICKSTART.md', 'cp-quickstart/README.md',
+    'pom.xml', 'src/test/java/ConnectorTest.java'].map(name => file(name));
+  assert.equal((await guard.snapshot(fixture({files}).github, repo, 20)).omit, false);
+});
+
 test('renames use the actual canonical policy for both prior and current paths', async () => {
   for (const [previous, omit] of [['README.md', true], ['src/main/java/Runtime.java', false],
-    ['.github/workflows/release.yml', false], ['images/connector.png', false],
+    ['.github/workflows/release.yml', true], ['Makefile', true],
+    ['scripts/release/assets.py', true], ['docs/guide.md', true], ['pom.xml', false],
+    ['images/connector.png', false],
     ['images/scylla.png', false], ['unknown', false]]) {
     const current = await guard.snapshot(fixture({files: [file('README-QUICKSTART.md', {
       status: 'renamed', previous_filename: previous})]}).github, repo, 20);
