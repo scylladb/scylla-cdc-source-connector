@@ -104,7 +104,7 @@ public class ScyllaChangesConsumer implements WindowAwareChangeConsumer {
    * @param schema the schema
    * @param clock the clock
    * @param connectorConfig the connector configuration
-   * @param scyllaVersion the detected Scylla version, may be null; not used yet, #366 will need it
+   * @param scyllaVersion the detected Scylla version, may be null; not used
    * @param incompleteTaskTimeoutMs how long after a batch's first buffered row a further row logs a
    *     warning
    */
@@ -154,7 +154,9 @@ public class ScyllaChangesConsumer implements WindowAwareChangeConsumer {
   private static boolean isDelete(RawChange change) {
     RawChange.OperationType operationType = change.getOperationType();
     return operationType == RawChange.OperationType.ROW_DELETE
-        || operationType == RawChange.OperationType.PARTITION_DELETE;
+        || operationType == RawChange.OperationType.PARTITION_DELETE
+        || operationType == RawChange.OperationType.SERVICE_ROW_DELETE
+        || operationType == RawChange.OperationType.SERVICE_PARTITION_DELETE;
   }
 
   /**
@@ -269,12 +271,16 @@ public class ScyllaChangesConsumer implements WindowAwareChangeConsumer {
             buffered = false;
           }
           break;
+        // Service deletes (SERVICE_ROW_DELETE, SERVICE_PARTITION_DELETE) are made by ScyllaDB
+        // itself: per-row TTL expiry (2026.2+) and Alternator TTL. They are deletes like any other.
         case ROW_DELETE:
+        case SERVICE_ROW_DELETE:
         case ROW_INSERT:
         case ROW_UPDATE:
           recordForDelta(task, change, rowKey).setChange(change);
           break;
         case PARTITION_DELETE:
+        case SERVICE_PARTITION_DELETE:
           if (isSinglePartitionDelete(change.getSchema())) {
             recordForDelta(task, change, rowKey).setChange(change);
           } else {
@@ -346,8 +352,8 @@ public class ScyllaChangesConsumer implements WindowAwareChangeConsumer {
     List<TaskInfo> ready = new ArrayList<>();
     for (TaskInfo taskInfo : batch.records) {
       if (taskInfo.getChange() == null) {
-        // Images whose delta the connector does not emit, e.g. the preimage of a per-row TTL
-        // service delete (#366).
+        // Images whose delta the connector does not emit, e.g. the preimage of a partition delete
+        // on a table with a clustering key.
         logger.debug("Skipping CDC images without a supported change in {}", batch.changeId);
         continue;
       }

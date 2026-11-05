@@ -122,6 +122,8 @@ class ScyllaChangesConsumerBatchOffsetTest {
               if (emitter instanceof ScyllaChangeRecordEmitter) {
                 operations.add(((ScyllaChangeRecordEmitter) emitter).getOperation());
                 records.add(((ScyllaChangeRecordEmitter) emitter).getTaskInfo());
+              } else if (emitter instanceof ScyllaChangeRecordEmitterLegacy) {
+                operations.add(((ScyllaChangeRecordEmitterLegacy) emitter).getOperation());
               }
               snapshots.add(
                   new Snapshot(
@@ -1067,5 +1069,70 @@ class ScyllaChangesConsumerBatchOffsetTest {
     assertEquals(
         rows.get(1).getId().getChangeTime().getUUID().toString(),
         snapshots.get(1).offset.get(SourceInfo.CHANGE_ID_TIME));
+  }
+
+  /**
+   * Per-row TTL expiry (ScyllaDB 2026.2+, #366) as the server logs it: a batch of its own, the
+   * preimage then the service delete.
+   */
+  private static List<RawChange> serviceDeleteBatch(OperationType op, ChangeSchema schema) {
+    Integer ck = op == OperationType.SERVICE_ROW_DELETE ? 0 : null;
+    return List.of(
+        row(OperationType.PRE_IMAGE, 11_000, null, 0, ck, schema),
+        row(op, 11_000, true, 1, ck, schema));
+  }
+
+  private void assertServiceDeleteIsDispatchedAsDelete(
+      Function<ScyllaConnectorConfig, TaskAndRawChangeConsumer> consumerFactory)
+      throws InterruptedException {
+    runScenario(
+        config(CdcIncludeMode.NONE, CdcIncludeMode.NONE),
+        Optional.of(changeId(10_500)),
+        consumerFactory,
+        serviceDeleteBatch(OperationType.SERVICE_ROW_DELETE, schema()));
+    assertEquals(List.of(Envelope.Operation.DELETE), operations);
+    clearDispatched();
+    runScenario(
+        config(CdcIncludeMode.NONE, CdcIncludeMode.NONE),
+        Optional.of(changeId(10_500)),
+        consumerFactory,
+        serviceDeleteBatch(OperationType.SERVICE_PARTITION_DELETE, pkOnlySchema()));
+    assertEquals(List.of(Envelope.Operation.DELETE), operations);
+  }
+
+  @Test
+  void serviceDelete_isDispatchedAsDelete() throws InterruptedException {
+    assertServiceDeleteIsDispatchedAsDelete(this::advanced);
+  }
+
+  @Test
+  void legacy_serviceDelete_isDispatchedAsDelete() throws InterruptedException {
+    assertServiceDeleteIsDispatchedAsDelete(this::legacy);
+  }
+
+  /**
+   * Like a client partition delete, a service one is dropped when the table has a clustering key.
+   */
+  private void assertServicePartitionDeleteWithClusteringKeyIsIgnored(
+      Function<ScyllaConnectorConfig, TaskAndRawChangeConsumer> consumerFactory)
+      throws InterruptedException {
+    ScyllaConnectorConfig config = config(CdcIncludeMode.NONE, CdcIncludeMode.NONE);
+    Optional<ChangeId> lastConsumed = Optional.of(changeId(10_500));
+    setUp(config, lastConsumed);
+    feed(
+        consumerFactory.apply(config),
+        lastConsumed,
+        serviceDeleteBatch(OperationType.SERVICE_PARTITION_DELETE, schema()));
+    assertTrue(snapshots.isEmpty(), "dispatched " + operations);
+  }
+
+  @Test
+  void servicePartitionDelete_withClusteringKey_isIgnored() throws InterruptedException {
+    assertServicePartitionDeleteWithClusteringKeyIsIgnored(this::advanced);
+  }
+
+  @Test
+  void legacy_servicePartitionDelete_withClusteringKey_isIgnored() throws InterruptedException {
+    assertServicePartitionDeleteWithClusteringKeyIsIgnored(this::legacy);
   }
 }

@@ -80,7 +80,10 @@ public class ScyllaChangesConsumerLegacy implements WindowAwareChangeConsumer {
 
       RawChange.OperationType operationType = change.getOperationType();
       ChangeSchema changeSchema = change.getSchema();
-      if (operationType == RawChange.OperationType.PARTITION_DELETE) {
+      // Service deletes (SERVICE_ROW_DELETE, SERVICE_PARTITION_DELETE) are made by ScyllaDB
+      // itself: per-row TTL expiry (2026.2+) and Alternator TTL. They are deletes like any other.
+      if (operationType == RawChange.OperationType.PARTITION_DELETE
+          || operationType == RawChange.OperationType.SERVICE_PARTITION_DELETE) {
         // The connector currently does not support partition deletes.
         //
         // However, there is a single exception to this:
@@ -99,7 +102,8 @@ public class ScyllaChangesConsumerLegacy implements WindowAwareChangeConsumer {
         }
       } else if (operationType != RawChange.OperationType.ROW_INSERT
           && operationType != RawChange.OperationType.ROW_UPDATE
-          && operationType != RawChange.OperationType.ROW_DELETE) {
+          && operationType != RawChange.OperationType.ROW_DELETE
+          && operationType != RawChange.OperationType.SERVICE_ROW_DELETE) {
         return CompletableFuture.completedFuture(null);
       }
 

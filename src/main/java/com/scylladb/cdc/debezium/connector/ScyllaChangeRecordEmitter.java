@@ -176,6 +176,8 @@ public class ScyllaChangeRecordEmitter
       case PARTITION_DELETE: // See comment in ScyllaChangesConsumer on the support of partition
       // deletes.
       case ROW_DELETE:
+      case SERVICE_PARTITION_DELETE: // Deletes by ScyllaDB itself, e.g. per-row TTL expiry.
+      case SERVICE_ROW_DELETE:
         return Envelope.Operation.DELETE;
       default:
         String errorMsg = String.format("Unsupported operation type: %s.", operationType);

@@ -90,6 +90,8 @@ public class ScyllaChangeRecordEmitterLegacy
       case PARTITION_DELETE: // See comment in ScyllaChangesConsumerLegacy on the support of
       // partition deletes.
       case ROW_DELETE:
+      case SERVICE_PARTITION_DELETE: // Deletes by ScyllaDB itself, e.g. per-row TTL expiry.
+      case SERVICE_ROW_DELETE:
         return Envelope.Operation.DELETE;
       default:
         throw new IllegalStateException(
