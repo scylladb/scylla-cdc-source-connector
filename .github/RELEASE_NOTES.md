@@ -8,9 +8,11 @@ in a draft before publishing it. Creation requires the remote tag. An existing
 draft or published release fails visibly without replacing assets or notes;
 inspect and recover it manually.
 Signing, credential checks, release blockers, and Confluent notifications remain
-part of the existing release process. GitHub release publication remains limited
-to the non-dry `master` path. Do not rerun the entire Release workflow to retry an
-upload: it prepares a new Maven version.
+part of the existing release process. The separate Release dry run workflow stages
+an unpublished Central deployment and always runs project tests during validation.
+GitHub release publication remains limited to the Release workflow's `master`
+path. Do not rerun the entire Release workflow to retry an upload: it prepares a
+new Maven version.
 
 `.github/release.yml` excludes PRs labeled `omit-from-release-notes`. The label is
 for GitHub release presentation. Local Jira label-event callers ignore its manual
@@ -23,8 +25,8 @@ CI and development housekeeping, the listed release tests, and the ten guide
 screenshots qualify, including mixtures of these paths. Documentation contents
 still qualify when packaged with the connector. Runtime sources/resources,
 `pom.xml`, `Makefile`, `scripts/release/guard.py`, executable examples/quickstarts,
-`.github/workflows/release.yml`, packaged logos `images/connector.png` and
-`images/scylla.png`, and unknown paths remain visible. Author, title, `chore`, and
+both release workflows and their shared validation/preparation actions, packaged
+logos `images/connector.png` and `images/scylla.png`, and unknown paths remain visible. Author, title, `chore`, and
 `dependencies` labels never determine exclusion.
 
 Classification runs on open, synchronize, reopen, edit, and close. Runs for one PR

@@ -1,0 +1,96 @@
+name: Validate release
+description: Validate inputs, tooling and the unsigned target before credential approval
+inputs:
+  target-tag:
+    description: Source target (master or a compatible vX.Y.Z tag)
+    required: true
+  release-version:
+    description: Optional release version override (X.Y.Z)
+    required: false
+    default: ''
+  skip-tests:
+    description: Skip project tests during validation (release helper tests always run)
+    required: false
+    default: 'false'
+outputs:
+  target-sha:
+    description: Exact commit that passed validation
+    value: ${{ steps.target.outputs.sha }}
+runs:
+  using: composite
+  steps:
+    - name: Validate release inputs
+      env:
+        RELEASE_TARGET_TAG: ${{ inputs.target-tag }}
+        RELEASE_VERSION: ${{ inputs.release-version }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "$GITHUB_REF" != refs/heads/master ]]; then
+          echo "::error::Releases must be dispatched from master."
+          exit 1
+        fi
+        if [[ "$RELEASE_TARGET_TAG" != master && ! "$RELEASE_TARGET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::Unsupported target tag; expected master or vX.Y.Z"
+          exit 1
+        fi
+        if [[ -n "$RELEASE_VERSION" && ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::Release version must be X.Y.Z"
+          exit 1
+        fi
+
+    - name: Set up validation Java
+      uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      with:
+        java-version: '17'
+        distribution: temurin
+
+    - name: Set up Maven 3.9.16
+      shell: bash
+      run: bash scripts/release/setup-maven.sh
+
+    - name: Validate release tooling
+      shell: bash
+      run: |
+        python3 scripts/release/guard.py check
+        python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+
+    - name: Preserve validation guard
+      shell: bash
+      run: bash scripts/release/preserve-tools.sh
+
+    - name: Resolve validation target
+      id: target
+      env:
+        RELEASE_TARGET_TAG: ${{ inputs.target-tag }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "$RELEASE_TARGET_TAG" != master ]]; then
+          git checkout --detach "refs/tags/$RELEASE_TARGET_TAG~1" --
+        fi
+        git rev-parse HEAD | sed 's/^/sha=/' >> "$GITHUB_OUTPUT"
+
+    - name: Validate target without release credentials
+      env:
+        RELEASE_SKIP_TESTS: ${{ inputs.skip-tests }}
+      shell: bash
+      run: |
+        python3 "$RELEASE_GUARD" check
+        if [[ "$RELEASE_SKIP_TESTS" == true ]]; then
+          export MAVEN_OPTS="${MAVEN_OPTS:-} -DskipTests=true -DskipITs=true"
+        fi
+        python3 "$RELEASE_GUARD" run mvn -B --no-transfer-progress -Prelease -Dgpg.skip=true verify
+
+    - name: Recheck master before approval
+      if: inputs.target-tag == 'master'
+      env:
+        RELEASE_TARGET_COMMIT: ${{ steps.target.outputs.sha }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        git fetch --no-tags origin master
+        if [[ "$(git rev-parse FETCH_HEAD)" != "$RELEASE_TARGET_COMMIT" ]]; then
+          echo "::error::master advanced during validation; start a new release workflow."
+          exit 1
+        fi

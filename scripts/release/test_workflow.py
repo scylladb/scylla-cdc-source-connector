@@ -8,12 +8,14 @@ import tempfile
 import textwrap
 import unittest
 
+from workflow_helpers import workflow_source
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
-        self.workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        self.workflow = workflow_source()
         self.steps = re.split(r'^      - name: ', self.workflow, flags=re.M)[1:]
 
     def test_separate_jobs_and_scoped_secrets(self):
@@ -91,7 +93,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: inputs.target-tag == 'master'", validate)
         blockers = next(step for step in self.steps
                         if step.startswith("Recheck for open release blockers before approval\n"))
-        self.assertIn("if: inputs.dry-run == false", blockers)
+        self.assertNotIn("if:", blockers)
         # Approval and the publishing queue can outlast validation; retain fresh checks.
         self.assertIn("master advanced after validation", release)
         self.assertIn("Check for open release blockers", release)
@@ -115,10 +117,14 @@ class WorkflowTests(unittest.TestCase):
             self.assertRegex(action, r"@[0-9a-f]{40}$")
 
     def test_dry_run_excludes_publication_and_notifications(self):
+        dry_run = workflow_source("release-dry-run")
         for name in ("Push changes to SCM", "Create GitHub Release", "Notify Confluent Hub",
                      "Open fallback issue if Confluent was not notified"):
-            step = next(step for step in self.steps if step.startswith(name))
-            self.assertIn("inputs.dry-run == false", step)
+            self.assertNotIn(name, dry_run)
+        self.assertNotIn("release blockers", dry_run)
+        self.assertNotIn(": write", dry_run)
+        self.assertNotIn("inputs.dry-run", self.workflow + dry_run)
+        self.assertNotIn("Perform release dry-run", self.workflow)
         self.assertIn("-Drelease.autopublish=false", (ROOT / "Makefile").read_text())
         self.assertNotIn("git describe", (ROOT / "Makefile").read_text())
 
@@ -132,7 +138,7 @@ class WorkflowTests(unittest.TestCase):
         index = names.index("Recheck master before publication")
         self.assertEqual(names[index - 1], "Recheck for open release blockers")
         self.assertEqual(names[index + 1], "Perform release")
-        self.assertIn("if: inputs.dry-run == false && inputs.target-tag == 'master'",
+        self.assertIn("if: inputs.target-tag == 'master'",
                       self.steps[index])
 
     def test_policy_check_has_read_only_permissions_and_pinned_actions(self):
