@@ -8,29 +8,43 @@ The public certificate in `publisher.asc` is safe to commit and is registered on
 * Identity: `ScyllaDB Publisher (scylladb/scylla-cdc-source-connector) <publish.code@scylladb.com>`
 * Expiration: `2028-10-19T15:46:37+00:00`
 
-The workflow first runs a `validate` job on its own runner without production
+Choose **Release** (`release.yml`) to publish or **Release dry run**
+(`release-dry-run.yml`) to stage an unpublished Central deployment. Both accept
+`target-tag` and an optional `release-version`. Only Release offers `skip-tests`;
+dry runs always run project tests during validation. The dry-run workflow has
+read-only repository permissions and contains no release-blocker checks, SCM push,
+GitHub Release creation, or Confluent notification steps.
+
+Both workflows use the same local composite actions for validation and signed
+preparation, and the same Make recipes and signing helpers for release operations.
+Each workflow first runs a `validate` job on its own runner without production
 signing or package-publishing credentials. Shown as `Pre-release checks`, it checks
 the dispatch branch, target-tag and optional release-version syntax before setting
 up Java or Maven. It checks the release tooling and target policy, then builds the
 release profile with signing disabled. Project tests run here unless `skip-tests`
-is selected; release helper tests always run.
+is selected for a real release; release helper tests always run.
 Validation records the exact target commit as a job output and rechecks `master`
-and release blockers after the build, before approval is requested. The summary
-explains that the remaining approval grants access to release credentials.
+after the build, before approval is requested. Release also checks release
+blockers before validation, after the build, after approval, and before
+publication. The summary explains that the remaining approval grants access to
+release credentials.
 
-The `release` job depends on successful validation and uses a fresh runner. Only
-this job uses the GitHub deployment environment `release`, so approval is requested
-after validation finishes. It checks out the validated commit, rejects `master` if
+Each workflow's `release` job depends on successful validation and uses a fresh
+runner. Only this job uses the GitHub deployment environment `release`, so approval
+is requested after validation finishes. It checks out the validated commit, rejects `master` if
 it has advanced, and independently checks target policy before importing keys.
 It does not restore the validation workspace or Maven cache. Signed preparation,
-signature verification, and publication happen after approval; project tests are
-not repeated with production credentials. Historical tags are resolved only by
-validation, so moving a tag during the approval wait cannot change the source.
+signature verification, and publication or dry-run staging happen after approval;
+project tests are not repeated with production credentials. Historical tags are
+resolved only by validation, so moving a tag during the approval wait cannot change
+the source.
 
-Job-level concurrency serializes only `release`, including signed dry runs, with
+Job-level concurrency uses the same `connector-release` group for both workflows
+and serializes only `release`, including signed dry runs, with
 `cancel-in-progress: false`. Validation can run while another release is waiting
 for approval or publishing. The protected job still rechecks the validated commit
-and release blockers after approval, since either can change while it waits.
+after approval; Release also rechecks blockers, since either can change while it
+waits.
 With the default single pending slot, a newer queued release job can replace a
 pending one; an active publishing job is never canceled by this concurrency rule.
 Cancel obsolete approval waits deliberately.

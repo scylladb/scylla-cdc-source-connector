@@ -1,0 +1,97 @@
+name: Prepare signed release
+description: Select the validated commit and prepare and verify signed release history
+inputs:
+  target-tag:
+    description: Source target (master or a compatible vX.Y.Z tag)
+    required: true
+  release-version:
+    description: Optional release version override (X.Y.Z)
+    required: false
+    default: ''
+  target-sha:
+    description: Exact commit that passed validation
+    required: true
+  signing-private-key:
+    description: Protected signing subkey
+    required: true
+  signing-passphrase:
+    description: Signing subkey passphrase
+    required: true
+  sonatype-token-username:
+    description: Central publishing token username
+    required: true
+  sonatype-token-password:
+    description: Central publishing token password
+    required: true
+runs:
+  using: composite
+  steps:
+    # Load this action from the launch checkout before selecting historical source.
+    # Steps after checkout use preserved launch tools, never target-local actions.
+    - name: Preserve release guard
+      shell: bash
+      run: bash scripts/release/preserve-tools.sh
+
+    - name: Checkout release target
+      env:
+        RELEASE_TARGET_TAG: ${{ inputs.target-tag }}
+        RELEASE_TARGET_COMMIT: ${{ inputs.target-sha }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "$RELEASE_TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+        git fetch --no-tags origin "$RELEASE_TARGET_COMMIT"
+        if [[ "$RELEASE_TARGET_TAG" == master ]]; then
+          git fetch --no-tags origin master
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$RELEASE_TARGET_COMMIT" ]]; then
+            echo "::error::master advanced after validation; start a new release workflow."
+            exit 1
+          fi
+          git checkout -B master "$RELEASE_TARGET_COMMIT" --
+        else
+          git checkout --detach "$RELEASE_TARGET_COMMIT" --
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TARGET_TAG"; then
+            git tag -d -- "$RELEASE_TARGET_TAG"
+          fi
+        fi
+
+    - name: Check release credential safety before importing credentials
+      shell: bash
+      run: python3 "$RUNNER_TEMP/release-safety/guard.py" check
+
+    - name: Reject missing or placeholder Sonatype tokens
+      env:
+        SONATYPE_TOKEN_USERNAME: ${{ inputs.sonatype-token-username }}
+        SONATYPE_TOKEN_PASSWORD: ${{ inputs.sonatype-token-password }}
+      shell: bash
+      run: python3 "$RUNNER_TEMP/release-safety/assets.py" check-tokens
+
+    - name: Set up Java
+      uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      with:
+        java-version: '17'
+        distribution: temurin
+        server-id: central
+        server-username: SONATYPE_TOKEN_USERNAME
+        server-password: SONATYPE_TOKEN_PASSWORD
+
+    - name: Set up Maven 3.9.16
+      shell: bash
+      run: bash "$RUNNER_TEMP/release-safety/setup-maven.sh"
+
+    - name: Prepare release
+      env:
+        RELEASE_GPG_PRIVATE_KEY: ${{ inputs.signing-private-key }}
+        MAVEN_GPG_PASSPHRASE: ${{ inputs.signing-passphrase }}
+        RELEASE_SKIP_TESTS: 'true'
+        RELEASE_VERSION: ${{ inputs.release-version }}
+      shell: bash
+      run: |
+        baseline=$(git rev-parse HEAD)
+        export RELEASE_BASE_COMMIT="$baseline"
+        echo "RELEASE_BASE_COMMIT=$baseline" >> "$GITHUB_ENV"
+        make -f "$RUNNER_TEMP/release-safety/Makefile" RELEASE_GUARD="$RUNNER_TEMP/release-safety/guard.py" release-prepare
+
+    - name: Verify prepared release commits and tag with public key only
+      shell: bash
+      run: python3 "$RUNNER_TEMP/release-safety/signing.py" verify-prepared

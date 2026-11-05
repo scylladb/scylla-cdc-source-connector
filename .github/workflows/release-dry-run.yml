@@ -1,0 +1,132 @@
+name: Release dry run
+
+on:
+  workflow_dispatch:
+    inputs:
+      target-tag:
+        type: string
+        description: 'target-tag: re-release a compatible semver tag; unsafe historical targets are rejected'
+        default: master
+
+      release-version:
+        required: false
+        type: string
+        description: 'release-version: override next version'
+
+jobs:
+  validate:
+    name: Pre-release checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      target-sha: ${{ steps.target.outputs.target-sha }}
+    steps:
+      - name: Checkout validation source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release target
+        id: target
+        uses: ./.github/actions/release-validate
+        with:
+          target-tag: ${{ inputs.target-tag }}
+          release-version: ${{ inputs.release-version }}
+
+      - name: Summarize pre-release checks
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Pre-release checks passed
+
+          Release inputs, tooling, target policy, and the unsigned release build passed.
+          Project tests and release helper tests passed.
+
+          The Release dry run job now requires approval for the protected release environment.
+          Signing and Central staging credentials are only used after approval.
+          The dry run stages an unpublished deployment in Central; it does not push SCM changes.
+          EOF
+
+      - name: Upload sanitized validation-stdout
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: validation-maven-stdout
+          path: ${{ runner.temp }}/release-logs/stdout.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload sanitized validation-stderr
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: validation-maven-stderr
+          path: ${{ runner.temp }}/release-logs/stderr.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Release dry run
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: release
+    # Let pre-release checks run independently; serialize only credentialed work.
+    # Never cancel an in-progress signing or publishing job.
+    concurrency:
+      group: connector-release
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare signed release
+        uses: ./.github/actions/release-prepare
+        with:
+          target-tag: ${{ inputs.target-tag }}
+          target-sha: ${{ needs.validate.outputs.target-sha }}
+          release-version: ${{ inputs.release-version }}
+          signing-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          signing-passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          sonatype-token-username: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
+          sonatype-token-password: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
+
+      - name: Perform release dry-run
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          SONATYPE_TOKEN_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
+          SONATYPE_TOKEN_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
+          RELEASE_SKIP_TESTS: 'true'
+        run: make -f "$RUNNER_TEMP/release-safety/Makefile" RELEASE_GUARD="$RUNNER_TEMP/release-safety/guard.py" release-dry-run
+
+      - name: Sign and verify staged assets
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: python3 "$RUNNER_TEMP/release-safety/assets.py" sign
+
+      - name: Upload sanitized stdout
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: maven-stdout
+          path: ${{ runner.temp }}/release-logs/stdout.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload sanitized stderr
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: maven-stderr
+          path: ${{ runner.temp }}/release-logs/stderr.log
+          if-no-files-found: ignore
+          retention-days: 7

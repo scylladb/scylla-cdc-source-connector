@@ -27,7 +27,7 @@ class GitHubReleaseTests(unittest.TestCase):
         create = next(step for step in steps if step.startswith('Create GitHub Release\n'))
         self.assertIn(publication, create)
         self.assertRegex(create,
-                         r"(?m)^        if: inputs\.dry-run == false && inputs\.target-tag == 'master'$")
+                         r"(?m)^        if: inputs\.target-tag == 'master'$")
 
 
 if __name__ == '__main__':

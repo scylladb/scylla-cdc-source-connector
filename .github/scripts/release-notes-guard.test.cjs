@@ -93,7 +93,9 @@ test('canonical policy matches mixed support files and keeps runtime or unknown 
     'scripts/release/test_guard.py', 'scripts/release/test_workflow.py',
     'scripts/release/test_github_release.py'].map(name => file(name));
   assert.equal((await guard.snapshot(fixture({files}).github, repo, 20)).omit, true);
-  for (const name of ['.github/workflows/release.yml', 'pom.xml', 'Makefile', 'LICENSE',
+  for (const name of ['.github/workflows/release.yml', '.github/workflows/release-dry-run.yml',
+    '.github/actions/release-validate/action.yml', '.github/actions/release-prepare/action.yml',
+    'pom.xml', 'Makefile', 'LICENSE',
     'src/main/java/Runtime.java', 'src/main/resources/config.properties', 'scripts/release/guard.py',
     'images/connector.png', 'images/scylla.png', 'images/new.png', 'examples/run.sh',
     'cp-quickstart/run.sh', 'unknown.txt', 'docs/code.java', 'docs/guide.md']) {
