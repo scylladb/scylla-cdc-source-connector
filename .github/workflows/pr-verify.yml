@@ -28,19 +28,16 @@ jobs:
     # releases without edits. ScyllaDB rotates through LATEST, LTS-LATEST and LTS-PRIOR.
     # Connect images must run Java 17 or later (the connector's baseline): confluent 7.6 and
     # older ship Java 11, so 7-LATEST must stay on 7.7 or later.
-    # Kafka is capped at apache 4.3 / confluent 8.3 / debezium 3.7 (Kafka 4.3) for now: newer
-    # Connect cannot start a task until the Debezium 3.7 migration (#382) lands. Switch back to
-    # LATEST / PREVIOUS then.
     strategy:
       fail-fast: false
       matrix:
         include:
           - kafka_provider: confluent
-            kafka_version: "8.3"
+            kafka_version: LATEST
             kafka_connect_mode: distributed
             scylla_version: LATEST
           - kafka_provider: confluent
-            kafka_version: "8.2"
+            kafka_version: PREVIOUS
             kafka_connect_mode: distributed
             scylla_version: LTS-LATEST
           - kafka_provider: confluent
@@ -48,15 +45,15 @@ jobs:
             kafka_connect_mode: distributed
             scylla_version: LTS-PRIOR
           - kafka_provider: confluent
-            kafka_version: "8.3"
+            kafka_version: LATEST
             kafka_connect_mode: standalone
             scylla_version: LATEST
           - kafka_provider: apache
-            kafka_version: "4.3"
+            kafka_version: LATEST
             kafka_connect_mode: distributed
             scylla_version: LATEST
           - kafka_provider: apache
-            kafka_version: "4.2"
+            kafka_version: PREVIOUS
             kafka_connect_mode: distributed
             scylla_version: LTS-LATEST
           - kafka_provider: apache
@@ -64,7 +61,7 @@ jobs:
             kafka_connect_mode: distributed
             scylla_version: LTS-PRIOR
           - kafka_provider: apache
-            kafka_version: "4.3"
+            kafka_version: LATEST
             kafka_connect_mode: standalone
             scylla_version: LATEST
           - kafka_provider: debezium

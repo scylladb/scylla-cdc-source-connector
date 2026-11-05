@@ -64,15 +64,16 @@ public class TaskStateOffsetContext implements OffsetContext {
   }
 
   @Override
-  public boolean isSnapshotRunning() {
-    throw new UnsupportedOperationException();
+  public boolean isInitialSnapshotRunning() {
+    // The connector takes no snapshot
+    return false;
   }
 
   @Override
   public void markSnapshotRecord(SnapshotRecord snapshotRecord) {}
 
   @Override
-  public void preSnapshotStart() {}
+  public void preSnapshotStart(boolean onDemand) {}
 
   @Override
   public void preSnapshotCompletion() {}
