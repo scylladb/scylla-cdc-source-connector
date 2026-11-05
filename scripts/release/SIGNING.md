@@ -26,7 +26,11 @@ is selected for a real release; release helper tests always run.
 Validation records the exact target commit as a job output and rechecks `master`
 after the build, before approval is requested. Release also checks release
 blockers before validation, after the build, after approval, and before
-publication. The summary explains that the remaining approval grants access to
+publication. Any open issue or pull request labelled `release-blocker` blocks
+Release, including historical tag releases and runs with `skip-tests` selected.
+Each check reads every page of blockers and fails if the GitHub API cannot be
+queried. Close the item or remove its label once the blocker is resolved.
+The summary explains that the remaining approval grants access to
 release credentials.
 
 Each workflow's `release` job depends on successful validation and uses a fresh
