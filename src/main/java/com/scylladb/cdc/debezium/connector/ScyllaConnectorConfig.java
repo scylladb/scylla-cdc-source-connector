@@ -560,7 +560,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           ScyllaSourceInfoStructMaker.class.getName());
 
   // Debezium 3.x adds four __debezium.context.* headers to every data change record by default;
-  // off keeps the records of 2.0.x
+  // off adds no headers beyond those of 2.0.x
   public static final Field EXTENDED_HEADERS_ENABLED =
       CommonConnectorConfig.EXTENDED_HEADERS_ENABLED.withDefault(false);
 

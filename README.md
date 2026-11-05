@@ -242,8 +242,8 @@ Data change event's value consists of a schema and a payload section. The payloa
 From 2.1.0 the connector runs on Debezium 3.x, which can add four headers to every data change
 record: `__debezium.context.connectorLogicalName`, `__debezium.context.taskId`,
 `__debezium.context.connectorName` and `__debezium.context.runId`. The connector turns them off
-by default, so records keep the shape of 2.0.x. Set `extended.headers.enabled=true` (default
-`false`) to add them. `taskId` is always `"0"`, and `runId` changes on every task start.
+by default, so records carry no headers beyond those of 2.0.x. Set `extended.headers.enabled=true`
+(default `false`) to add them. `taskId` is always `"0"`, and `runId` changes on every task start.
 
 The `source` field's schema changes with Debezium 3.x, its values do not: the schema gets version
 `1`, and the `snapshot` enum lists `true`, `first`, `first_in_data_collection`,
