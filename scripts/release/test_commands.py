@@ -208,6 +208,7 @@ class ReleaseCommandTests(unittest.TestCase):
                             )
 
     def test_blocker_checks_use_launch_tools_and_fail_closed(self):
+        """All release gates use launch tooling and reject blockers or query errors."""
         workflow = workflow_source()
         commands = [script for script in workflow_commands(workflow) if "check-blockers.sh" in script]
         self.assertEqual(len(commands), 4)
@@ -223,15 +224,22 @@ class ReleaseCommandTests(unittest.TestCase):
             gh.write_text(
                 f"#!{sys.executable}\n"
                 "import os, sys\n"
+                "assert sys.argv[1:] == ['api', '--paginate', '--slurp', "
+                "'repos/fixture/connector/issues?state=open&labels=release-blocker&per_page=100']\n"
                 "print(os.environ['BLOCKER_RESULT'])\n"
                 "sys.exit(int(os.environ['BLOCKER_STATUS']))\n"
             )
             gh.chmod(0o700)
+            issue = {"html_url": "https://example.invalid/issues/1"}
+            pull_request = {"html_url": "https://example.invalid/pull/2", "pull_request": {}}
             for command in commands:
                 for output, status, expected in (
-                    ("", 0, 0),
-                    (json.dumps({"title": "Release blocked", "url": "https://example.invalid/blocker"}), 0, 1),
+                    ("[[]]", 0, 0),
+                    (json.dumps([[issue]]), 0, 1),
+                    (json.dumps([[pull_request]]), 0, 1),
+                    (json.dumps([[issue] * 100, [pull_request]]), 0, 1),
                     ("", 7, 7),
+                    ("invalid JSON", 0, {4, 5}),
                 ):
                     with self.subTest(command=command, status=status, output=output):
                         result = subprocess.run(
@@ -242,7 +250,17 @@ class ReleaseCommandTests(unittest.TestCase):
                                  "BLOCKER_RESULT": output, "BLOCKER_STATUS": str(status)},
                             capture_output=True, text=True, timeout=10,
                         )
-                        self.assertEqual(result.returncode, expected, result.stderr)
+                        allowed = expected if isinstance(expected, set) else {expected}
+                        self.assertIn(result.returncode, allowed, result.stderr)
+                        if expected == 1:
+                            self.assertIn("::error title=Release blocked::", result.stdout)
+                            for page in json.loads(output):
+                                for item in page:
+                                    self.assertIn(item["html_url"], result.stdout)
+                        elif expected == 0:
+                            self.assertIn("No open release blockers found.", result.stdout)
+                        else:
+                            self.assertNotIn("No open release blockers found.", result.stdout)
 
     def test_workflow_uses_preserved_recipes_in_target_checkout(self):
         workflow = workflow_source()
