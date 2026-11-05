@@ -20,14 +20,16 @@ addition/removal while preserving other Jira events. Existing Jira copies are no
 cleaned; other synchronization paths can restore previously copied metadata.
 
 `actions/labeler` uses `.github/labeler.yml` as the canonical filename policy.
-Every current and previous filename must qualify. Documentation, `src/test/`,
-CI and development housekeeping, the listed release tests, and the ten guide
-screenshots qualify, including mixtures of these paths. Documentation contents
+Every current and previous filename must qualify. Markdown documentation (`**/*.md`),
+`src/test/`, all CI configuration under `.github/`, all release tooling under
+`scripts/release/`, `Makefile`, development housekeeping, and the ten guide
+screenshots qualify, including mixtures of these paths. Release workflows and
+their shared actions qualify just like other CI changes. Documentation contents
 still qualify when packaged with the connector. Runtime sources/resources,
-`pom.xml`, `Makefile`, `scripts/release/guard.py`, executable examples/quickstarts,
-both release workflows and their shared validation/preparation actions, packaged
-logos `images/connector.png` and `images/scylla.png`, and unknown paths remain visible. Author, title, `chore`, and
-`dependencies` labels never determine exclusion.
+`pom.xml`, executable examples/quickstarts, packaged logos `images/connector.png`
+and `images/scylla.png`, and unknown paths remain visible. A documentation or CI
+PR that also changes one of these paths remains visible in its entirety. Author,
+title, `chore`, and `dependencies` labels never determine exclusion.
 
 Classification runs on open, synchronize, reopen, edit, and close. Runs for one PR
 are serialized, including manual runs. The workflow checks out repository-controlled
