@@ -112,15 +112,14 @@ Copy the JAR file with connector into your Kafka Connect deployment and append t
 
 #### Debezium Docker image
 
-When building a Debezium-based Kafka Connect image, use a Debezium image version that matches the connector release line in the compatibility table. For the 2.0.x connector releases, use the Debezium 2.7.4.Final images from Quay, as below. For 2.1.x, use the 3.7.0.Final images. The `zip -d` step edits `debezium-core`, which 3.7 no longer ships: the CloudEvents converter moved to `debezium-connect-plugins`, which the connector also bundles. This setup has not been verified on a 3.7 image yet.
+When building a Debezium-based Kafka Connect image, use a Debezium image version that matches the connector release line in the compatibility table. For the 2.1.x connector releases, use the Debezium 3.7.0.Final images from Quay, as below. For 2.0.x, use the 2.7.4.Final images with the [2.0.x Dockerfile](https://github.com/scylladb/scylla-cdc-source-connector/blob/v2.0.8/examples/docker/debezium-connect-base/Dockerfile), setting `SCYLLA_CDC_VERSION` to your release: on those images the bundled CloudEvents converter fails to load during plugin discovery, and that Dockerfile removes it.
 
 ```dockerfile
-FROM quay.io/debezium/connect-base:2.7.4.Final
+FROM quay.io/debezium/connect-base:3.7.0.Final
 
 USER root
 
-ARG SCYLLA_CDC_VERSION=2.0.8
-ARG DEBEZIUM_VERSION=2.7.4.Final
+ARG SCYLLA_CDC_VERSION=2.1.0
 ENV SCYLLA_CDC_VERSION=${SCYLLA_CDC_VERSION}
 
 RUN curl -fSL -o /tmp/scylla-cdc-source-connector.zip \
@@ -128,16 +127,13 @@ RUN curl -fSL -o /tmp/scylla-cdc-source-connector.zip \
     unzip -q /tmp/scylla-cdc-source-connector.zip -d "${KAFKA_CONNECT_PLUGINS_DIR}" && \
     mv "${KAFKA_CONNECT_PLUGINS_DIR}/scylladb-scylla-cdc-source-connector-${SCYLLA_CDC_VERSION}" \
         "${KAFKA_CONNECT_PLUGINS_DIR}/scylla-cdc-source-connector" && \
-    zip -q -d "${KAFKA_CONNECT_PLUGINS_DIR}/scylla-cdc-source-connector/lib/debezium-core-${DEBEZIUM_VERSION}.jar" \
-        META-INF/services/org.apache.kafka.connect.storage.Converter \
-        'io/debezium/converters/CloudEventsConverter*.class' && \
     rm -f /tmp/scylla-cdc-source-connector.zip "${KAFKA_HOME}/config/log4j.properties" && \
     chown -R kafka:kafka "${KAFKA_CONNECT_PLUGINS_DIR}/scylla-cdc-source-connector"
 
 USER kafka
 ```
 
-The same Dockerfile is available at `examples/docker/debezium-connect-base/Dockerfile`. It installs the release ZIP package rather than the fat JAR so Kafka Connect can use its own runtime classes, and removes the unused Debezium CloudEvents converter metadata that can otherwise be initialized during plugin discovery. The `rm -f` line avoids startup failures from Debezium base images that already contain `${KAFKA_HOME}/config/log4j.properties` and abort with `cp: not replacing '/kafka/config/log4j.properties'`.
+The same Dockerfile is available at `examples/docker/debezium-connect-base/Dockerfile`. It installs the release ZIP package rather than the fat JAR so Kafka Connect can use its own runtime classes. The `rm -f` line avoids startup failures from Debezium base images that already contain `${KAFKA_HOME}/config/log4j.properties` and abort with `cp: not replacing '/kafka/config/log4j.properties'`.
 
 ## Configuration
 
