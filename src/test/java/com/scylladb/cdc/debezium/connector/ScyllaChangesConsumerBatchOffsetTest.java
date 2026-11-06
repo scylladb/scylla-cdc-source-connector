@@ -31,10 +31,12 @@ import io.debezium.data.Envelope;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.txmetadata.TransactionContext;
 import io.debezium.util.Clock;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -45,6 +47,7 @@ import java.util.function.Function;
 import org.apache.kafka.connect.data.Struct;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.slf4j.Logger;
 
 /**
  * The offset carried by a dispatched record must never let a restart skip a CDC log row that has
@@ -268,6 +271,15 @@ class ScyllaChangesConsumerBatchOffsetTest {
     return offsets;
   }
 
+  /** The row each dispatched record went out at, in dispatch order. */
+  private List<Integer> dispatchRows() {
+    List<Integer> rowIndexes = new ArrayList<>();
+    for (Snapshot snapshot : snapshots) {
+      rowIndexes.add(snapshot.rowIndex);
+    }
+    return rowIndexes;
+  }
+
   /** Forgets what earlier dispatches recorded, for a test running several scenarios. */
   private void clearDispatched() {
     snapshots.clear();
@@ -352,6 +364,103 @@ class ScyllaChangesConsumerBatchOffsetTest {
     assertEquals(
         changeId(12_000).getChangeTime().getUUID().toString(),
         snapshots.get(1).offset.get(SourceInfo.CHANGE_ID_TIME));
+  }
+
+  /**
+   * Preimages consumed, postimages not, on a table logging both (#363): the ignored postimage row
+   * ends its batch and leaves no state, so the next write to the row gets its own preimage.
+   */
+  @Test
+  void ignoredPostImages_eachWriteKeepsItsOwnPreimage() throws Exception {
+    for (CdcIncludeMode before : List.of(CdcIncludeMode.FULL, CdcIncludeMode.ONLY_UPDATED)) {
+      ChangeSchema schema = schema();
+      List<RawChange> rows =
+          List.of(
+              row(OperationType.PRE_IMAGE, 12_000, null, 0, 0, schema),
+              row(OperationType.ROW_UPDATE, 12_000, null, 1, 0, schema),
+              row(OperationType.POST_IMAGE, 12_000, true, 2, 0, schema),
+              row(OperationType.PRE_IMAGE, 13_000, null, 0, 0, schema),
+              row(OperationType.ROW_UPDATE, 13_000, null, 1, 0, schema),
+              row(OperationType.POST_IMAGE, 13_000, true, 2, 0, schema));
+      feedWithoutPostImages(before, rows);
+
+      assertEquals(
+          List.of(Envelope.Operation.UPDATE, Envelope.Operation.UPDATE), operations, "" + before);
+      // Each write goes out at its own postimage row, with its own offset, change and preimage.
+      assertEquals(List.of(2, 5), dispatchRows(), "" + before);
+      assertEquals(List.of(uuid(12_000), uuid(13_000)), offsets(), "" + before);
+      assertSame(rows.get(1), records.get(0).getChange(), "" + before);
+      assertSame(rows.get(0), records.get(0).getPreImage(), "" + before);
+      assertSame(rows.get(4), records.get(1).getChange(), "" + before);
+      assertSame(rows.get(3), records.get(1).getPreImage(), "" + before);
+    }
+  }
+
+  /**
+   * The static-split shape (#341) with postimages ignored (#363): the static row's postimage
+   * arrives mid-batch while both records are open. It must not dispatch or warn; both records go
+   * out at the batch's last row, and the next write still gets its own preimage.
+   */
+  @Test
+  void ignoredPostImageMidBatch_staticSplitDispatchesAtEndOfBatch() throws Exception {
+    for (CdcIncludeMode before : List.of(CdcIncludeMode.FULL, CdcIncludeMode.ONLY_UPDATED)) {
+      ChangeSchema schema = schema();
+      List<RawChange> rows = new ArrayList<>();
+      for (long timeMs : new long[] {12_000, 13_000}) {
+        rows.add(row(OperationType.PRE_IMAGE, timeMs, null, 0, 0, schema));
+        rows.add(row(OperationType.ROW_UPDATE, timeMs, null, 1, null, schema));
+        rows.add(row(OperationType.ROW_UPDATE, timeMs, null, 2, 0, schema));
+        rows.add(row(OperationType.POST_IMAGE, timeMs, null, 3, null, schema));
+        rows.add(row(OperationType.POST_IMAGE, timeMs, true, 4, 0, schema));
+      }
+      feedWithoutPostImages(before, rows);
+
+      assertEquals(Collections.nCopies(4, Envelope.Operation.UPDATE), operations, "" + before);
+      // Both records of a write go out at its last row; only the last one carries the write's
+      // offset, so a restart before it re-reads the whole batch.
+      assertEquals(List.of(4, 4, 9, 9), dispatchRows(), "" + before);
+      assertEquals(
+          List.of(uuid(10_500), uuid(12_000), uuid(12_000), uuid(13_000)), offsets(), "" + before);
+      // The clustered row opened its record first, at its preimage; the static row has none.
+      assertEquals(Arrays.asList(0, null, 0, null), cks(), "" + before);
+      assertSame(rows.get(0), records.get(0).getPreImage(), "" + before);
+      assertNull(records.get(1).getPreImage(), "" + before);
+      assertSame(rows.get(5), records.get(2).getPreImage(), "" + before);
+      assertNull(records.get(3).getPreImage(), "" + before);
+    }
+  }
+
+  /**
+   * Feeds the rows to a consumer reading preimages but not postimages, then ends the window. A
+   * batch still pending would be dispatched, with a warning, at the window end; the ignored rows
+   * must not be warned about either.
+   */
+  private void feedWithoutPostImages(CdcIncludeMode before, List<RawChange> rows) throws Exception {
+    clearDispatched();
+    ScyllaConnectorConfig config = config(before, CdcIncludeMode.NONE);
+    Optional<ChangeId> lastConsumed = Optional.of(changeId(10_500));
+    setUp(config, lastConsumed);
+    ScyllaChangesConsumer consumer =
+        new ScyllaChangesConsumer(
+            dispatcher, offsetContext, null, Clock.SYSTEM, config, null, Long.MAX_VALUE);
+    // The test classpath has no SLF4J binding, so a mock is the only way to see the warnings.
+    Logger logger = Mockito.mock(Logger.class);
+    Field loggerField = ScyllaChangesConsumer.class.getDeclaredField("logger");
+    loggerField.setAccessible(true);
+    loggerField.set(consumer, logger);
+
+    feed(consumer, lastConsumed, rows);
+
+    assertNoRowSkippedOnRestart(rows);
+    assertTimestampsAreTheRowsOwn(rows);
+    int dispatched = operations.size();
+    consumer.windowEnded(TASK_ID);
+    assertEquals(dispatched, operations.size(), "" + before);
+    assertTrue(
+        Mockito.mockingDetails(logger).getInvocations().stream()
+            .map(invocation -> invocation.getMethod().getName())
+            .noneMatch(name -> name.equals("warn") || name.equals("error")),
+        "" + before);
   }
 
   @Test
