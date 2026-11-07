@@ -51,7 +51,7 @@ Below is a summary of the Debezium and Kafka (Connect API) dependency versions u
 
 | Connector version | Debezium version    | Connect API |
 |-------------------|---------------------|-------------|
-| v2.1.0 (next)     | 3.7.0.Final         | 8.1.1-ccs   |
+| v2.1.0            | 3.7.0.Final         | 8.1.1-ccs   |
 | v2.0.8            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.7            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.6            | 2.7.4.Final         | 8.1.1-ccs   |
@@ -61,6 +61,8 @@ Below is a summary of the Debezium and Kafka (Connect API) dependency versions u
 | v2.0.2            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.1            | 2.7.4.Final         | 8.1.1-ccs   |
 | v2.0.0            | 2.7.4.Final         | 8.1.1-ccs   |
+| v1.3.0            | 2.7.4.Final         | 8.1.1-ccs   |
+| v1.2.7            | 2.7.4.Final         | 8.1.1-ce    |
 | v1.2.6            | 2.6.2.Final         | 3.9.1       |
 | v1.2.5            | 2.6.2.Final         | 3.3.1       |
 | v1.2.4            | 2.6.2.Final         | 3.3.1       |
@@ -117,7 +119,7 @@ FROM quay.io/debezium/connect-base:2.7.4.Final
 
 USER root
 
-ARG SCYLLA_CDC_VERSION=2.0.3
+ARG SCYLLA_CDC_VERSION=2.0.8
 ARG DEBEZIUM_VERSION=2.7.4.Final
 ENV SCYLLA_CDC_VERSION=${SCYLLA_CDC_VERSION}
 
