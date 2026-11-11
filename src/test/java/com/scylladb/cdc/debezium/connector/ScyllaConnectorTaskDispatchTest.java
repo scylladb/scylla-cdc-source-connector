@@ -44,7 +44,7 @@ import org.mockito.Mockito;
 @Isolated
 class ScyllaConnectorTaskDispatchTest {
 
-  // Loading ScyllaConnectorTask points Flogger at log4j, which other tests in this JVM lack, so
+  // Loading ScyllaConnectorTask changes the global Flogger backend property, so
   // these tests run alone and put the property back
   private static final String FLOGGER_BACKEND = System.getProperty("flogger.backend_factory");
 

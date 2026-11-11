@@ -28,10 +28,10 @@ import org.slf4j.LoggerFactory;
 public class ScyllaConnector extends SourceConnector {
   static {
     // Route Flogger logs from scylla-cdc-java library
-    // to log4j.
+    // through the same SLF4J facade used by Kafka Connect.
     System.setProperty(
         "flogger.backend_factory",
-        "com.google.common.flogger.backend.log4j.Log4jBackendFactory#getInstance");
+        "com.google.common.flogger.backend.slf4j.Slf4jBackendFactory#getInstance");
   }
 
   private final Logger logger = LoggerFactory.getLogger(getClass());

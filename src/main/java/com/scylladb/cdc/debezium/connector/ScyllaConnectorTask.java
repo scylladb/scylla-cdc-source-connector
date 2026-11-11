@@ -34,10 +34,10 @@ import org.apache.kafka.connect.source.SourceRecord;
 public class ScyllaConnectorTask extends BaseSourceTask<ScyllaPartition, ScyllaOffsetContext> {
   static {
     // Route Flogger logs from scylla-cdc-java library
-    // to log4j.
+    // through the same SLF4J facade used by Kafka Connect.
     System.setProperty(
         "flogger.backend_factory",
-        "com.google.common.flogger.backend.log4j.Log4jBackendFactory#getInstance");
+        "com.google.common.flogger.backend.slf4j.Slf4jBackendFactory#getInstance");
   }
 
   private static final String CONTEXT_NAME = "scylla-connector-task";
