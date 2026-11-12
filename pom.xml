@@ -227,6 +227,7 @@
         <scylla.driver.version>3.11.5.20</scylla.driver.version>
         <scylla.cdc.java.version>1.3.18</scylla.cdc.java.version>
         <flogger.version>0.9</flogger.version>
+        <slf4j.version>1.7.36</slf4j.version>
         <!-- added for transitive dependencies -->
         <log4j.version>2.25.5</log4j.version>
         <jackson.version>2.22.4</jackson.version>
@@ -237,6 +238,16 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-jdk14</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
@@ -461,7 +472,6 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-jdk14</artifactId>
-            <version>1.7.36</version>
             <scope>test</scope>
         </dependency>
         <dependency>
