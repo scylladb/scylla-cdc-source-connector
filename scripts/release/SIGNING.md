@@ -17,12 +17,37 @@ GitHub Release creation, or Confluent notification steps.
 
 Both workflows use the same local composite actions for validation and signed
 preparation, and the same Make recipes and signing helpers for release operations.
-Each workflow first runs a `validate` job on its own runner without production
-signing or package-publishing credentials. Shown as `Pre-release checks`, it checks
-the dispatch branch, target-tag and optional release-version syntax before setting
-up Java or Maven. It checks the release tooling and target policy, then builds the
-release profile with signing disabled. Project tests run here unless `skip-tests`
-is selected for a real release; release helper tests always run.
+Each workflow first calls the shared `release-credential-safety.yml` workflow.
+Workflow lint and policy checks, Python output-capture tests, Python signing tests,
+the remaining Python helper tests, and JavaScript automation tests run in parallel
+on separate runners without production credentials. The signing tests use
+disposable keys and local fixture repositories. These checks always run for
+release and dry-run dispatches, even when `skip-tests` is selected.
+
+Tooling checks download actionlint through the Go module proxy and JavaScript
+dependencies through setup-node and the npm registry. Both release workflows
+require these services as well as Maven Central. A tooling failure blocks
+validation and approval; there is no bypass. Dispatch branch and input checks,
+and Release's first blocker check, wait for all tooling jobs to pass. Invalid
+dispatches therefore wait for tooling checks, and a tooling failure can prevent
+the more specific validation error from appearing.
+
+The same checks run on pull requests and pushes to `master` only when release
+scripts, release composite actions, the checked workflows, automation scripts or
+configuration, the Makefile, Maven launcher configuration, or `pom.xml` change.
+POM edits, including dependency and release-plugin updates, run the suite because
+the policy and signing tests read the real POM and use its plugin versions.
+Ordinary source and documentation outside `scripts/release` skip this workflow;
+release validation still checks the POM and builds the selected target before
+approval.
+
+After the tooling checks pass, each workflow runs a `validate` job on its own
+runner without production signing or package-publishing credentials.
+Shown as `Pre-release checks`, it checks the dispatch branch, target-tag and
+optional release-version syntax before setting up Java or Maven. It checks the
+release configuration and target policy, then builds the release profile with
+signing disabled. Project tests run here unless `skip-tests`
+is selected for a real release.
 Validation records the exact target commit as a job output and rechecks `master`
 after the build, before approval is requested. Release also checks release
 blockers before validation, after the build, after approval, and before

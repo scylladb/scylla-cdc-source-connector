@@ -1,10 +1,11 @@
 // Copyright (C) 2026 ScyllaDB
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {readFileSync} = require('node:fs');
+const {readFileSync, readdirSync} = require('node:fs');
 const {join} = require('node:path');
 const {spawnSync} = require('node:child_process');
 const yaml = require('js-yaml');
+const {minimatch} = require('minimatch');
 
 const root = join(__dirname, '../..');
 const load = path => yaml.load(readFileSync(join(root, path), 'utf8'));
@@ -14,7 +15,7 @@ const validation = load('.github/actions/release-validate/action.yml');
 const preparation = load('.github/actions/release-prepare/action.yml');
 const action = (job, name) => job.steps.find(step =>
   step.uses === `./.github/actions/${name}`);
-const expanded = job => job.steps.flatMap(step => step.uses?.startsWith('./')
+const expanded = job => (job.steps || []).flatMap(step => step.uses?.startsWith('./')
   ? load(`${step.uses}/action.yml`).runs.steps : [step]);
 
 test('release entry points expose only their applicable inputs and steps', () => {
@@ -90,7 +91,7 @@ test('both entry points share validation and preparation across the approval bou
   }
   for (const job of Object.values(workflows[1].jobs)) {
     assert.deepEqual(job.permissions, {contents: 'read'});
-    assert.equal(job.steps[0].with['persist-credentials'], false);
+    if (job.steps) assert.equal(job.steps[0].with['persist-credentials'], false);
   }
   assert.equal(validation.outputs['target-sha'].value, '${{ steps.target.outputs.sha }}');
 });
@@ -119,4 +120,69 @@ test('shared actions use pinned dependencies and valid bash without shell input 
   const prepare = steps.find(step => step.name === 'Prepare release');
   assert.equal(prepare.env.RELEASE_GPG_PRIVATE_KEY, '${{ inputs.signing-private-key }}');
   assert.equal(prepare.env.MAVEN_GPG_PASSPHRASE, '${{ inputs.signing-passphrase }}');
+});
+
+test('both release entry points require shared tooling checks before approval', () => {
+  for (const workflow of workflows) {
+    const tooling = workflow.jobs['release-tooling'];
+    assert.equal(tooling.uses, './.github/workflows/release-credential-safety.yml');
+    assert.deepEqual(tooling.permissions, {contents: 'read'});
+    assert.ok(!tooling.if, 'skip-tests must not bypass release tooling checks');
+    assert.ok(!tooling.secrets, 'tooling checks must not inherit release secrets');
+    assert.equal(workflow.jobs.validate.needs, 'release-tooling');
+    assert.equal(workflow.jobs.release.needs, 'validate');
+  }
+  assert.ok(!JSON.stringify(validation).includes('python3 -m unittest'),
+    'the validation runner must not repeat the parallel helper suite');
+});
+
+test('parallel tooling groups cover every Python test module exactly once', () => {
+  const policy = load('.github/workflows/release-credential-safety.yml');
+  assert.ok(Object.hasOwn(policy.on, 'workflow_call'));
+  assert.deepEqual(policy.permissions, {contents: 'read'});
+  const python = policy.jobs['python-tests'];
+  assert.equal(python.strategy['fail-fast'], false);
+  const groups = python.strategy.matrix.include;
+  const assigned = groups.flatMap(group => group.modules.split(/\s+/));
+  const discovered = readdirSync(join(root, 'scripts/release'))
+    .filter(name => /^test_.*\.py$/.test(name)).map(name => name.slice(0, -3));
+  assert.deepEqual(assigned.sort(), discovered.sort(), 'no missing or duplicated modules');
+  for (const heavy of ['test_capture', 'test_signing']) {
+    assert.ok(groups.some(group => group.modules === heavy), `${heavy} needs its own runner`);
+  }
+  const runner = python.steps.find(step => step.name === 'Test release helpers');
+  assert.equal(runner.env.PYTHONPATH, 'scripts/release');
+  assert.equal(runner.env.TEST_MODULES, '${{ matrix.modules }}');
+  assert.ok(runner.run.includes('python3 -m unittest -v "${modules[@]}"'));
+  for (const job of Object.values(policy.jobs)) {
+    assert.ok(!job.needs, 'tooling jobs must be independent');
+    assert.ok(!job.environment);
+    assert.ok(!JSON.stringify(job).includes('secrets.'));
+    assert.equal(job.steps[0].with['persist-credentials'], false);
+  }
+});
+
+test('automatic tooling checks include their inputs and skip ordinary connector changes', () => {
+  const policy = load('.github/workflows/release-credential-safety.yml');
+  assert.deepEqual(policy.on.push.branches, ['master']);
+  assert.deepEqual(policy.on.pull_request.paths, policy.on.push.paths);
+  for (const event of ['pull_request', 'push']) {
+    const paths = policy.on[event].paths;
+    const triggers = file => paths.some(pattern => minimatch(file, pattern, {dot: true}));
+    for (const file of [
+      'Makefile', '.mvn/maven.config', '.mvn/jvm.config', 'pom.xml',
+      'scripts/release/guard.py', 'scripts/release/signing.py',
+      'scripts/release/publisher.asc', 'scripts/release/test_capture.py',
+      '.github/actions/release-validate/action.yml', '.github/actions/release-prepare/action.yml',
+      '.github/workflows/release.yml', '.github/workflows/release-dry-run.yml',
+      '.github/workflows/release-credential-safety.yml',
+      '.github/workflows/label-release-notes.yml', '.github/workflows/call_jira_sync.yml',
+      '.github/scripts/release-notes-guard.cjs', '.github/scripts/release-workflows.test.cjs',
+      '.github/package.json', '.github/package-lock.json', '.github/labeler.yml', '.github/release.yml'
+    ]) assert.ok(triggers(file), `${event} must cover ${file}`);
+    for (const file of ['README.md', 'src/main/java/Connector.java',
+      'src/test/java/ConnectorTest.java', '.github/workflows/pr-verify.yml']) {
+      assert.ok(!triggers(file), `${event} should skip ${file}`);
+    }
+  }
 });

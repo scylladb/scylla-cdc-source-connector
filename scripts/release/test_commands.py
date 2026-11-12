@@ -559,7 +559,8 @@ class ReleaseCommandTests(unittest.TestCase):
                       (ROOT / ".github/workflows/release.yml").read_text())
         self.assertNotIn("cache: maven", release)
         self.assertEqual(release.count("RELEASE_SKIP_TESTS: 'true'"), 2)
-        self.assertIn("python3 -m unittest discover", validation)
+        self.assertIn("    needs: release-tooling\n", validation)
+        self.assertIn("uses: ./.github/workflows/release-credential-safety.yml", validation)
 
     def test_validation_builds_unsigned_release_artifacts_without_deployment(self):
         workflow = workflow_source()

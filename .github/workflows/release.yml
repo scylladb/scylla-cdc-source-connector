@@ -19,8 +19,15 @@ on:
         description: 'release-version: override next version'
 
 jobs:
+  release-tooling:
+    name: Release tooling checks
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-credential-safety.yml
+
   validate:
     name: Pre-release checks
+    needs: release-tooling
     runs-on: ubuntu-latest
     permissions:
       contents: read

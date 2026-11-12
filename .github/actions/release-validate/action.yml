@@ -9,7 +9,7 @@ inputs:
     required: false
     default: ''
   skip-tests:
-    description: Skip project tests during validation (release helper tests always run)
+    description: Skip project tests during validation
     required: false
     default: 'false'
 outputs:
@@ -49,11 +49,9 @@ runs:
       shell: bash
       run: bash scripts/release/setup-maven.sh
 
-    - name: Validate release tooling
+    - name: Check release configuration
       shell: bash
-      run: |
-        python3 scripts/release/guard.py check
-        python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+      run: python3 scripts/release/guard.py check
 
     - name: Preserve validation guard
       shell: bash

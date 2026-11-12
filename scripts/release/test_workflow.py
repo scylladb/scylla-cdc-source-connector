@@ -114,7 +114,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(paths.count("${{ runner.temp }}/release-logs/stdout.log"), 2)
         self.assertEqual(paths.count("${{ runner.temp }}/release-logs/stderr.log"), 2)
         for action in re.findall(r"uses: (\S+)", self.workflow):
-            self.assertRegex(action, r"@[0-9a-f]{40}$")
+            if action != "./.github/workflows/release-credential-safety.yml":
+                self.assertRegex(action, r"@[0-9a-f]{40}$")
 
     def test_dry_run_excludes_publication_and_notifications(self):
         dry_run = workflow_source("release-dry-run")
