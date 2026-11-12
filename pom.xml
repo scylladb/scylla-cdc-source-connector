@@ -233,7 +233,7 @@
         <jackson.version>2.22.4</jackson.version>
         <guava.version>33.8.0-jre</guava.version>
         <jetty.version>12.1.15</jetty.version>
-        <commons.version>3.19.0</commons.version>
+        <commons.version>3.22.0</commons.version>
     </properties>
 
     <dependencyManagement>
