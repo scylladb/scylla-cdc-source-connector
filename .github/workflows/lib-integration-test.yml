@@ -85,7 +85,7 @@ jobs:
           -Dit.scylla.version="$SCYLLA_VERSION"
 
       - name: Parse test results
-        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # v6.4.1
+        uses: mikepenz/action-junit-report@a16be3a69023e9bd7e748ede768b3282ea7b30ce # v6.7.1
         if: always()
         with:
           check_name: Integration test report for ${{ inputs.kafka_provider }}:${{ steps.versions.outputs.kafka_version }} running in ${{ inputs.kafka_connect_mode }} mode on ScyllaDB ${{ steps.versions.outputs.scylla_version }} version
