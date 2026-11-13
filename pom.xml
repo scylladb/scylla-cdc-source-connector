@@ -229,7 +229,7 @@
         <flogger.version>0.9</flogger.version>
         <slf4j.version>1.7.36</slf4j.version>
         <!-- added for transitive dependencies -->
-        <log4j.version>2.25.5</log4j.version>
+        <log4j.version>2.26.1</log4j.version>
         <jackson.version>2.23.0</jackson.version>
         <guava.version>33.8.0-jre</guava.version>
         <jetty.version>12.1.15</jetty.version>
