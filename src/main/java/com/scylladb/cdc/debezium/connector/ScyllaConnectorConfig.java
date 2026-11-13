@@ -330,7 +330,7 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withDefault(0L);
 
   public static final CQLConfiguration.ConsistencyLevel DEFAULT_CONSISTENCY_LEVEL =
-      CQLConfiguration.ConsistencyLevel.QUORUM;
+      CQLConfiguration.ConsistencyLevel.LOCAL_QUORUM;
   public static final Field CONSISTENCY_LEVEL =
       withPlainEnum(
               Field.create("scylla.consistency.level").withDisplayName("Consistency Level"),
