@@ -1,6 +1,7 @@
 package com.scylladb.cdc.debezium.connector;
 
 import com.datastax.driver.core.Cluster;
+import com.scylladb.cdc.cql.CQLConfiguration.ConsistencyLevel;
 import com.scylladb.cdc.cql.driver3.Driver3MasterCQL;
 import com.scylladb.cdc.cql.driver3.Driver3Session;
 import com.scylladb.cdc.debezium.connector.ScyllaConnectorConfig.CdcIncludeMode;
@@ -53,6 +54,19 @@ public class ScyllaConnector extends SourceConnector {
     final Configuration config = Configuration.from(props);
     final ScyllaConnectorConfig connectorConfig = new ScyllaConnectorConfig(config);
     this.config = config;
+
+    ConsistencyLevel consistencyLevel = connectorConfig.getConsistencyLevel();
+    if (connectorConfig.getLocalDCName() == null
+        && (consistencyLevel == ConsistencyLevel.LOCAL_ONE
+            || consistencyLevel == ConsistencyLevel.LOCAL_QUORUM)) {
+      logger.warn(
+          "scylla.local.dc is unset: CDC reads may be coordinated in any datacenter. "
+              + "Local consistency counts replicas in the coordinator's datacenter. "
+              + "For LOCAL_QUORUM read/write overlap, set scylla.local.dc to the datacenter "
+              + "of the base-table LOCAL_QUORUM writes. For global QUORUM writers or other "
+              + "writers relying on QUORUM reads, set scylla.consistency.level=QUORUM to retain "
+              + "the previous read consistency default.");
+    }
 
     // Warn about legacy format deprecation
     if (connectorConfig.getCdcOutputFormat() == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {

@@ -73,6 +73,20 @@ For older releases, consult the corresponding tag's `pom.xml` for the `<debezium
 
 #### Upgrading a Connect cluster
 
+CDC log reads now default to `LOCAL_QUORUM` instead of `QUORUM`. Before upgrading a
+multi-datacenter connector that omits `scylla.consistency.level`, check the base-table write
+consistency. For base-table `LOCAL_QUORUM` writes, set `scylla.local.dc` to the writes'
+datacenter so the default `LOCAL_QUORUM` reads overlap those writes. `LOCAL_QUORUM` counts
+replicas in the query coordinator's datacenter; without `scylla.local.dc`, CDC reads may be
+coordinated in any datacenter. The connector logs a startup warning when `scylla.local.dc`
+is unset and the effective read level is `LOCAL_ONE` or `LOCAL_QUORUM`.
+
+For global `QUORUM` writers, or other writers that relied on `QUORUM` reads for overlap,
+explicitly set `scylla.consistency.level=QUORUM` to retain the previous read behavior.
+Setting `scylla.local.dc` alone does not preserve that guarantee: with RF 3+3, a `QUORUM`
+write can be acknowledged by three remote replicas and one local replica, while a
+`LOCAL_QUORUM` read can select the other two local replicas and miss the write.
+
 Upgrade the connector plugin on every Kafka Connect worker before resuming a connector that reads a
 tablet-enabled table. Such a connector generates task configurations containing tablet coordination
 manifests, which older connector versions cannot parse: a task still running an older plugin fails
@@ -1197,8 +1211,8 @@ In addition to the configuration parameters described in the ["Configuration"](#
 | `scylla.confidence.window.size`  | Minimum age of a CDC query window before the connector reads it. Default: `30000` ms. See [Choosing the confidence window](#choosing-the-confidence-window) for sizing and limitations. |
 | `scylla.worker.config.max.bytes` | Maximum UTF-8 size of the internal stream assignments placed in one Kafka Connect task configuration. The default is `786432` (768 KiB), leaving headroom below Kafka's default 1 MiB request and record limits. Assignments use conservative byte-aware packing; if this limit is reached, increase `tasks.max` or split tables across connectors. Tablet migration manifests that do not fit are dropped with a warning instead of failing the reconfiguration, which only defers the retirement of the pre-tablet checkpoints. Raise this setting only after increasing the corresponding Kafka limits. |
 | `scylla.task.reconfiguration.interval.ms` | How long, in milliseconds, Kafka Connect may go without recomputing the connector's task configurations before the connector asks it to. Kafka Connect can silently drop the single reconfiguration request issued after CDC streams are discovered (for example during a rebalance), leaving the connector `RUNNING` with no tasks; repeating the request recovers once Kafka Connect processes one. Each request makes Kafka Connect call `taskConfigs()`, which rebuilds, serializes and packs all stream assignments and, while tablet migrations are pending, reads offset storage. No request is sent while a `taskConfigs()` call is in progress, and at most 3 are sent until a `taskConfigs()` call succeeds; a request that throws, as in standalone mode when `taskConfigs()` fails, is not counted and is repeated after another interval. Default: `120000`. Set to `0` to disable; otherwise must be at least `120000`, twice Kafka Connect's 60 s retry backoff cap. |
-| `scylla.consistency.level`       | The consistency level of CDC table read queries. This consistency level is used only for read queries to the CDC log table. By default, `QUORUM` level is used.                                                                                                                                                                                                                                                                                                                                                       |
-| `scylla.local.dc`                | The name of Scylla local datacenter. This local datacenter name will be used to setup the connection to Scylla to prioritize sending requests to the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.                                                                                                                                                                                                                                                                         |
+| `scylla.consistency.level` | The consistency level of CDC log table reads; defaults to `LOCAL_QUORUM`. For overlap with base-table `LOCAL_QUORUM` writes, set `scylla.local.dc` to the writes' datacenter. For global `QUORUM` writers or other writers relying on `QUORUM` reads, explicitly set `scylla.consistency.level=QUORUM` to retain the previous read behavior; setting `scylla.local.dc` alone does not preserve their overlap guarantee. |
+| `scylla.local.dc` | The datacenter used to coordinate CDC reads. For `LOCAL_QUORUM` reads to overlap base-table `LOCAL_QUORUM` writes, set this to the writes' datacenter. If unset, CDC coordinators may be in any datacenter and that overlap is not guaranteed; the connector logs a startup warning for `LOCAL_ONE` or `LOCAL_QUORUM` reads. For global `QUORUM` writers or other writers relying on `QUORUM` reads, set `scylla.consistency.level=QUORUM`; this datacenter setting alone does not preserve their overlap guarantee. |
 | `scylla.address.translator`      | Translator applied to the `rpc_address` each node advertises during peer discovery. Values are case-insensitive. `NONE` (default) connects to the advertised addresses as-is. `EC2_MULTI_REGION` installs the driver's `EC2MultiRegionAddressTranslator`, which reverse-DNS resolves each address to its regional EC2 public hostname (for example, `ec2-<ip>.compute-1.amazonaws.com` in us-east-1 or `ec2-<ip>.<region>.compute.amazonaws.com` elsewhere). AWS DNS then resolves that hostname to the private IP from a peered VPC when DNS resolution from the peer VPC is enabled on the peering connection and both VPCs enable DNS hostnames and DNS support. Without those settings, the hostname resolves to the public IP. Use `EC2_MULTI_REGION` to reach a cluster that advertises public addresses (e.g. Scylla Cloud) over VPC peering. |
 | `scylla.initial.lookback.ms`     | Maximum time in milliseconds to look back when the connector starts without saved offsets. When set to a positive value, the connector will begin reading CDC changes from (current time - this value) instead of from the beginning of the first CDC generation. This prevents the connector from scanning through a potentially large number of empty windows on first start, reducing cluster load. Set to `0` to start from the beginning of the first CDC generation (default behavior). |
 
@@ -1218,7 +1232,18 @@ Leave additional margin for clock skew between the connector host and whichever 
 assigns write timestamps (the application or a ScyllaDB node), and for late replica writes.
 No timeout or confidence-window setting guarantees visibility. A successful base-table write
 is guaranteed visible to a CDC read only when the acknowledged write replicas and the read
-replicas overlap: write CL + read CL > replication factor. For example, `ONE` writes and
+replicas overlap: write CL + read CL > replication factor. With the default `LOCAL_QUORUM`
+reads, set `scylla.local.dc` to the datacenter of the base-table `LOCAL_QUORUM` writes
+to provide that overlap. `LOCAL_QUORUM` counts replicas in the query coordinator's datacenter.
+When `scylla.local.dc` is unset, CDC reads may be coordinated in different datacenters and
+that overlap is not guaranteed; the connector logs a startup warning for `LOCAL_ONE` or
+`LOCAL_QUORUM` reads. Global `QUORUM` writers, or other writers that relied on `QUORUM`
+reads for overlap, must explicitly set `scylla.consistency.level=QUORUM` to retain the
+previous read behavior; setting `scylla.local.dc` alone is insufficient. With RF 3+3,
+a global `QUORUM` write can acknowledge three remote replicas and one local replica,
+while a `LOCAL_QUORUM` read selects the other two local replicas and misses the write.
+The old global `QUORUM` reads overlap global `QUORUM` writes (4 + 4 > 6).
+`LOCAL_QUORUM` writes in another datacenter do not provide the overlap. For example, `ONE` writes and
 `QUORUM` reads do not guarantee overlap. Neither do `LOCAL_QUORUM` writes and `QUORUM` reads
 with replication factor 3 in each of two data centers (2 + 4 = 6, not greater than 6).
 Without overlap, entries can remain invisible past any window until hints or repair deliver
