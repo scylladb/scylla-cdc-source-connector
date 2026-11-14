@@ -1,6 +1,7 @@
 package com.scylladb.cdc.debezium.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mockConstruction;
 
 import com.scylladb.cdc.cql.CQLConfiguration;
@@ -22,8 +23,23 @@ class ScyllaSessionBuilderTest {
 
   @Test
   void omittedConsistencyUsesLocalQuorumForCdcReads() {
-    assertSessionConsistency(
-        configuration().build(), CQLConfiguration.ConsistencyLevel.LOCAL_QUORUM);
+    assertEquals(
+        "local_quorum",
+        ScyllaConnectorConfig.configDef().defaultValues().get("scylla.consistency.level"));
+    assertNull(
+        assertSessionConsistency(
+                configuration().build(), CQLConfiguration.ConsistencyLevel.LOCAL_QUORUM)
+            .getLocalDCName());
+  }
+
+  @Test
+  void configuredLocalDcReachesCdcSession() {
+    assertEquals(
+        "dc1",
+        assertSessionConsistency(
+                configuration().with("scylla.local.dc", "dc1").build(),
+                CQLConfiguration.ConsistencyLevel.LOCAL_QUORUM)
+            .getLocalDCName());
   }
 
   @ParameterizedTest
@@ -33,7 +49,7 @@ class ScyllaSessionBuilderTest {
         configuration().with("scylla.consistency.level", consistency.name()).build(), consistency);
   }
 
-  private void assertSessionConsistency(
+  private CQLConfiguration assertSessionConsistency(
       Configuration configuration, CQLConfiguration.ConsistencyLevel expected) {
     AtomicReference<CQLConfiguration> sessionConfiguration = new AtomicReference<>();
     // Capture the real library configuration without opening a connection to ScyllaDB.
@@ -45,6 +61,7 @@ class ScyllaSessionBuilderTest {
       new ScyllaSessionBuilder(new ScyllaConnectorConfig(configuration)).build();
       assertEquals(1, sessions.constructed().size());
       assertEquals(expected, sessionConfiguration.get().getConsistencyLevel());
+      return sessionConfiguration.get();
     }
   }
 }

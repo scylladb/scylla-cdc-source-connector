@@ -54,6 +54,15 @@ public class ScyllaConnector extends SourceConnector {
     final ScyllaConnectorConfig connectorConfig = new ScyllaConnectorConfig(config);
     this.config = config;
 
+    if (connectorConfig.getLocalDCName() == null) {
+      logger.warn(
+          "scylla.local.dc is unset: CDC reads may be coordinated in any datacenter. "
+              + "LOCAL_QUORUM counts replicas in the coordinator's datacenter. "
+              + "Set scylla.local.dc to the datacenter of the base-table LOCAL_QUORUM writes "
+              + "for read/write overlap, or set scylla.consistency.level=QUORUM to retain "
+              + "the previous read consistency default.");
+    }
+
     // Warn about legacy format deprecation
     if (connectorConfig.getCdcOutputFormat() == ScyllaConnectorConfig.CdcOutputFormat.LEGACY) {
       logger.warn(

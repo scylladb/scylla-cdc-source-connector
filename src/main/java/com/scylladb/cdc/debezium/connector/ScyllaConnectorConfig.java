@@ -340,7 +340,9 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withImportance(ConfigDef.Importance.MEDIUM)
           .withDescription(
               "The consistency level of CDC table read queries. This consistency level is used only for read queries "
-                  + "to the CDC log table.");
+                  + "to the CDC log table. Defaults to LOCAL_QUORUM, which counts replicas in the query "
+                  + "coordinator's datacenter. Set scylla.local.dc to the datacenter of base-table "
+                  + "LOCAL_QUORUM writes for read/write overlap. Set QUORUM to retain the previous default.");
   public static final Field QUERY_OPTIONS_FETCH_SIZE =
       Field.create("scylla.query.options.fetch.size")
           .withDisplayName("Queries fetch size")
@@ -362,9 +364,11 @@ public class ScyllaConnectorConfig extends CommonConnectorConfig {
           .withWidth(ConfigDef.Width.MEDIUM)
           .withImportance(ConfigDef.Importance.LOW)
           .withDescription(
-              "The name of Scylla local datacenter. This local datacenter name will be used to setup "
-                  + "the connection to Scylla to prioritize sending requests to "
-                  + "the nodes in the local datacenter. If not set, no particular datacenter will be prioritized.");
+              "The datacenter used to coordinate CDC reads. With LOCAL_QUORUM reads, set this to the "
+                  + "datacenter of base-table LOCAL_QUORUM writes for read/write overlap. If unset, "
+                  + "coordinators may be in any datacenter and that overlap is not guaranteed; a warning "
+                  + "is logged at startup. Set scylla.consistency.level=QUORUM to retain the previous "
+                  + "read consistency default.");
 
   public static final CQLConfiguration.AddressTranslatorType DEFAULT_ADDRESS_TRANSLATOR =
       CQLConfiguration.AddressTranslatorType.NONE;
