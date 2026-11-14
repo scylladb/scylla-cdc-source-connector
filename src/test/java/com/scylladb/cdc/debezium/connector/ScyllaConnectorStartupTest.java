@@ -13,11 +13,25 @@ import static org.mockito.Mockito.when;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@Isolated
 class ScyllaConnectorStartupTest {
+  private static final String FLOGGER_BACKEND = System.getProperty("flogger.backend_factory");
+
+  @AfterAll
+  static void restoreFloggerBackend() {
+    if (FLOGGER_BACKEND == null) {
+      System.clearProperty("flogger.backend_factory");
+    } else {
+      System.setProperty("flogger.backend_factory", FLOGGER_BACKEND);
+    }
+  }
+
   @Test
   void missingLocalDcWarnsBeforeOpeningConnections() {
     List<String> warnings = startupWarnings(Map.of());
