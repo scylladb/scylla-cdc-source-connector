@@ -10,12 +10,15 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.when;
 
+import com.scylladb.cdc.cql.CQLConfiguration.ConsistencyLevel;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,9 +46,30 @@ class ScyllaConnectorStartupTest {
     assertTrue(message.contains("scylla.consistency.level=QUORUM"));
   }
 
-  @Test
-  void configuredLocalDcSuppressesWarning() {
-    assertTrue(startupWarnings(Map.of("scylla.local.dc", "dc1")).isEmpty());
+  @ParameterizedTest
+  @EnumSource(
+      value = ConsistencyLevel.class,
+      names = {"LOCAL_ONE", "LOCAL_QUORUM"})
+  void explicitLocalConsistencyWarns(ConsistencyLevel level) {
+    assertEquals(1, startupWarnings(Map.of("scylla.consistency.level", level.name())).size());
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = ConsistencyLevel.class,
+      names = {"ONE", "TWO", "THREE", "QUORUM", "ALL"})
+  void explicitGlobalConsistencySuppressesWarning(ConsistencyLevel level) {
+    assertTrue(startupWarnings(Map.of("scylla.consistency.level", level.name())).isEmpty());
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = ConsistencyLevel.class,
+      names = {"LOCAL_ONE", "LOCAL_QUORUM"})
+  void configuredLocalDcSuppressesWarning(ConsistencyLevel level) {
+    assertTrue(
+        startupWarnings(Map.of("scylla.local.dc", "dc1", "scylla.consistency.level", level.name()))
+            .isEmpty());
   }
 
   private List<String> startupWarnings(Map<String, String> overrides) {
