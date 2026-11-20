@@ -28,7 +28,7 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull-request }}
     steps:
       - name: Require default-branch manual dispatch
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             if (context.eventName === 'workflow_dispatch' &&
@@ -37,7 +37,7 @@ jobs:
             }
       - name: Confirm pull request target
         id: target
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const raw = process.env.PR_NUMBER;
@@ -67,7 +67,7 @@ jobs:
         id: install
       - name: Collect verified PR file snapshot
         id: guard
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const guard = require('./.github/scripts/release-notes-guard.cjs');
@@ -85,7 +85,7 @@ jobs:
           pr-number: ${{ env.PR_NUMBER }}
       - name: Verify classification or attempt omission-label cleanup
         if: always()
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           TARGET_OUTCOME: ${{ steps.target.outcome }}
           CONFIRMED_PR_NUMBER: ${{ steps.target.outputs.confirmed-pr-number }}
