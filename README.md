@@ -1408,9 +1408,11 @@ The connector supports including the complete row state before and/or after a ch
 
 | Operation | `before` field | `after` field |
 |-----------|----------------|---------------|
-| **INSERT** | Always `null` (no previous state) | Full image regardless of mode (all columns with values) |
+| **INSERT** | Always `null` (no previous state) | `full` or `only-updated` = full image (all columns with values), `none` = null |
 | **UPDATE** | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null |
-| **DELETE** | Full preimage regardless of mode (all columns) | Always `null` (row was deleted) |
+| **DELETE** | `full` or `only-updated` = full preimage (all columns), `none` = null | Always `null` (row was deleted) |
+
+With both modes left at `none`, the default, a record carries the key, the operation and the source metadata, but no column values. A consumer that applies the changes elsewhere needs `cdc.include.after=full`, and `cdc.include.before=full` to see a deleted row's values.
 
 ScyllaDB logs a preimage only for a row that existed before the change. An UPDATE or DELETE of a row with no prior state, such as an upsert of a new row, therefore has `before` set to `null` even with `cdc.include.before=full`.
 
