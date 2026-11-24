@@ -859,13 +859,15 @@ In the advanced format, non-primary-key column values are emitted **directly** w
 
 The following examples show data change events in **advanced format**. Notice how non-primary-key columns like `v` contain values directly (no `{"value": ...}` wrapper).
 
+The examples assume `cdc.include.after=full` for `INSERT` and `UPDATE`, and `cdc.include.before=full` for `DELETE`. With the defaults (`none`), these fields are `null`; see [Behavior by Operation Type](#behavior-by-operation-type).
+
 #### `INSERT` example (Advanced Format)
 
 Given this Scylla table and `INSERT` operation:
 ```sql
 CREATE TABLE ks.t(
     pk int, ck int, v text, PRIMARY KEY(pk, ck)
-) WITH cdc = {'enabled': true};
+) WITH cdc = {'enabled': true, 'preimage': true, 'postimage': true};
 
 INSERT INTO ks.t(pk, ck, v) VALUES (1, 1, 'example row');
 ```
@@ -960,7 +962,7 @@ The connector will generate:
     "before": {
       "ck": 1,
       "pk": 1,
-      "v": null
+      "v": "new value"
     },
     "after": null,
     "op": "d",
@@ -1368,7 +1370,7 @@ If you want to migrate from the legacy format to the advanced format:
    - Add `cdc.output.format=advanced`
    - Remove `experimental.preimages.enabled=true`
    - Add `cdc.include.before=full` (or `only-updated`) if you need preimages
-   - Optionally configure `cdc.include.after` for postimage support
+   - Add `cdc.include.after=full` (or `only-updated`) if you need the row's values after `INSERT` and `UPDATE`; the default `none` emits none
 3. **SMT changes**: If using `ScyllaExtractNewRecordState` or `ScyllaFlattenColumns` transforms, they will work with both formats (they are no-ops for advanced format since values aren't wrapped).
 
 #### Advanced Format Example Configuration
@@ -1377,8 +1379,9 @@ If you want to migrate from the legacy format to the advanced format:
 # Use advanced output format
 cdc.output.format=advanced
 
-# Enable preimage support (advanced mode)
+# Include the row before and after each change (advanced mode)
 cdc.include.before=full
+cdc.include.after=full
 ```
 
 ### Preimage/Postimage Configuration (Advanced Format Only)
@@ -1412,7 +1415,7 @@ The connector supports including the complete row state before and/or after a ch
 | **UPDATE** | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null | Depends on mode: `full` = all columns, `only-updated` = only modified columns, `none` = null |
 | **DELETE** | `full` or `only-updated` = full preimage (all columns), `none` = null | Always `null` (row was deleted) |
 
-With both modes left at `none`, the default, a record carries the key, the operation and the source metadata, but no column values. A consumer that applies the changes elsewhere needs `cdc.include.after=full`, and `cdc.include.before=full` to see a deleted row's values.
+With both modes left at `none`, the default, a record carries the key, the operation and the source metadata, but no column values. A consumer that applies the changes elsewhere needs `cdc.include.after=full`, and `cdc.include.before` set to `full` or `only-updated` to see a deleted row's values.
 
 ScyllaDB logs a preimage only for a row that existed before the change. An UPDATE or DELETE of a row with no prior state, such as an upsert of a new row, therefore has `before` set to `null` even with `cdc.include.before=full`.
 
