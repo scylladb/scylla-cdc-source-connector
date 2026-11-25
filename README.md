@@ -1366,12 +1366,13 @@ This format supports:
 If you want to migrate from the legacy format to the advanced format:
 
 1. **Schema changes**: The advanced format has a different message schema (no Cell wrappers). Downstream consumers may need updates.
-2. **Configuration changes**:
+2. **Table changes**: `full` or `only-updated` in `cdc.include.before` needs preimage on each table, and in `cdc.include.after` needs postimage; otherwise the connector's configuration check rejects the setting. Enable what you use, for example `ALTER TABLE ks.my_table WITH cdc = {'enabled': true, 'preimage': true, 'postimage': true};` (see [Scylla Table Configuration](#scylla-table-configuration)).
+3. **Configuration changes**:
    - Add `cdc.output.format=advanced`
    - Remove `experimental.preimages.enabled=true`
    - Add `cdc.include.before=full` (or `only-updated`) if you need preimages
    - Add `cdc.include.after=full` (or `only-updated`) if you need the row's values after `INSERT` and `UPDATE`; the default `none` emits none
-3. **SMT changes**: If using `ScyllaExtractNewRecordState` or `ScyllaFlattenColumns` transforms, they will work with both formats (they are no-ops for advanced format since values aren't wrapped).
+4. **SMT changes**: If using `ScyllaExtractNewRecordState` or `ScyllaFlattenColumns` transforms, they will work with both formats (they are no-ops for advanced format since values aren't wrapped).
 
 #### Advanced Format Example Configuration
 
