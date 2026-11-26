@@ -32,8 +32,10 @@ PR that also changes one of these paths remains visible in its entirety. Author,
 title, `chore`, and `dependencies` labels never determine exclusion.
 
 Classification runs on open, synchronize, reopen, edit, and close. Runs for one PR
-are serialized, including manual runs. The workflow checks out repository-controlled
-event tooling, never PR head code or an old PR base revision. Manual dispatch must
+are serialized, including manual runs. The workflow uses the default self-checkout of
+repository-controlled event tooling at `github.sha`, never PR head code or an old PR
+base revision. Omitting an explicit `ref` keeps checkout's fork guard from rejecting
+a merged fork PR, whose merge SHA can equal the event SHA. Manual dispatch must
 select the repository default branch before checkout; this precondition does not
 make arbitrary modified workflow versions trustworthy.
 
